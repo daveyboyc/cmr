@@ -252,14 +252,20 @@ def get_auction_components(company_id, year, auction_name):
         import re
         year_range_pattern = ""
         if auction_name:
+            # First try to match pattern with slash (2020/21)
             matches = re.findall(r'\d{4}/\d{2}', auction_name)
             if matches:
                 year_range_pattern = matches[0]
             else:
-                # Try to extract just a 4-digit year
-                matches = re.findall(r'\d{4}', auction_name)
+                # Try to match pattern with space (2020 21)
+                matches = re.findall(r'\d{4}\s+\d{1,2}', auction_name)
                 if matches:
                     year_range_pattern = matches[0]
+                else:
+                    # Try to extract just a 4-digit year
+                    matches = re.findall(r'\d{4}', auction_name)
+                    if matches:
+                        year_range_pattern = matches[0]
                     
         logger.info(f"Extracted year_range_pattern={year_range_pattern} from auction name '{auction_name}'")
 
@@ -322,8 +328,30 @@ def get_auction_components(company_id, year, auction_name):
                         (t_number == "T-4" and ("T-4" in comp_auction_upper or "T4" in comp_auction_upper or "T 4" in comp_auction_upper))
                     )
                     
-                    # Check for year match
-                    year_match = not year_range_pattern or year_range_pattern in comp_auction
+                    # Enhanced year matching logic
+                    year_match = False
+                    
+                    # If no year pattern was extracted, consider all years matching
+                    if not year_range_pattern:
+                        year_match = True
+                    else:
+                        # First try exact substring match
+                        if year_range_pattern in comp_auction:
+                            year_match = True
+                        else:
+                            # Extract years from component auction name for comparison
+                            comp_years_slash = re.findall(r'\d{4}/\d{2}', comp_auction)
+                            comp_years_space = re.findall(r'\d{4}\s+\d{1,2}', comp_auction)
+                            comp_years_single = re.findall(r'\d{4}', comp_auction)
+                            
+                            # Extract the first 4-digit year from our pattern for fallback comparison
+                            pattern_year = re.findall(r'\d{4}', year_range_pattern)[0] if re.findall(r'\d{4}', year_range_pattern) else ""
+                            
+                            # Check if any component year pattern contains our target year
+                            for comp_pattern in comp_years_slash + comp_years_space + comp_years_single:
+                                if pattern_year and pattern_year in comp_pattern:
+                                    year_match = True
+                                    break
                     
                     logger.info(f"Component auction: '{comp_auction}', t_number_match: {t_number_match}, year_match: {year_match}")
 
