@@ -1,0 +1,40 @@
+<!-- This template will be returned by the HTMX endpoint for year details -->
+{% for cmu_id in cmu_ids %}
+<div class="col-md-6 mb-3">
+    <div class="card">
+        <div class="card-header bg-light">
+            <div class="d-flex justify-content-between align-items-center">
+                <span>CMU ID: <strong>{{ cmu_id }}</strong></span>
+                <a href="/components/?q={{ cmu_id }}" class="btn btn-sm btn-info">View Components</a>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="spinner-border text-primary mb-3" role="status" id="spinner-cmu-{{ cmu_id }}">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <div id="cmu-content-{{ cmu_id }}"
+                 hx-get="/api/cmu-details/{{ cmu_id }}"
+                 hx-trigger="load"
+                 hx-swap="outerHTML">
+                <!-- Content will be loaded via HTMX -->
+                <p class="text-center text-muted">Loading CMU details...</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+<!-- Add an HTMX script to handle spinners -->
+<script>
+document.addEventListener('htmx:afterSwap', function(event) {
+    // Find the closest spinner element
+    const id = event.detail.target.id;
+    if (id && id.startsWith('cmu-content-')) {
+        const cmuId = id.replace('cmu-content-', '');
+        const spinner = document.querySelector(`#spinner-cmu-${cmuId}`);
+        if (spinner) {
+            spinner.style.display = 'none';
+        }
+    }
+});
+</script>

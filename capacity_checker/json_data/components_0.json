@@ -1,0 +1,94 @@
+{
+  "001RIS": [
+    {
+      "_id": 191482,
+      "Auction Name": "2020-21 (T-4) Four Year Ahead Capacity Auction",
+      "CMU ID": "001RIS",
+      "Component ID": "001RIS",
+      "Type": "T-4",
+      "Delivery Year": 2020,
+      "Generating Technology Class": null,
+      "Permitted on-Site Generating Unit": null,
+      "Primary Fuel of Component": null,
+      "Connection / DSR Capacity": null,
+      "De-Rated Capacity": null,
+      "Pre-Refurbishing De-Rated Capacity": null,
+      "Post-Refurbishing De-Rated Capacity": null,
+      "Generating Capacity of on-site Generating Unit": null,
+      "Description of CMU Components": "Electro-Chemical Battery Energy Storage System (BESS)",
+      "Location and Post Code": "Land to the south of Edinburgh Rd, Maryport, Cumbria, CA15 8ES.",
+      "OS Grid Reference": "NY 034 353",
+      "rank": 0.0706241,
+      "Company Name": "Braintree Electric Forecourt Ltd"
+    }
+  ],
+  "002STA": [
+    {
+      "_id": 200472,
+      "Auction Name": "2020-21 (T-4) Four Year Ahead Capacity Auction",
+      "CMU ID": "002STA",
+      "Component ID": "002STA",
+      "Type": "T-4",
+      "Delivery Year": 2020,
+      "Generating Technology Class": null,
+      "Permitted on-Site Generating Unit": null,
+      "Primary Fuel of Component": null,
+      "Connection / DSR Capacity": null,
+      "De-Rated Capacity": null,
+      "Pre-Refurbishing De-Rated Capacity": null,
+      "Post-Refurbishing De-Rated Capacity": null,
+      "Generating Capacity of on-site Generating Unit": null,
+      "Description of CMU Components": "Electro-Chemical Battery Energy Storage System (BESS)",
+      "Location and Post Code": "Land south of Greengill Head Farm, off Maidenhill Road, Penrith, Cumbria CA11 8SH",
+      "OS Grid Reference": "NY 530 322",
+      "rank": 0.0706241,
+      "Company Name": "Energy Store 2 Ltd"
+    }
+  ],
+  "003WIL": [
+    {
+      "_id": 312220,
+      "Auction Name": "2020-21 (T-4) Four Year Ahead Capacity Auction",
+      "CMU ID": "003WIL",
+      "Component ID": "003WIL",
+      "Type": "T-4",
+      "Delivery Year": 2020,
+      "Generating Technology Class": null,
+      "Permitted on-Site Generating Unit": null,
+      "Primary Fuel of Component": null,
+      "Connection / DSR Capacity": null,
+      "De-Rated Capacity": null,
+      "Pre-Refurbishing De-Rated Capacity": null,
+      "Post-Refurbishing De-Rated Capacity": null,
+      "Generating Capacity of on-site Generating Unit": null,
+      "Description of CMU Components": "Electro-Chemical Battery Energy Storage System (BESS)",
+      "Location and Post Code": "Land parcel to the North of The Byre, Badsey Lane, Willersey, Gloucestershire, WR11 7HF",
+      "OS Grid Reference": "SP 104 408",
+      "rank": 0.0706241,
+      "Company Name": "Uckfield Solar Electric Forecourt Ltd"
+    }
+  ],
+  "010NEV": [
+    {
+      "_id": 308535,
+      "Auction Name": "2020-21 (T-4) Four Year Ahead Capacity Auction",
+      "CMU ID": "010NEV",
+      "Component ID": "010NEV",
+      "Type": "T-4",
+      "Delivery Year": 2020,
+      "Generating Technology Class": null,
+      "Permitted on-Site Generating Unit": null,
+      "Primary Fuel of Component": null,
+      "Connection / DSR Capacity": null,
+      "De-Rated Capacity": null,
+      "Pre-Refurbishing De-Rated Capacity": null,
+      "Post-Refurbishing De-Rated Capacity": null,
+      "Generating Capacity of on-site Generating Unit": null,
+      "Description of CMU Components": "Electro-Chemical Battery Energy Storage System (BESS)",
+      "Location and Post Code": "Stevensons Farm, Arterial Road, Nevendon, Essex, SS14 3JH",
+      "OS Grid Reference": "TQ 722 913",
+      "rank": 0.0706241,
+      "Company Name": "South East Grid Storage One Ltd"
+    }
+  ]
+}
