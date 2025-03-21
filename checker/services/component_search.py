@@ -85,6 +85,31 @@ def search_components_service(request, return_data_only=False):
                         debug_info["matching_records"] = len(matching_records)
                         debug_info["unique_companies"] = unique_companies
 
+                        # Filter out companies with no components
+                        companies_with_components = []
+                        for company in unique_companies:
+                            # Get all CMU IDs for this company
+                            company_records = cmu_df[cmu_df["Full Name"] == company]
+                            cmu_ids = company_records["CMU ID"].unique().tolist()
+                            
+                            # Check if any of these CMU IDs have components
+                            has_components = False
+                            for cmu_id in cmu_ids:
+                                components = get_component_data_from_json(cmu_id)
+                                if components and len(components) > 0:
+                                    has_components = True
+                                    break
+                            
+                            if has_components:
+                                companies_with_components.append(company)
+                        
+                        # Log the filtering results
+                        logger.info(f"DEBUG: Found {len(unique_companies)} companies, {len(companies_with_components)} have components")
+                        debug_info["companies_filtered_out"] = len(unique_companies) - len(companies_with_components)
+                        
+                        # Use only companies that have components
+                        unique_companies = companies_with_components
+
                         # Create blue links for each company - TEMPORARILY point to company search page
                         company_links = [
                             f'<a href="/?q={urllib.parse.quote(company)}" style="color: blue; text-decoration: underline;">{company}</a>'

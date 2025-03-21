@@ -645,7 +645,13 @@ def company_detail(request, company_id):
             if "Auction Name" in group.columns:
                 for _, row in group.iterrows():
                     auction_name = row.get("Auction Name", "")
-                    if auction_name and auction_name not in auctions:
+                    cmu_id = row.get("CMU ID", "")
+                    
+                    # Only include auctions with components
+                    components = get_component_data_from_json(cmu_id)
+                    has_components = components and len(components) > 0
+                    
+                    if auction_name and auction_name not in auctions and has_components:
                         auctions[auction_name] = []
 
                         # Extract auction type for badge
@@ -664,7 +670,7 @@ def company_detail(request, company_id):
                         auction_id = f"auction-{normalize(year)}-{normalize(auction_name)}-{company_id}"
 
                         auctions_display.append((auction_name, auction_id, badge_class, auction_type))
-                        auctions[auction_name].append(row.get("CMU ID"))
+                        auctions[auction_name].append(cmu_id)
 
             if not auctions:
                 continue
