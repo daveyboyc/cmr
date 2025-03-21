@@ -271,7 +271,10 @@ def format_component_record(record, cmu_to_company_mapping):
     company_info = ""
     if company_name:
         encoded_company_name = urllib.parse.quote(company_name)
-        company_link = f'<a href="/?q={encoded_company_name}" class="badge bg-success" style="font-size: 1rem; text-decoration: none;">{company_name}</a>'
+        # Generate the normalized company ID for the detail page
+        company_id = normalize(company_name)
+        # Link directly to company detail page instead of search
+        company_link = f'<a href="/company/{company_id}/" class="badge bg-success" style="font-size: 1rem; text-decoration: none;">{company_name}</a>'
         company_info = f'<div class="mt-2 mb-2">{company_link}</div>'
     else:
         company_info = f'<div class="mt-2 mb-2"><span class="badge bg-warning">No Company Found</span></div>'
