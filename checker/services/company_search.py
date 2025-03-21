@@ -380,18 +380,41 @@ def get_auction_components(company_id, year, auction_name):
                             year_match = True
                         else:
                             # Extract years from component auction name for comparison
-                            comp_years_slash = re.findall(r'\d{4}/\d{2}', comp_auction)
+                            comp_years_slash = re.findall(r'\d{4}[-/]\d{1,2}', comp_auction)
                             comp_years_space = re.findall(r'\d{4}\s+\d{1,2}', comp_auction)
                             comp_years_single = re.findall(r'\d{4}', comp_auction)
                             
                             # Extract the first 4-digit year from our pattern for fallback comparison
                             pattern_year = re.findall(r'\d{4}', year_range_pattern)[0] if re.findall(r'\d{4}', year_range_pattern) else ""
                             
-                            # Check if any component year pattern contains our target year
-                            for comp_pattern in comp_years_slash + comp_years_space + comp_years_single:
-                                if pattern_year and pattern_year in comp_pattern:
-                                    year_match = True
-                                    break
+                            # Try to extract the second part of the year range (after space/dash)
+                            pattern_second_year = None
+                            if " " in year_range_pattern:
+                                parts = year_range_pattern.split(" ")
+                                if len(parts) > 1 and parts[1].isdigit():
+                                    pattern_second_year = parts[1]
+                            
+                            # Normalized pattern matching - convert the patterns for comparisons
+                            normalized_pattern = None
+                            if pattern_year and pattern_second_year:
+                                normalized_pattern = f"{pattern_year}-{pattern_second_year}"
+                            
+                            # Check for normalized matches first (this handles 2020 21 matching 2020-21)
+                            if normalized_pattern:
+                                for comp_year in comp_years_slash:
+                                    # Compare with dashes/slashes replaced to standardize
+                                    norm_comp_year = comp_year.replace("/", "-")
+                                    if norm_comp_year == normalized_pattern:
+                                        year_match = True
+                                        break
+                            
+                            # If no normalized match, check if any component year pattern contains our target year
+                            if not year_match:
+                                for comp_pattern in comp_years_slash + comp_years_space + comp_years_single:
+                                    if pattern_year and pattern_year in comp_pattern:
+                                        # Looser matching - just check if the first year is in the component pattern
+                                        year_match = True
+                                        break
                     
                     if year_match:
                         debug_info["year_details"]["matches"] += 1
