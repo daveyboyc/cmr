@@ -1,7 +1,8 @@
 from django.shortcuts import render, redirect
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_http_methods
 import urllib.parse
+from django.conf import settings
 
 # Import service functions
 from .services.company_search import search_companies_service, get_company_years, get_cmu_details, \
@@ -176,3 +177,220 @@ def debug_mapping_cache(request):
             output += "<p style='color:red'>Both CMU ID and Company Name are required</p>"
 
     return HttpResponse(output) # Fixed indentation issue
+
+
+def auction_components(request, company_id, year, auction_name):
+    """
+    API endpoint for fetching components for a specific auction
+    """
+    from .services.company_search import get_auction_components
+    html_content = get_auction_components(company_id, year, auction_name)
+    return HttpResponse(html_content)
+
+
+def debug_auction_components(request, company_id, year, auction_name):
+    """
+    Debug endpoint for troubleshooting component matching issues
+    """
+    # Import required modules
+    import json
+    import re
+    from django.http import JsonResponse
+    from .services.data_access import get_cmu_dataframe, get_component_data_from_json, fetch_components_for_cmu_id
+    from .utils import normalize
+    
+    # For security, only allow access to debug endpoints in development or for specific users
+    # You can add more security checks if needed
+    if not settings.DEBUG and not request.user.is_staff:
+        return JsonResponse({"error": "Access denied. Debug endpoints are only available in development mode or for staff."}, status=403)
+    
+    # Start collecting debug information
+    debug_info = {
+        "request_info": {
+            "company_id": company_id,
+            "year": year,
+            "auction_name": auction_name,
+        },
+        "company_info": {},
+        "cmu_ids": [],
+        "components": [],
+        "matched_components": [],
+        "component_matching": {
+            "t_number": {"extracted": None, "matches": 0, "non_matches": 0},
+            "year_pattern": {"extracted": None, "matches": 0, "non_matches": 0},
+        }
+    }
+    
+    # Step 1: Get company name from ID
+    cmu_df, _ = get_cmu_dataframe()
+    company_name = None
+    
+    if cmu_df is not None:
+        from_company_id_df = cmu_df[cmu_df["Normalized Full Name"] == company_id]
+        if not from_company_id_df.empty:
+            company_name = from_company_id_df.iloc[0]["Full Name"]
+            debug_info["company_info"]["name"] = company_name
+            debug_info["company_info"]["name_source"] = "direct_match"
+        else:
+            # Try to find the company by de-normalizing the ID
+            normalized_companies = list(cmu_df["Normalized Full Name"].unique())
+            for norm_name in normalized_companies:
+                if norm_name == company_id:
+                    matching_rows = cmu_df[cmu_df["Normalized Full Name"] == norm_name]
+                    if not matching_rows.empty:
+                        company_name = matching_rows.iloc[0]["Full Name"]
+                        debug_info["company_info"]["name"] = company_name
+                        debug_info["company_info"]["name_source"] = "denormalized_match"
+                        break
+    
+    if not company_name:
+        debug_info["error"] = "Company not found"
+        return JsonResponse(debug_info)
+    
+    # Step 2: Get all CMU IDs for this company
+    company_records = cmu_df[cmu_df["Full Name"] == company_name]
+    all_cmu_ids = company_records["CMU ID"].unique().tolist()
+    debug_info["cmu_ids"] = all_cmu_ids
+    debug_info["cmu_id_count"] = len(all_cmu_ids)
+    
+    # Step 3: Extract T-1 or T-4 from auction name
+    t_number = ""
+    auction_upper = auction_name.upper() if auction_name else ""
+    if "T-1" in auction_upper or "T1" in auction_upper or "T 1" in auction_upper:
+        t_number = "T-1"
+    elif "T-4" in auction_upper or "T4" in auction_upper or "T 4" in auction_upper:
+        t_number = "T-4"
+    
+    debug_info["component_matching"]["t_number"]["extracted"] = t_number
+    
+    # Step 4: Extract year range pattern from auction name
+    year_range_pattern = ""
+    if auction_name:
+        # First try to match pattern with slash (2020/21)
+        matches = re.findall(r'\d{4}/\d{2}', auction_name)
+        if matches:
+            year_range_pattern = matches[0]
+        else:
+            # Try to match pattern with space (2020 21)
+            matches = re.findall(r'\d{4}\s+\d{1,2}', auction_name)
+            if matches:
+                year_range_pattern = matches[0]
+            else:
+                # Try to extract just a 4-digit year
+                matches = re.findall(r'\d{4}', auction_name)
+                if matches:
+                    year_range_pattern = matches[0]
+    
+    debug_info["component_matching"]["year_pattern"]["extracted"] = year_range_pattern
+    
+    # Step 5: Process all CMU IDs (limited to 10 for performance)
+    cmu_ids_to_process = all_cmu_ids[:min(10, len(all_cmu_ids))]
+    debug_info["processing_limited"] = len(all_cmu_ids) > len(cmu_ids_to_process)
+    debug_info["cmu_ids_processed"] = cmu_ids_to_process
+    
+    all_components = []
+    matching_components = []
+    
+    for cmu_id in cmu_ids_to_process:
+        cmu_debug = {"cmu_id": cmu_id, "components_found": 0, "components_matched": 0}
+        
+        # Get components for this CMU ID
+        components = get_component_data_from_json(cmu_id)
+        if not components:
+            components, _ = fetch_components_for_cmu_id(cmu_id)
+        
+        if components:
+            cmu_debug["components_found"] = len(components)
+            
+            # Process each component
+            for comp in components:
+                comp_auction = comp.get("Auction Name", "")
+                comp_auction_upper = comp_auction.upper() if comp_auction else ""
+                
+                # Prepare component info for debug
+                comp_debug = {
+                    "cmu_id": cmu_id,
+                    "auction_name": comp_auction,
+                    "location": comp.get("Location and Post Code", ""),
+                    "description": comp.get("Description of CMU Components", ""),
+                    "matching": {
+                        "t_number_match": False,
+                        "year_match": False,
+                        "overall_match": False
+                    }
+                }
+                
+                # Check T-number match
+                t_number_match = not t_number or (
+                    (t_number == "T-1" and ("T-1" in comp_auction_upper or "T1" in comp_auction_upper or "T 1" in comp_auction_upper)) or
+                    (t_number == "T-4" and ("T-4" in comp_auction_upper or "T4" in comp_auction_upper or "T 4" in comp_auction_upper))
+                )
+                
+                comp_debug["matching"]["t_number_match"] = t_number_match
+                
+                if t_number_match:
+                    debug_info["component_matching"]["t_number"]["matches"] += 1
+                else:
+                    debug_info["component_matching"]["t_number"]["non_matches"] += 1
+                
+                # Check year match with enhanced logic
+                year_match = False
+                
+                if not year_range_pattern:
+                    year_match = True
+                else:
+                    # First try exact substring match
+                    if year_range_pattern in comp_auction:
+                        year_match = True
+                    else:
+                        # Extract years from component auction name for comparison
+                        comp_years_slash = re.findall(r'\d{4}/\d{2}', comp_auction)
+                        comp_years_space = re.findall(r'\d{4}\s+\d{1,2}', comp_auction)
+                        comp_years_single = re.findall(r'\d{4}', comp_auction)
+                        
+                        # Extract the first 4-digit year from our pattern for fallback comparison
+                        pattern_year = re.findall(r'\d{4}', year_range_pattern)[0] if re.findall(r'\d{4}', year_range_pattern) else ""
+                        
+                        # Check if any component year pattern contains our target year
+                        for comp_pattern in comp_years_slash + comp_years_space + comp_years_single:
+                            if pattern_year and pattern_year in comp_pattern:
+                                year_match = True
+                                break
+                
+                comp_debug["matching"]["year_match"] = year_match
+                
+                if year_match:
+                    debug_info["component_matching"]["year_pattern"]["matches"] += 1
+                else:
+                    debug_info["component_matching"]["year_pattern"]["non_matches"] += 1
+                
+                # Overall match
+                overall_match = year_match and t_number_match
+                comp_debug["matching"]["overall_match"] = overall_match
+                
+                # Add to debug info
+                all_components.append(comp_debug)
+                
+                # If matched, add to matching components
+                if overall_match:
+                    comp_copy = comp.copy()
+                    comp_copy["CMU ID"] = cmu_id
+                    matching_components.append(comp_copy)
+                    cmu_debug["components_matched"] += 1
+        
+        debug_info["components"].append(cmu_debug)
+    
+    # Add matched components to debug info
+    debug_info["matched_components"] = [
+        {
+            "cmu_id": comp.get("CMU ID", ""),
+            "location": comp.get("Location and Post Code", ""),
+            "description": comp.get("Description of CMU Components", ""),
+            "auction": comp.get("Auction Name", "")
+        }
+        for comp in matching_components
+    ]
+    debug_info["matched_component_count"] = len(matching_components)
+    
+    # Return the debug info as JSON
+    return JsonResponse(debug_info)

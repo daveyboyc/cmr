@@ -26,4 +26,10 @@ urlpatterns = [
     # Debug/admin endpoints
     path("debug/mapping-cache/",
          views.debug_mapping_cache, name="debug_mapping_cache"),
+
+    # API endpoint for getting auction components
+    path("api/auction-components/<str:company_id>/<str:year>/<str:auction_name>/", views.auction_components, name="auction_components_api"),
+    
+    # Debug endpoint for troubleshooting component issues
+    path("debug/auction-components/<str:company_id>/<str:year>/<str:auction_name>/", views.debug_auction_components, name="debug_auction_components"),
 ]

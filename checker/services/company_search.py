@@ -3,6 +3,7 @@ import urllib.parse
 import logging
 import time
 import traceback
+import json
 from django.shortcuts import render
 from django.core.cache import cache
 from django.http import HttpResponse
@@ -224,20 +225,67 @@ def _build_company_card_html(company_name, company_id, year_auction_data):
 
 def get_auction_components(company_id, year, auction_name):
     """
-    Get components for a specific auction.
-    This function is used by the HTMX endpoint to load auction components lazily.
+    Get components for a specific company, year, and auction.
+    Used for AJAX loading of component details.
     """
-    logger.info(f"get_auction_components called with company_id={company_id}, year={year}, auction_name={auction_name}")
-    
-    # Try to get from cache first
-    cache_key = f"auction_components_{company_id}_{year}_{auction_name}"
-    cached_html = cache.get(cache_key)
-    if cached_html:
-        logger.info(f"Returning cached auction components for {cache_key}")
-        return cached_html
-    
     start_time = time.time()
+    
+    # Set up debugging
+    debug_info = {
+        "company_id": company_id,
+        "year": year,
+        "auction_name": auction_name,
+        "cmu_ids_found": 0,
+        "components_found": 0,
+        "component_matches": 0,
+        "cmu_details": [],
+        "component_auctions": [],
+        "t_number_details": {"extracted": "", "matches": 0, "non_matches": 0},
+        "year_details": {"extracted": "", "matches": 0, "non_matches": 0},
+    }
+    
+    logger.info(f"\n\n===== DEBUG: get_auction_components =====")
+    logger.info(f"DEBUG: Looking for components for company_id={company_id}, year={year}, auction_name={auction_name}")
+    
     try:
+        # Get CMU dataframe - required for mapping CMU ID to company name
+        cmu_df, _ = get_cmu_dataframe()
+        if cmu_df is None:
+            logger.error("Failed to get CMU dataframe")
+            return f"<div class='alert alert-danger'>Error loading component data: CMU dataframe is None</div>"
+            
+        # Find the company name from the company_id
+        from_company_id_df = cmu_df[cmu_df["Normalized Full Name"] == company_id]
+        if not from_company_id_df.empty:
+            company_name = from_company_id_df.iloc[0]["Full Name"]
+        else:
+            # Try to find the company by de-normalizing the ID
+            try:
+                normalized_companies = list(cmu_df["Normalized Full Name"].unique())
+                company_name = None
+                for norm_name in normalized_companies:
+                    if norm_name == company_id:
+                        matching_rows = cmu_df[cmu_df["Normalized Full Name"] == norm_name]
+                        if not matching_rows.empty:
+                            company_name = matching_rows.iloc[0]["Full Name"]
+                            break
+            except Exception as e:
+                logger.error(f"Error finding company name: {e}")
+                company_name = None
+
+        if not company_name:
+            logger.error(f"Company not found: {company_id}")
+            return f"<div class='alert alert-danger'>Company not found: {company_id}</div>"
+
+        logger.info(f"DEBUG: Found company name: {company_name}")
+
+        # Get all records for this company
+        logger.info(f"DEBUG: Getting records for company: {company_name}")
+        company_records = cmu_df[cmu_df["Full Name"] == company_name]
+        all_cmu_ids = company_records["CMU ID"].unique().tolist()
+        debug_info["cmu_ids_found"] = len(all_cmu_ids)
+        logger.info(f"DEBUG: Found {len(all_cmu_ids)} CMU IDs for company")
+        
         # Extract T-1 or T-4 from auction name if possible
         t_number = ""
         auction_upper = auction_name.upper() if auction_name else ""
@@ -246,7 +294,8 @@ def get_auction_components(company_id, year, auction_name):
         elif "T-4" in auction_upper or "T4" in auction_upper or "T 4" in auction_upper:
             t_number = "T-4"
         
-        logger.info(f"Extracted t_number={t_number} from auction name '{auction_name}'")
+        debug_info["t_number_details"]["extracted"] = t_number
+        logger.info(f"DEBUG: Extracted t_number={t_number} from auction name '{auction_name}'")
         
         # Extract year range pattern from auction name if possible
         import re
@@ -266,36 +315,13 @@ def get_auction_components(company_id, year, auction_name):
                     matches = re.findall(r'\d{4}', auction_name)
                     if matches:
                         year_range_pattern = matches[0]
-                    
-        logger.info(f"Extracted year_range_pattern={year_range_pattern} from auction name '{auction_name}'")
+        
+        debug_info["year_details"]["extracted"] = year_range_pattern
+        logger.info(f"DEBUG: Extracted year_range_pattern={year_range_pattern} from auction name '{auction_name}'")
 
         # Get all CMU IDs for this company
-        cmu_df, _ = get_cmu_dataframe()
-        if cmu_df is None:
-            logger.error("Failed to get CMU dataframe")
-            return "<div class='alert alert-danger'>Error loading CMU data</div>"
-
-        company_name = None
-        for _, row in cmu_df.iterrows():
-            if normalize(row.get("Full Name", "")) == company_id:
-                company_name = row.get("Full Name")
-                break
-
-        if not company_name:
-            logger.error(f"Company not found: {company_id}")
-            return f"<div class='alert alert-danger'>Company not found: {company_id}</div>"
-
-        logger.info(f"Found company name: {company_name}")
-
-        # Get all records for this company
-        logger.info(f"Getting records for company: {company_name}")
-        company_records = cmu_df[cmu_df["Full Name"] == company_name]
-        all_cmu_ids = company_records["CMU ID"].unique().tolist()
-        logger.info(f"Found {len(all_cmu_ids)} CMU IDs for company")
-
-        # Collect matching components
         matching_components = []
-        logger.info(f"Fetching components for {len(all_cmu_ids)} CMU IDs")
+        logger.info(f"DEBUG: Fetching components for {len(all_cmu_ids)} CMU IDs")
         
         # Only process the first 10 CMU IDs to improve performance
         # This is a tradeoff between completeness and performance
@@ -306,27 +332,41 @@ def get_auction_components(company_id, year, auction_name):
         
         for i, cmu_id in enumerate(cmu_ids_to_process):
             try:
+                logger.info(f"DEBUG: Processing CMU ID {i+1}/{len(cmu_ids_to_process)}: {cmu_id}")
                 # First try to get components from JSON cache
                 components = get_component_data_from_json(cmu_id)
                 
                 # If not found in JSON, fetch from API
                 if not components:
+                    logger.info(f"DEBUG: No components found in JSON for CMU ID: {cmu_id}, trying API")
                     components, _ = fetch_components_for_cmu_id(cmu_id)
                 
                 # Skip if no components found
                 if not components:
+                    logger.info(f"DEBUG: No components found for CMU ID: {cmu_id}")
                     continue
                     
+                debug_info["cmu_details"].append({"cmu_id": cmu_id, "component_count": len(components)})
+                debug_info["components_found"] += len(components)
+                logger.info(f"DEBUG: Found {len(components)} components for CMU ID: {cmu_id}")
+                
                 # Process components
                 for comp in components:
                     comp_auction = comp.get("Auction Name", "")
+                    debug_info["component_auctions"].append(comp_auction)
                     comp_auction_upper = comp_auction.upper() if comp_auction else ""
+                    logger.info(f"DEBUG: Checking component auction: '{comp_auction}'")
 
                     # Check for t-number match with more flexible matching
                     t_number_match = not t_number or (
                         (t_number == "T-1" and ("T-1" in comp_auction_upper or "T1" in comp_auction_upper or "T 1" in comp_auction_upper)) or
                         (t_number == "T-4" and ("T-4" in comp_auction_upper or "T4" in comp_auction_upper or "T 4" in comp_auction_upper))
                     )
+                    
+                    if t_number_match:
+                        debug_info["t_number_details"]["matches"] += 1
+                    else:
+                        debug_info["t_number_details"]["non_matches"] += 1
                     
                     # Enhanced year matching logic
                     year_match = False
@@ -353,142 +393,96 @@ def get_auction_components(company_id, year, auction_name):
                                     year_match = True
                                     break
                     
-                    logger.info(f"Component auction: '{comp_auction}', t_number_match: {t_number_match}, year_match: {year_match}")
+                    if year_match:
+                        debug_info["year_details"]["matches"] += 1
+                    else:
+                        debug_info["year_details"]["non_matches"] += 1
+                    
+                    logger.info(f"DEBUG: Component auction: '{comp_auction}', t_number_match: {t_number_match}, year_match: {year_match}")
 
                     # Check if auction name matches both the year range pattern and T-number
                     if year_match and t_number_match:
                         comp = comp.copy()
                         comp["CMU ID"] = cmu_id
                         matching_components.append(comp)
+                        logger.info(f"DEBUG: MATCH FOUND for component in auction '{comp_auction}'")
+                    else:
+                        logger.info(f"DEBUG: NO MATCH for component in auction '{comp_auction}'")
             except Exception as e:
-                logger.error(f"Error processing CMU ID {cmu_id}: {str(e)}")
-                continue
-
-        logger.info(f"Found {len(matching_components)} matching components")
-
+                logger.error(f"Error processing CMU ID {cmu_id}: {e}")
+        
+        debug_info["component_matches"] = len(matching_components)
+        logger.info(f"DEBUG: Found {len(matching_components)} matching components")
+        
+        # Log the debug info for analysis
+        logger.info(f"DEBUG: Complete debug info: {debug_info}")
+        
         if not matching_components:
-            logger.info("No components found, showing message")
-            return f"""
-            <div class='alert alert-info'>
-                <h5>No components found for this auction</h5>
+            # Instead of just saying no components found, let's add the debug info
+            message = f"""<div class='alert alert-warning'>
+                <h4>No components found for this auction</h4>
                 <p>We couldn't find any components matching the criteria:</p>
                 <ul>
                     <li>Company: {company_name}</li>
                     <li>Year: {year}</li>
                     <li>Auction: {auction_name}</li>
                 </ul>
+                {% if user_is_admin %}
+                <details>
+                    <summary>Debug Info (Admin Only)</summary>
+                    <pre>{json.dumps(debug_info, indent=2)}</pre>
+                </details>
+                {% endif %}
                 <p>Try clicking on a different auction or year.</p>
-            </div>
-            """
-
-        # Group matching components by auction name
-        auctions = {}
-        for comp in matching_components:
-            auction = comp.get("Auction Name", "No Auction")
-            if auction not in auctions:
-                auctions[auction] = []
-            auctions[auction].append(comp)
-
-        logger.info(f"Grouped components into {len(auctions)} auctions")
-        
-        # If no auctions found, return a helpful message
-        if not auctions:
-            logger.info("No auctions found after grouping")
-            return f"""
-            <div class='alert alert-info'>
-                <h5>No components found for this auction</h5>
-                <p>We couldn't find any components matching the criteria:</p>
-                <ul>
-                    <li>Company: {company_name}</li>
-                    <li>Year: {year}</li>
-                    <li>Auction: {auction_name}</li>
-                </ul>
-                <p>Try clicking on a different auction or year.</p>
-            </div>
-            """
-
-        # Format the results
-        html = f"""
-        <h4>Components for {company_name} - {year_range_pattern or year}xx {t_number}</h4>
-        """
-        
-        # Add a note if we limited the results
-        if limited_results:
-            html += f"""
-            <div class="alert alert-info mb-3">
-                <small><strong>Note:</strong> Showing partial results for performance reasons. 
-                We found {len(matching_components)} components from {len(cmu_ids_to_process)} of {len(all_cmu_ids)} total CMU IDs.</small>
-            </div>
-            """
-
-        # Define a safe key function for sorting that handles None values
-        def safe_sort_key(item):
-            auction_name, _ = item
-            return auction_name or ""
-
-        # Use the safe sort function
-        for auction_name, components in sorted(auctions.items(), key=safe_sort_key):
-            html += f"""
-            <div class="auction-group mb-4">
-                <h5 class="border-bottom pb-2">{auction_name} ({len(components)} components)</h5>
-                <div class="results-list">
-            """
-
-            # Sort components by location with a safe key function
-            def safe_location_key(component):
-                return component.get("Location and Post Code", "") or ""
-                
-            components.sort(key=safe_location_key)
-
-            for component in components:
-                loc = component.get("Location and Post Code", "N/A")
-                desc = component.get("Description of CMU Components", "N/A")
-                tech = component.get("Generating Technology Class", "N/A")
-                auction = component.get("Auction Name", "N/A")
-                cmu_id = component.get("CMU ID", "N/A")
-
-                # Create a unique ID for this component
-                component_id = f"{cmu_id}_{normalize(loc)}"
-
-                # Create CMU ID badge
-                cmu_badge = f'<a href="/components/?q={cmu_id}" class="badge bg-primary" style="font-size: 0.9rem; text-decoration: none;">CMU ID: {cmu_id}</a>'
-
-                # Create the component entry with location as a link
-                html += f"""
-                <div class="result-item mb-3">
-                    <strong><a href="/component/{component_id}/" class="text-primary">{loc}</a></strong>
-                    <div class="mt-1 mb-1"><i>{desc}</i></div>
-                    <div>Technology: {tech} | <b>{auction}</b> | {cmu_badge}</div>
-                </div>
-                """
-
-            html += """
-                </div>
-            </div>
-            """
-
-        elapsed_time = time.time() - start_time
-        logger.info(f"Successfully completed in {elapsed_time:.2f} seconds")
-        
-        # Only cache if it took a significant time to generate (more than 0.5 seconds)
-        if elapsed_time > 0.5:
-            cache.set(cache_key, html, 86400)  # Cache for 24 hours
+            </div>"""
             
-        return html
+            # Replace the placeholder with empty string if not admin
+            message = message.replace("{% if user_is_admin %}", "")
+            message = message.replace("{% endif %}", "")
+            return message
 
-    except Exception as e:
-        logger.error(f"Unexpected error in get_auction_components: {str(e)}")
-        logger.error(traceback.format_exc())
+        # Sort components by some criteria - delivery year, location, etc.
+        matching_components.sort(key=lambda x: x.get("Location and Post Code", ""))
+
+        # Format the components into HTML
+        html = f"<h3>Components for {company_name} - {year} - {auction_name}</h3>"
+        html += "<div class='components-grid'>"
+        
+        # Add the debug info for admins
+        if limited_results:
+            html += f"<div class='alert alert-info mb-3'>Showing components from {len(cmu_ids_to_process)} of {len(all_cmu_ids)} CMU IDs</div>"
+        
+        html += "<div class='row'>"
+        for component in matching_components:
+            # Extract details from the component
+            location = component.get("Location and Post Code", "")
+            description = component.get("Description of CMU Components", "")
+            tech = component.get("Generating Technology Class", "")
+            cmu_id = component.get("CMU ID", "")
+            
+            html += f"""
+                <div class="col-md-6 mb-4">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">{location}</h5>
+                            <p class="card-text"><small class="text-muted">CMU ID: {cmu_id}</small></p>
+                            <p class="card-text">{description}</p>
+                            <span class="badge bg-info">{tech}</span>
+                        </div>
+                    </div>
+                </div>
+            """
+        html += "</div></div>"
+        
         elapsed_time = time.time() - start_time
-        logger.info(f"Failed after {elapsed_time:.2f} seconds")
-        error_html = f"""
-            <div class='alert alert-danger'>
-                <h5>Error loading auction components</h5>
-                <p>An unexpected error occurred: {str(e)}</p>
-                <p>Please try again or contact support if the problem persists.</p>
-            </div>
-        """
-        return error_html
+        html += f"<p class='text-muted mt-3'>Found {len(matching_components)} components in {elapsed_time:.2f} seconds</p>"
+        
+        return html
+    
+    except Exception as e:
+        logger.error(f"Error loading auction components: {e}")
+        logger.error(traceback.format_exc())
+        return f"<div class='alert alert-danger'>Error loading components: {str(e)}</div>"
 
 def try_parse_year(year_str):
     """Try to parse a year string to an integer for sorting."""
