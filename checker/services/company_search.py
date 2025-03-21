@@ -240,14 +240,17 @@ def get_auction_components(company_id, year, auction_name):
     try:
         # Extract T-1 or T-4 from auction name if possible
         t_number = ""
-        if auction_name and "T-1" in auction_name:
+        auction_upper = auction_name.upper() if auction_name else ""
+        if "T-1" in auction_upper or "T1" in auction_upper or "T 1" in auction_upper:
             t_number = "T-1"
-        elif auction_name and "T-4" in auction_name:
+        elif "T-4" in auction_upper or "T4" in auction_upper or "T 4" in auction_upper:
             t_number = "T-4"
-
+        
+        logger.info(f"Extracted t_number={t_number} from auction name '{auction_name}'")
+        
         # Extract year range pattern from auction name if possible
-        year_range_pattern = ""
         import re
+        year_range_pattern = ""
         if auction_name:
             matches = re.findall(r'\d{4}/\d{2}', auction_name)
             if matches:
@@ -257,8 +260,8 @@ def get_auction_components(company_id, year, auction_name):
                 matches = re.findall(r'\d{4}', auction_name)
                 if matches:
                     year_range_pattern = matches[0]
-
-        logger.info(f"Extracted t_number={t_number}, year_range_pattern={year_range_pattern}")
+                    
+        logger.info(f"Extracted year_range_pattern={year_range_pattern} from auction name '{auction_name}'")
 
         # Get all CMU IDs for this company
         cmu_df, _ = get_cmu_dataframe()
@@ -311,10 +314,21 @@ def get_auction_components(company_id, year, auction_name):
                 # Process components
                 for comp in components:
                     comp_auction = comp.get("Auction Name", "")
+                    comp_auction_upper = comp_auction.upper() if comp_auction else ""
+
+                    # Check for t-number match with more flexible matching
+                    t_number_match = not t_number or (
+                        (t_number == "T-1" and ("T-1" in comp_auction_upper or "T1" in comp_auction_upper or "T 1" in comp_auction_upper)) or
+                        (t_number == "T-4" and ("T-4" in comp_auction_upper or "T4" in comp_auction_upper or "T 4" in comp_auction_upper))
+                    )
+                    
+                    # Check for year match
+                    year_match = not year_range_pattern or year_range_pattern in comp_auction
+                    
+                    logger.info(f"Component auction: '{comp_auction}', t_number_match: {t_number_match}, year_match: {year_match}")
 
                     # Check if auction name matches both the year range pattern and T-number
-                    if ((not year_range_pattern or year_range_pattern in comp_auction) and 
-                        (not t_number or t_number in comp_auction)):
+                    if year_match and t_number_match:
                         comp = comp.copy()
                         comp["CMU ID"] = cmu_id
                         matching_components.append(comp)
