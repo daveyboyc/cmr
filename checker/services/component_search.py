@@ -1,0 +1,396 @@
+import urllib.parse
+import time
+import logging
+from django.shortcuts import render
+from django.core.cache import cache
+import traceback
+
+from ..utils import normalize
+from .data_access import fetch_components_for_cmu_id, get_component_data_from_json
+from .company_search import _perform_company_search, get_cmu_dataframe
+
+logger = logging.getLogger(__name__)
+
+
+def search_components_service(request, return_data_only=False):
+    """Service function for searching components and companies in a unified interface"""
+    results = {}
+    company_links = []
+    error_message = None
+    api_time = 0
+    query = request.GET.get("q", "").strip()
+
+    # Add debug flag to force company results to appear even if no search query
+    debug_company = request.GET.get("debug_company", "false") == "true"
+
+    # Debug info to collect
+    debug_info = {
+        "query": query,
+        "company_search_attempted": False,
+        "cmu_df_loaded": False,
+        "cmu_df_rows": 0,
+        "matching_records": 0,
+        "unique_companies": [],
+        "error": None
+    }
+
+    if request.method == "GET":
+        if "search_results" in request.session and not query:
+            # Only use session results if no new query is provided
+            results = request.session.pop("search_results")
+            company_links = request.session.pop("company_links", [])
+            record_count = request.session.pop("record_count", None)
+            api_time = request.session.pop("api_time", 0)
+            last_query = request.session.pop("last_query", "")
+
+            if debug_company:
+                # Force some company links for testing
+                company_links.append(
+                    '<a href="/?q=Test%20Company%201" style="color: blue; text-decoration: underline;">Test Company 1</a>')
+                company_links.append(
+                    '<a href="/?q=Test%20Company%202" style="color: blue; text-decoration: underline;">Test Company 2</a>')
+                debug_info["forced_test_links"] = True
+                
+            if return_data_only:
+                return results
+
+            return render(request, "checker/search_components.html", {
+                "results": results,
+                "company_links": company_links,
+                "record_count": record_count,
+                "error": error_message,
+                "api_time": api_time,
+                "query": last_query,
+                "debug_info": debug_info
+            })
+        elif query or debug_company:
+            start_time = time.time()
+
+            # STEP 1: Search for matching companies
+            try:
+                debug_info["company_search_attempted"] = True
+                # Use the company search functionality to find matching companies
+                cmu_df, df_api_time = get_cmu_dataframe()
+                api_time += df_api_time
+
+                if cmu_df is not None:
+                    debug_info["cmu_df_loaded"] = True
+                    debug_info["cmu_df_rows"] = len(cmu_df)
+
+                    if query:
+                        norm_query = normalize(query)
+                        matching_records = _perform_company_search(cmu_df, norm_query)
+                        unique_companies = list(matching_records["Full Name"].unique())
+
+                        debug_info["matching_records"] = len(matching_records)
+                        debug_info["unique_companies"] = unique_companies
+
+                        # Create blue links for each company - TEMPORARILY point to company search page
+                        company_links = [
+                            f'<a href="/?q={urllib.parse.quote(company)}" style="color: blue; text-decoration: underline;">{company}</a>'
+                            for company in unique_companies
+                        ]
+
+                    # Alternative approach: show a random sample of companies for testing
+                    if debug_company and not company_links:
+                        sample_companies = cmu_df["Full Name"].sample(min(5, len(cmu_df))).tolist()
+                        debug_info["sample_companies"] = sample_companies
+                        company_links = [
+                            f'<a href="/?q={urllib.parse.quote(company)}" style="color: blue; text-decoration: underline;">{company}</a>'
+                            for company in sample_companies
+                        ]
+                else:
+                    debug_info["error"] = "CMU dataframe is None"
+                    company_links = []
+            except Exception as e:
+                error_msg = f"Error searching companies: {str(e)}"
+                logger.error(error_msg)
+                debug_info["error"] = error_msg
+                company_links = []
+
+            # Always force a test company link to appear (for debugging)
+            if debug_company:
+                company_links.append(
+                    '<a href="/?q=TestCompany" style="color: blue; text-decoration: underline;">Test Company (Forced)</a>')
+                debug_info["forced_test_link"] = True
+
+            # STEP 2: Get mapping of CMU IDs to company names from cache
+            cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
+            debug_info["cmu_mapping_entries"] = len(cmu_to_company_mapping)
+
+            # STEP 3: Search for matching components
+            components = []
+            components_api_time = 0
+            try:
+                if query:  # Only search for components if there's a query
+                    # First try to get components directly from JSON
+                    logger.info(f"DEBUG: Searching for components with query: {query}")
+                    components = get_component_data_from_json(query) or []
+                    logger.info(f"DEBUG: Found {len(components)} components in JSON")
+                    debug_info["json_components_found"] = len(components)
+
+                    # If not found, try to fetch components by CMU ID
+                    if not components:
+                        logger.info(f"DEBUG: No components found in JSON, trying API with CMU ID: {query}")
+                        api_components, components_api_time = fetch_components_for_cmu_id(query)
+                        components = api_components or []
+                        api_time += components_api_time
+                        logger.info(f"DEBUG: Found {len(components)} components via API")
+                        debug_info["api_components_found"] = len(components)
+            except Exception as e:
+                import traceback
+                logger.error(f"DEBUG ERROR in component search: {str(e)}")
+                logger.error(traceback.format_exc())
+                error_msg = f"Error fetching component data: {str(e)}"
+                logger.error(error_msg)
+                error_message = error_msg
+                debug_info["component_error"] = error_msg
+                components = []
+
+            record_count = len(components) if components else 0
+            logger.info(f"DEBUG: Final component count: {record_count}")
+
+            # Format component results for display
+            sentences = []
+            
+            # Sort components based on comp_sort parameter
+            sort_order = request.GET.get("comp_sort", "desc")
+            if components:
+                try:
+                    logger.info(f"DEBUG: Sorting components by Delivery Year, reverse={sort_order == 'desc'}")
+                    
+                    # Define a safe sorting key function that handles None values
+                    def safe_delivery_year_key(component):
+                        return component.get("Delivery Year", "") or ""
+                    
+                    components.sort(
+                        key=safe_delivery_year_key,
+                        reverse=(sort_order == "desc")
+                    )
+                except Exception as sort_error:
+                    logger.error(f"Error sorting components: {str(sort_error)}")
+                    debug_info["sort_error"] = str(sort_error)
+
+            # Format each component record
+            results = {}
+            for component in components:
+                formatted_record = format_component_record(component, cmu_to_company_mapping)
+                sentences.append(formatted_record)
+                
+            if sentences:
+                results[query] = sentences
+                logger.info(f"DEBUG: Added {len(sentences)} formatted component records to results[{query}]")
+            
+            elapsed_time = time.time() - start_time
+            api_time += elapsed_time
+
+            request.session["search_results"] = results
+            request.session["company_links"] = company_links
+            request.session["record_count"] = record_count
+            request.session["api_time"] = api_time
+            request.session["last_query"] = query
+            
+            if return_data_only:
+                return results
+
+            return render(request, "checker/search_components.html", {
+                "results": results,
+                "company_links": company_links,
+                "record_count": record_count,
+                "error": error_message,
+                "api_time": api_time,
+                "query": query,
+                "sort_order": sort_order,
+                "debug_info": debug_info
+            })
+        else:
+            # Clear session but keep query parameter in case it's needed
+            if "search_results" in request.session:
+                request.session.pop("search_results", None)
+            if "company_links" in request.session:
+                request.session.pop("company_links", None)
+            if "api_time" in request.session:
+                request.session.pop("api_time", None)
+                
+            if return_data_only:
+                return {}
+
+            return render(request, "checker/search_components.html", {
+                "results": {},
+                "company_links": [],
+                "api_time": api_time,
+                "query": query,
+            })
+    
+    if return_data_only:
+        return {}
+
+    return render(request, "checker/search_components.html", {
+        "results": {},
+        "company_links": [],
+        "api_time": api_time,
+        "query": query,
+    })
+
+
+def format_component_record(record, cmu_to_company_mapping):
+    """Format a component record for display with proper company badge"""
+    loc = record.get("Location and Post Code", "N/A")
+    desc = record.get("Description of CMU Components", "N/A")
+    tech = record.get("Generating Technology Class", "N/A")
+    typ = record.get("Type", "N/A")
+    delivery_year = record.get("Delivery Year", "N/A")
+    auction = record.get("Auction Name", "N/A")
+    cmu_id = record.get("CMU ID", "N/A")
+
+    # Get company name with multiple fallbacks
+    company_name = ""
+    if "Company Name" in record and record["Company Name"]:
+        company_name = record["Company Name"]
+    if not company_name:
+        company_name = cmu_to_company_mapping.get(cmu_id, "")
+        if not company_name:
+            for mapping_id, mapping_name in cmu_to_company_mapping.items():
+                if mapping_id.lower() == cmu_id.lower():
+                    company_name = mapping_name
+                    break
+    if not company_name:
+        try:
+            json_components = get_component_data_from_json(cmu_id)
+            if json_components:
+                for comp in json_components:
+                    if "Company Name" in comp and comp["Company Name"]:
+                        company_name = comp["Company Name"]
+                        cmu_to_company_mapping[cmu_id] = company_name
+                        cache.set("cmu_to_company_mapping", cmu_to_company_mapping, 3600)
+                        break
+        except Exception as e:
+            logger.error(f"Error getting company name from JSON: {e}")
+
+    # Create company badge - TEMPORARILY point to company search page
+    company_info = ""
+    if company_name:
+        encoded_company_name = urllib.parse.quote(company_name)
+        company_link = f'<a href="/?q={encoded_company_name}" class="badge bg-success" style="font-size: 1rem; text-decoration: none;">{company_name}</a>'
+        company_info = f'<div class="mt-2 mb-2">{company_link}</div>'
+    else:
+        company_info = f'<div class="mt-2 mb-2"><span class="badge bg-warning">No Company Found</span></div>'
+
+    # Create blue link for location pointing to component detail page
+    normalized_loc = normalize(loc)
+    component_id = f"{cmu_id}_{normalized_loc}"
+    encoded_component_id = urllib.parse.quote(component_id)
+    loc_link = f'<a href="/component/{encoded_component_id}/" style="color: blue; text-decoration: underline;">{loc}</a>'
+
+    # Format badges for type and delivery year
+    type_badge = f'<span class="badge bg-info">{typ}</span>' if typ != "N/A" else ""
+    year_badge = f'<span class="badge bg-secondary">{delivery_year}</span>' if delivery_year != "N/A" else ""
+    badges = " ".join(filter(None, [type_badge, year_badge]))
+    badges_div = f'<div class="mb-2">{badges}</div>' if badges else ""
+
+    return f"""
+    <div class="component-record">
+        <strong>{loc_link}</strong>
+        <div class="mt-1 mb-1"><i>{desc}</i></div>
+        <div>Technology: {tech} | <b>{auction}</b> | <span class="text-muted">CMU ID: {cmu_id}</span></div>
+        {badges_div}
+        {company_info}
+    </div>
+    """
+
+
+# Add this function to your services/company_search.py file
+def company_detail(request, company_id):
+    """
+    View function for company detail page.
+    Displays all data related to a specific company.
+    """
+    try:
+        # Get CMU dataframe
+        cmu_df, df_api_time = get_cmu_dataframe()
+
+        if cmu_df is None:
+            return render(request, "checker/company_detail.html", {
+                "error": "Error loading CMU data",
+                "company_name": None
+            })
+
+        # Find company name from company_id
+        company_name = None
+        for _, row in cmu_df.iterrows():
+            if normalize(row.get("Full Name", "")) == company_id:
+                company_name = row.get("Full Name")
+                break
+
+        if not company_name:
+            return render(request, "checker/company_detail.html", {
+                "error": f"Company not found: {company_id}",
+                "company_name": None
+            })
+
+        # Get all records for this company
+        company_records = cmu_df[cmu_df["Full Name"] == company_name]
+
+        # Prepare year and auction data
+        year_auction_data = []
+        grouped = company_records.groupby("Delivery Year")
+
+        for year, group in grouped:
+            if year.startswith("Years:"):
+                year = year.replace("Years:", "").strip()
+
+            auctions = {}
+            auctions_display = []
+            if "Auction Name" in group.columns:
+                for _, row in group.iterrows():
+                    auction_name = row.get("Auction Name", "")
+                    if auction_name and auction_name not in auctions:
+                        auctions[auction_name] = []
+
+                        # Extract auction type for badge
+                        auction_type = ""
+                        badge_class = "bg-secondary"
+                        if "T-1" in auction_name:
+                            auction_type = "T-1"
+                            badge_class = "bg-warning"
+                        elif "T-4" in auction_name:
+                            auction_type = "T-4"
+                            badge_class = "bg-info"
+                        else:
+                            auction_type = auction_name
+
+                        # Create unique auction ID
+                        auction_id = f"auction-{normalize(year)}-{normalize(auction_name)}-{company_id}"
+
+                        auctions_display.append((auction_name, auction_id, badge_class, auction_type))
+                        auctions[auction_name].append(row.get("CMU ID"))
+
+            if not auctions:
+                continue
+
+            year_id = f"year-{normalize(year)}-{company_id}"
+            year_auction_data.append({
+                'year': year,
+                'auctions': auctions,
+                'auctions_display': auctions_display,
+                'year_id': year_id
+            })
+
+        # Sort by year (most recent first by default)
+        year_auction_data.sort(key=lambda x: try_parse_year(x['year']), reverse=True)
+
+        return render(request, "checker/company_detail.html", {
+            "company_name": company_name,
+            "company_id": company_id,
+            "year_auction_data": year_auction_data,
+            "api_time": df_api_time
+        })
+
+    except Exception as e:
+        logger.error(f"Error in company_detail: {str(e)}")
+        logger.error(traceback.format_exc())
+        return render(request, "checker/company_detail.html", {
+            "error": f"Error loading company details: {str(e)}",
+            "company_name": None,
+            "traceback": traceback.format_exc() if request.GET.get("debug") else None
+        })

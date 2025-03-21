@@ -1,0 +1,1 @@
+web: gunicorn capacity_checker.wsgi

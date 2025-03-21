@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Search Companies (CMU's)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    {% load static %}
+    <link rel="icon" type="image/png" href="{% static 'images/favicon.png' %}">
+    <!-- Add HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.2" integrity="sha384-L6OqL9pRWyyFU3+/bjdSri+iIphTN/bvYyM37tICVyOJkWZLpP2vGn6VUEXgzg6h" crossorigin="anonymous"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+        }
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .search-box {
+            margin: 20px 0;
+        }
+        .search-input {
+            border-radius: 24px;
+            padding: 10px 15px;
+            box-shadow: 0 1px 6px rgba(32, 33, 36, 0.28);
+            border: 1px solid #dfe1e5;
+        }
+        .search-button {
+            border-radius: 24px;
+            padding: 10px 20px;
+            background-color: #4285f4;
+            border: none;
+        }
+        .sort-toggle {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 10px;
+            padding: 8px 15px;
+            border-radius: 24px;
+            background-color: #f8f9fa;
+            border: 1px solid #dfe1e5;
+            color: #4285f4;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .sort-toggle:hover {
+            background-color: #e8eaed;
+            text-decoration: none;
+        }
+        .company-card {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+            padding: 16px;
+        }
+        .year-button {
+            background: none;
+            border: none;
+            padding: 0;
+            width: 100%;
+            text-align: left;
+        }
+        .year-card {
+            margin-bottom: 10px;
+        }
+        .spinner {
+            display: inline-block;
+            width: 2rem;
+            height: 2rem;
+            border: .25em solid currentColor;
+            border-right-color: transparent;
+            border-radius: 50%;
+            animation: spinner-border .75s linear infinite;
+        }
+        @keyframes spinner-border {
+            to { transform: rotate(360deg); }
+        }
+        .cmu-card {
+            height: 100%;
+        }
+        .switch-link {
+            color: #4285f4;
+            text-decoration: none;
+        }
+        .switch-link:hover {
+            text-decoration: underline;
+        }
+
+        .accordion-button {
+            font-size: 1rem;
+            padding: 0.75rem 1.25rem;
+        }
+
+        .accordion-button:not(.collapsed) {
+            background-color: #f8f9fa;
+        }
+
+        .auction-content {
+            margin-top: 15px;
+        }
+
+        .results-list {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .result-item {
+            padding: 16px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .result-item:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="page-header">
+            <h1>Search Companies (CMU's)</h1>
+            <a href="{% url 'search_components' %}" class="switch-link">
+                <span class="bi bi-arrow-left-right"></span>
+                Switch to Components
+            </a>
+        </div>
+
+        <!-- Search Box -->
+        <form method="get" class="search-box">
+            <div class="input-group">
+                <input type="text" name="q" class="form-control search-input"
+                       placeholder="Search company name or CMU ID"
+                       value="{{ query|default:'' }}">
+                <button type="submit" class="btn btn-primary search-button">Search</button>
+
+                {% if request.GET.q %}
+                    {% if sort_order == "desc" %}
+                        <a href="?q={{ request.GET.q }}&sort=asc" class="sort-toggle">
+                            <span>↑</span> Sort: Newest First
+                        </a>
+                    {% else %}
+                        <a href="?q={{ request.GET.q }}&sort=desc" class="sort-toggle">
+                            <span>↓</span> Sort: Oldest First
+                        </a>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </form>
+
+        <!-- Record Count -->
+        {% if record_count > 0 %}
+            <p class="text-muted">Searched {{ record_count }} records in the register</p>
+        {% endif %}
+
+        <!-- Error Message -->
+        {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+        {% endif %}
+
+        <!-- Results Info -->
+        {% if results %}
+            <div class="alert alert-info">
+                <span class="bi bi-info-circle"></span> Click on a year to view details. Click on a CMU ID to view components.
+            </div>
+
+            <!-- Sort Info -->
+            <div class="text-muted mb-3">
+                Results sorted by delivery year ({% if sort_order == "desc" %}newest first{% else %}oldest first{% endif %})
+            </div>
+        {% endif %}
+
+        <!-- Results -->
+        {% for query_key, matches in results.items %}
+            <div class="results-section">
+                <h3>Results for "{{ query_key }}"</h3>
+                {% for match in matches %}
+                    <div class="result-item mb-4">
+                        {{ match|safe }}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endfor %}
+
+        <!-- API Time -->
+        {% if api_time > 0 %}
+            <p class="text-muted mt-3">API request took {{ api_time|floatformat:2 }} seconds.</p>
+        {% endif %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Hide spinners initially
+        document.querySelectorAll('.spinner').forEach(function(spinner) {
+            spinner.style.display = 'none';
+        });
+
+        // Event delegation for collapse toggle
+        document.body.addEventListener('click', function(event) {
+            const button = event.target.closest('[data-bs-toggle="collapse"]');
+            if (!button) return;
+
+            const targetId = button.getAttribute('data-bs-target');
+            const target = document.querySelector(targetId);
+            const yearId = targetId.replace('#collapse-', '');
+            const spinner = document.querySelector('#spinner-' + yearId);
+
+            // Show spinner when expanding
+            if (!target.classList.contains('show') && spinner) {
+                spinner.style.display = 'inline-block';
+            }
+        });
+
+        // HTMX events
+        document.body.addEventListener('htmx:beforeRequest', function(event) {
+            const targetId = event.detail.target.id;
+            if (targetId.startsWith('year-content-') || targetId.startsWith('auction-content-')) {
+                const containerId = targetId.replace('content-', '');
+                const spinner = document.querySelector('#spinner-' + containerId);
+                if (spinner) {
+                    spinner.style.display = 'inline-block';
+                }
+            }
+        });
+
+        document.body.addEventListener('htmx:afterSwap', function(event) {
+            const targetId = event.detail.target.id;
+            if (targetId.startsWith('year-content-') || targetId.startsWith('auction-content-')) {
+                const containerId = targetId.replace('content-', '');
+                const spinner = document.querySelector('#spinner-' + containerId);
+                if (spinner) {
+                    spinner.style.display = 'none';
+                }
+            }
+        });
+
+        document.body.addEventListener('htmx:responseError', function(event) {
+            const targetId = event.detail.target.id;
+            if (targetId.startsWith('year-content-') || targetId.startsWith('auction-content-')) {
+                const containerId = targetId.replace('content-', '');
+                const spinner = document.querySelector('#spinner-' + containerId);
+                if (spinner) {
+                    spinner.style.display = 'none';
+                }
+
+                // Show error message
+                event.detail.target.innerHTML = '<div class="alert alert-danger">Error loading data. Please try again.</div>';
+            }
+        });
+    });
+    </script>
+</body>
+</html>

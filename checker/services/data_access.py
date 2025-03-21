@@ -1,0 +1,407 @@
+import time
+import json
+import os
+import requests
+import pandas as pd
+from django.conf import settings
+from django.core.cache import cache
+
+from ..utils import normalize, get_cache_key, get_json_path, ensure_directory_exists
+
+
+# CMU DATA ACCESS FUNCTIONS
+
+def get_cmu_data_from_json():
+    """
+    Get all CMU data from the JSON file.
+    If the JSON doesn't exist, returns None.
+    """
+    json_path = os.path.join(settings.BASE_DIR, 'cmu_data.json')
+
+    # Check if the file exists
+    if not os.path.exists(json_path):
+        return None
+
+    try:
+        with open(json_path, 'r') as f:
+            all_cmu_data = json.load(f)
+        return all_cmu_data
+    except Exception as e:
+        print(f"Error reading CMU data from JSON: {e}")
+        return None
+
+
+def save_cmu_data_to_json(cmu_records):
+    """
+    Save all CMU records to a JSON file.
+    Creates the file if it doesn't exist, otherwise replaces it.
+    """
+    json_path = os.path.join(settings.BASE_DIR, 'cmu_data.json')
+
+    # Write the data to the file
+    try:
+        with open(json_path, 'w') as f:
+            json.dump(cmu_records, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving CMU data to JSON: {e}")
+        return False
+
+
+def fetch_all_cmu_records(limit=1000):
+    """
+    Fetch all CMU records from the API.
+    First checks if we have them stored in JSON.
+    """
+    # Check if we have the data in our JSON file
+    json_cmu_data = get_cmu_data_from_json()
+    if json_cmu_data is not None:
+        print(f"Using JSON-stored CMU data, found {len(json_cmu_data)} records")
+        return json_cmu_data, 0
+
+    params = {
+        "resource_id": "25a5fa2e-873d-41c5-8aaf-fbc2b06d79e6",
+        "limit": limit,
+        "offset": 0
+    }
+    all_records = []
+    total_time = 0
+    while True:
+        start_time = time.time()
+        response = requests.get(
+            "https://api.neso.energy/api/3/action/datastore_search",
+            params=params,
+            timeout=20
+        )
+        response.raise_for_status()
+        total_time += time.time() - start_time
+        result = response.json()["result"]
+        records = result["records"]
+        all_records.extend(records)
+        if len(all_records) >= result["total"]:
+            break
+        params["offset"] += limit
+
+    # Save to JSON for future use
+    save_cmu_data_to_json(all_records)
+
+    return all_records, total_time
+
+
+def get_cmu_dataframe():
+    """
+    Get and process CMU data as a DataFrame.
+    Returns a pandas DataFrame with normalized fields.
+    """
+    cmu_df = cache.get("cmu_df")
+    api_time = 0
+
+    if cmu_df is None:
+        try:
+            all_records, api_time = fetch_all_cmu_records(limit=5000)
+            cmu_df = pd.DataFrame(all_records)
+
+            # Set up necessary columns
+            cmu_df["Name of Applicant"] = cmu_df.get("Name of Applicant", pd.Series()).fillna("").astype(str)
+            cmu_df["Parent Company"] = cmu_df.get("Parent Company", pd.Series()).fillna("").astype(str)
+            cmu_df["Delivery Year"] = cmu_df.get("Delivery Year", pd.Series()).fillna("").astype(str)
+
+            # Identify CMU ID field
+            possible_cmu_id_fields = ["CMU ID", "cmu_id", "CMU_ID", "cmuId", "id", "identifier", "ID"]
+            cmu_id_field = next((field for field in possible_cmu_id_fields if field in cmu_df.columns), None)
+            if cmu_id_field:
+                cmu_df["CMU ID"] = cmu_df[cmu_id_field].fillna("N/A").astype(str)
+            else:
+                cmu_df["CMU ID"] = "N/A"
+
+            # Set Full Name
+            cmu_df["Full Name"] = cmu_df["Name of Applicant"].str.strip()
+            cmu_df["Full Name"] = cmu_df.apply(
+                lambda row: row["Full Name"] if row["Full Name"] else row["Parent Company"],
+                axis=1
+            )
+
+            # Add normalized fields for searching
+            cmu_df["Normalized Full Name"] = cmu_df["Full Name"].apply(normalize)
+            cmu_df["Normalized CMU ID"] = cmu_df["CMU ID"].apply(normalize)
+
+            # Create complete mapping of all CMU IDs to company names
+            cmu_to_company_mapping = {}
+            for _, row in cmu_df.iterrows():
+                cmu_id = row.get("CMU ID", "").strip()
+                if cmu_id and cmu_id != "N/A":
+                    cmu_to_company_mapping[cmu_id] = row.get("Full Name", "")
+
+            cache.set("cmu_to_company_mapping", cmu_to_company_mapping, 3600)
+            cache.set("cmu_df", cmu_df, 900)
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching CMU data: {e}")
+            return None, api_time
+
+    return cmu_df, api_time
+
+
+# COMPONENT DATA ACCESS FUNCTIONS
+
+def get_component_data_from_json(cmu_id):
+    """
+    Get component data from JSON for a specific CMU ID.
+    Returns the components as a list or None if not found.
+    """
+    if not cmu_id:
+        return None
+
+    json_path = get_json_path(cmu_id)
+
+    # Check if the file exists
+    if not os.path.exists(json_path):
+        # Try the old path as fallback
+        old_json_path = os.path.join(settings.BASE_DIR, 'component_data.json')
+        if os.path.exists(old_json_path):
+            try:
+                with open(old_json_path, 'r') as f:
+                    all_components = json.load(f)
+                return all_components.get(cmu_id)
+            except Exception as e:
+                print(f"Error reading component data from old JSON: {e}")
+        return None
+
+    try:
+        with open(json_path, 'r') as f:
+            all_components = json.load(f)
+
+        # Try exact match first
+        if cmu_id in all_components:
+            return all_components[cmu_id]
+
+        # If not found, try case-insensitive match
+        for file_cmu_id in all_components.keys():
+            if file_cmu_id.lower() == cmu_id.lower():
+                print(f"Found case-insensitive match: {file_cmu_id} for {cmu_id}")
+                return all_components[file_cmu_id]
+
+        # If still not found, return None
+        return None
+    except Exception as e:
+        print(f"Error reading component data from JSON: {e}")
+        return None
+
+
+def save_component_data_to_json(cmu_id, components):
+    """
+    Save component data to JSON for a specific CMU ID.
+    Returns True if successful, False otherwise.
+    """
+    if not cmu_id:
+        return False
+
+    # Get first character of CMU ID as folder name
+    prefix = cmu_id[0].upper()
+
+    # Create a directory for split files if it doesn't exist
+    json_dir = os.path.join(settings.BASE_DIR, 'json_data')
+    ensure_directory_exists(json_dir)
+
+    # Path for this specific CMU's components
+    json_path = os.path.join(json_dir, f'components_{prefix}.json')
+
+    # Initialize or load existing data
+    all_components = {}
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, 'r') as f:
+                all_components = json.load(f)
+        except Exception as e:
+            print(f"Error reading existing component data: {e}")
+
+    # Get company name from mapping cache
+    cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
+    company_name = cmu_to_company_mapping.get(cmu_id, "")
+
+    # Try case-insensitive match if needed
+    if not company_name:
+        for mapping_cmu_id, mapping_company in cmu_to_company_mapping.items():
+            if mapping_cmu_id.lower() == cmu_id.lower():
+                company_name = mapping_company
+                break
+
+    # Make sure each component has the Company Name field
+    updated_components = []
+    for component in components:
+        if "Company Name" not in component and company_name:
+            component = component.copy()  # Make a copy to avoid modifying the original
+            component["Company Name"] = company_name
+
+        # Add CMU ID to the component for reference
+        if "CMU ID" not in component:
+            component = component.copy()
+            component["CMU ID"] = cmu_id
+
+        updated_components.append(component)
+
+    # Add or update the components for this CMU ID
+    all_components[cmu_id] = updated_components
+
+    # Write the updated data back to the file
+    try:
+        with open(json_path, 'w') as f:
+            json.dump(all_components, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving component data to JSON: {e}")
+        return False
+
+
+def fetch_components_for_cmu_id(cmu_id, limit=100):
+    """
+    Fetch components for a specific CMU ID.
+    Checks cache and JSON before making API request.
+    """
+    if not cmu_id:
+        return [], 0
+
+    # First check if we already have cached data for this CMU ID
+    components_cache_key = get_cache_key("components_for_cmu", cmu_id)
+    cached_components = cache.get(components_cache_key)
+    if cached_components is not None:
+        print(f"Using cached components for {cmu_id}, found {len(cached_components)}")
+        return cached_components, 0
+
+    # Check if we have the data in our JSON file - CASE-INSENSITIVE
+    json_components = get_component_data_from_json(cmu_id)
+    if json_components is not None:
+        print(f"Using JSON-stored components for {cmu_id}, found {len(json_components)}")
+        # Also update the cache
+        cache.set(components_cache_key, json_components, 3600)
+        return json_components, 0
+
+    print(f"Fetching components for {cmu_id} from API")
+    params = {
+        "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
+        "limit": limit,
+        "q": cmu_id
+    }
+    start_time = time.time()
+    try:
+        response = requests.get(
+            "https://api.neso.energy/api/3/action/datastore_search",
+            params=params,
+            timeout=10
+        )
+        response.raise_for_status()
+        elapsed = time.time() - start_time
+        result = response.json()["result"]
+        components = result.get("records", [])
+
+        print(f"Found {len(components)} components for {cmu_id}")
+
+        # Add company name to each component
+        cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
+
+        # Try exact match first
+        company_name = cmu_to_company_mapping.get(cmu_id, "")
+
+        # If not found, try case-insensitive match
+        if not company_name:
+            for cache_cmu_id, cache_company in cmu_to_company_mapping.items():
+                if cache_cmu_id.lower() == cmu_id.lower():
+                    company_name = cache_company
+                    break
+
+        if company_name:
+            for component in components:
+                if "Company Name" not in component:
+                    component["Company Name"] = company_name
+
+        # Cache the results for this CMU ID - always lowercase in cache
+        cache.set(components_cache_key, components, 3600)  # Cache for 1 hour
+
+        # Also save to JSON for persistence
+        save_component_data_to_json(cmu_id, components)
+
+        return components, elapsed
+    except Exception as e:
+        print(f"Error fetching components for CMU ID {cmu_id}: {e}")
+        elapsed = time.time() - start_time
+        return [], elapsed
+
+
+def fetch_component_search_results(query, limit=1000, sort_order="desc"):
+    """
+    Fetch components based on a search query.
+    """
+    search_cache_key = get_cache_key("components_search", query)
+    records = cache.get(search_cache_key)
+    api_time = 0
+
+    if records is None:
+        try:
+            start_time = time.time()
+            response = requests.get(
+                "https://api.neso.energy/api/3/action/datastore_search",
+                params={
+                    "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
+                    "q": query,
+                    "limit": limit
+                },
+                timeout=20
+            )
+            response.raise_for_status()
+            api_time = time.time() - start_time
+            data = response.json()["result"]
+            records = data.get("records", [])
+            cache.set(search_cache_key, records, 300)  # Cache for 5 minutes
+
+            # Also cache component records by CMU ID for use in company search
+            if records:
+                for record in records:
+                    cmu_id = record.get("CMU ID", "")
+                    if cmu_id:
+                        components_cache_key = get_cache_key("components_for_cmu", cmu_id)
+                        existing_components = cache.get(components_cache_key, [])
+                        if record not in existing_components:
+                            existing_components.append(record)
+                            cache.set(components_cache_key, existing_components, 3600)
+
+                            # Also save to JSON for persistence
+                            json_components = get_component_data_from_json(cmu_id) or []
+                            if record not in json_components:
+                                json_components.append(record)
+                                save_component_data_to_json(cmu_id, json_components)
+
+        except Exception as e:
+            print(f"Error fetching components data: {e}")
+            api_time = time.time() - start_time if 'start_time' in locals() else 0
+            return [], api_time, str(e)
+
+    return records, api_time, None
+
+
+def get_component_total_count():
+    """Get the total count of components in the database."""
+    total_cache_key = "components_overall_total"
+    overall_total = cache.get(total_cache_key)
+    api_time = 0
+
+    if overall_total is None:
+        try:
+            start_time = time.time()
+            count_response = requests.get(
+                "https://api.neso.energy/api/3/action/datastore_search",
+                params={
+                    "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
+                    "limit": 1
+                },
+                timeout=20
+            )
+            count_response.raise_for_status()
+            api_time = time.time() - start_time
+            count_data = count_response.json()["result"]
+            overall_total = count_data.get("total", 0)
+            cache.set(total_cache_key, overall_total, 3600)  # Cache for 1 hour
+        except Exception as e:
+            print(f"Error fetching overall total: {e}")
+            api_time = time.time() - start_time if 'start_time' in locals() else 0
+            overall_total = 0
+
+    return overall_total, api_time

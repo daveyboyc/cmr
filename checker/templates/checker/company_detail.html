@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ company_name }} - Company Details</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    {% load static %}
+    {% load custom_filters %}
+    <link rel="icon" type="image/png" href="{% static 'images/favicon.png' %}">
+    <!-- Add HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.2" integrity="sha384-L6OqL9pRWyyFU3+/bjdSri+iIphTN/bvYyM37tICVyOJkWZLpP2vGn6VUEXgzg6h" crossorigin="anonymous"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+        }
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .company-card {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+            padding: 16px;
+        }
+        /* New bold year button style */
+        .year-button {
+            background: white;
+            border: 3px solid #000; /* Bold black border */
+            padding: 8px 16px;
+            width: 100%;
+            text-align: left;
+            font-weight: bold;
+            font-size: 18px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .year-button:hover {
+            background-color: #f8f9fa;
+        }
+        .year-button:active {
+            background-color: #e9ecef;
+        }
+        /* New accordion styles for auctions */
+        .auction-button {
+            background: white;
+            border: 2px solid #495057; /* Medium border for auctions */
+            padding: 6px 12px;
+            width: 100%;
+            text-align: left;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .auction-button:hover {
+            background-color: #f8f9fa;
+        }
+        .auction-content {
+            margin-top: 10px;
+            padding: 10px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            display: none; /* Hidden by default */
+        }
+        .year-content {
+            padding: 10px;
+            margin-bottom: 15px;
+            display: none; /* Hidden by default */
+        }
+        /* Show content when active class is present */
+        .year-content.active,
+        .auction-content.active {
+            display: block !important; /* Added !important to ensure display override */
+        }
+        .spinner {
+            margin: 20px auto;
+            width: 3rem;
+            height: 3rem;
+            border: 0.3em solid rgba(66, 133, 244, 0.2);
+            border-right-color: #4285f4;
+            border-radius: 50%;
+            animation: spinner-border 0.75s linear infinite;
+            display: none;
+        }
+        @keyframes spinner-border {
+            to { transform: rotate(360deg); }
+        }
+        /* HTMX specific styles */
+        .htmx-indicator {
+            display: none;
+        }
+        .htmx-request .htmx-indicator {
+            display: block;
+        }
+        .htmx-request.htmx-indicator {
+            display: block;
+        }
+        .nav-links {
+            margin-bottom: 20px;
+        }
+        .nav-links a {
+            color: #4285f4;
+            text-decoration: none;
+            margin-right: 15px;
+        }
+        .nav-links a:hover {
+            text-decoration: underline;
+        }
+        .results-list {
+            display: flex;
+            flex-direction: column;
+        }
+        .result-item {
+            padding: 16px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .result-item:last-child {
+            border-bottom: none;
+        }
+        .sort-toggle {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 10px;
+            padding: 8px 15px;
+            border-radius: 24px;
+            background-color: #f8f9fa;
+            border: 1px solid #dfe1e5;
+            color: #4285f4;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .sort-toggle:hover {
+            background-color: #e8eaed;
+            text-decoration: none;
+        }
+        .loading-container {
+            padding: 40px 20px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .error-container {
+            padding: 20px;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 8px;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="page-header">
+            <h1>Component Details</h1>
+            <div>
+                <a href="{% url 'search_companies' %}" class="btn btn-outline-primary">
+                    <span class="bi bi-arrow-left"></span> Back to Search
+                </a>
+            </div>
+        </div>
+
+        <!-- Navigation Links -->
+        <div class="nav-links">
+            <a href="javascript:history.back()">
+                <span class="bi bi-arrow-left"></span> Back to Results
+            </a>
+        </div>
+
+        <!-- Debug Output -->
+        {% if request.GET.debug %}
+        <div class="alert alert-secondary">
+            <h4>Debug Info</h4>
+            <p>company_name: {{ company_name }}</p>
+            <p>company_id: {{ company_id }}</p>
+            <p>year_auction_data exists: {% if year_auction_data %}Yes{% else %}No{% endif %}</p>
+            <p>year_auction_data length: {{ year_auction_data|length }}</p>
+            <p>sort_order: {{ sort_order }}</p>
+        </div>
+        {% endif %}
+
+        <!-- Error Message -->
+        {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+            {% if traceback %}
+                <div class="alert alert-secondary">
+                    <pre>{{ traceback }}</pre>
+                </div>
+            {% endif %}
+        {% endif %}
+
+        <!-- Company Details -->
+        {% if company_name %}
+            <div class="company-card">
+                <div class="mb-4">
+                    <h2>{{ company_name }}</h2>
+                    <p class="text-muted">Showing all delivery years and auctions for this company</p>
+                </div>
+
+                <div class="alert alert-info">
+                    <span class="bi bi-info-circle"></span> Click on a year to view details. Click on an auction to load components.
+                </div>
+
+                <!-- Add sort toggle -->
+                <div class="mb-3 d-flex align-items-center">
+                    {% if sort_order == "desc" %}
+                        <a href="?sort=asc" class="sort-toggle">
+                            <span>↑</span> Sort: Newest First
+                        </a>
+                    {% else %}
+                        <a href="?sort=desc" class="sort-toggle">
+                            <span>↓</span> Sort: Oldest First
+                        </a>
+                    {% endif %}
+                    
+                    <button id="collapse-all-button" class="btn btn-outline-secondary ms-2">
+                        <span class="bi bi-chevron-up"></span> Collapse All
+                    </button>
+                </div>
+
+                <div class="years-container">
+                    {% for year_info in year_auction_data %}
+                        <button class="year-button" data-target="year-content-{{ year_info.year_id }}">
+                            Delivery Year: {{ year_info.year }}
+                        </button>
+                        <div id="year-content-{{ year_info.year_id }}" class="year-content">
+                            {% for auction_name, auction_id, badge_class, auction_type in year_info.auctions_display %}
+                                <button id="button-{{ auction_id }}" class="auction-button" data-target="auction-content-{{ auction_id }}">
+                                    <span class="badge {{ badge_class }} me-2">{{ auction_type }}</span>
+                                    Auction: {{ auction_name }}
+                                </button>
+                                <div id="auction-content-{{ auction_id }}" class="auction-content"
+                                     hx-get="/api/auction-components/{{ company_id }}/{{ year_info.year|url_safe }}/{{ auction_name|url_safe }}/"
+                                     hx-trigger="load-components from:body"
+                                     hx-target="find .auction-data"
+                                     hx-indicator="#spinner-{{ auction_id }}"
+                                     hx-swap="innerHTML">
+                                    <div class="auction-data">
+                                        <div class="text-center p-4">
+                                            <div class="spinner htmx-indicator" id="spinner-{{ auction_id }}"></div>
+                                            <div class="text-muted">Loading components for {{ auction_name }}...</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- API Time -->
+        {% if api_time > 0 %}
+            <p class="text-muted mt-3">API request took {{ api_time|floatformat:2 }} seconds.</p>
+        {% endif %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Add JavaScript to handle year and auction button clicks
+        document.addEventListener('DOMContentLoaded', function() {
+            // Handle "Collapse All" button
+            document.getElementById('collapse-all-button').addEventListener('click', function() {
+                // Get all active year content elements
+                const activeYearContents = document.querySelectorAll('.year-content.active');
+                const activeAuctionContents = document.querySelectorAll('.auction-content.active');
+                
+                // Collapse all expanded years
+                activeYearContents.forEach(content => {
+                    content.classList.remove('active');
+                    
+                    // Find the corresponding button and update its text
+                    const yearId = content.id;
+                    const yearButton = document.querySelector(`[data-target="${yearId}"]`);
+                    if (yearButton) {
+                        const yearText = yearButton.textContent.split(':')[1].split('▼')[0].trim();
+                        yearButton.innerHTML = `Delivery Year: ${yearText} ▶`;
+                    }
+                });
+                
+                // Collapse all expanded auctions
+                activeAuctionContents.forEach(content => {
+                    content.classList.remove('active');
+                    
+                    // Find the corresponding button and update its text
+                    const auctionId = content.id;
+                    const auctionButton = document.querySelector(`[data-target="${auctionId}"]`);
+                    if (auctionButton) {
+                        const buttonContent = auctionButton.innerHTML.split('▼')[0];
+                        auctionButton.innerHTML = `${buttonContent} ▶`;
+                    }
+                });
+            });
+            
+            // Handle year button clicks
+            document.querySelectorAll('.year-button').forEach(button => {
+                button.addEventListener('click', function() {
+                    const targetId = this.getAttribute('data-target');
+                    const targetContent = document.getElementById(targetId);
+                    
+                    // Toggle active class
+                    targetContent.classList.toggle('active');
+                    
+                    // Update button text/icon if needed
+                    const isActive = targetContent.classList.contains('active');
+                    this.innerHTML = `Delivery Year: ${this.textContent.split(': ')[1]} ${isActive ? '▼' : '▶'}`;
+                });
+            });
+
+            // Handle auction button clicks - triggers HTMX loading
+            document.querySelectorAll('.auction-button').forEach(button => {
+                button.addEventListener('click', function() {
+                    const targetId = this.getAttribute('data-target');
+                    const targetContent = document.getElementById(targetId);
+                    
+                    // Toggle active class
+                    targetContent.classList.toggle('active');
+                    
+                    // Update button text/icon if needed
+                    const isActive = targetContent.classList.contains('active');
+                    this.innerHTML = `${this.innerHTML.split('▼')[0]} ${isActive ? '▼' : '▶'}`;
+                    
+                    // If we're showing the content, ensure it loads
+                    if (isActive) {
+                        const auctionData = targetContent.querySelector('.auction-data');
+                        
+                        // Show loading UI if not already loaded
+                        if (!auctionData.innerHTML.includes('Components for')) {
+                            auctionData.innerHTML = `
+                                <div class="loading-container">
+                                    <div class="spinner" style="display: block;"></div>
+                                    <div class="text-muted mt-3">Loading components...</div>
+                                </div>
+                            `;
+                            
+                            // Get the URL directly from the element's hx-get attribute
+                            const url = targetContent.getAttribute('hx-get');
+                            
+                            // Use a timeout to prevent long-running requests from blocking UI
+                            setTimeout(() => {
+                                // Try direct fetch with better error handling
+                                fetch(url)
+                                    .then(response => {
+                                        if (!response.ok) {
+                                            throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+                                        }
+                                        return response.text();
+                                    })
+                                    .then(data => {
+                                        // Only update if the content tab is still active
+                                        if (targetContent.classList.contains('active')) {
+                                            // Update the content
+                                            auctionData.innerHTML = data;
+                                        }
+                                    })
+                                    .catch(error => {
+                                        console.error('Error loading components:', error);
+                                        
+                                        // If it's been more than 10 seconds, show a user-friendly retry option
+                                        auctionData.innerHTML = `
+                                            <div class="error-container">
+                                                <p><strong>We're having trouble loading these components.</strong></p>
+                                                <p>Please try again or choose a different auction.</p>
+                                                <button class="btn btn-primary mt-2" onclick="retryLoading('${targetId}', '${url}')">Try Again</button>
+                                            </div>
+                                        `;
+                                    });
+                            }, 100);
+                        }
+                    }
+                });
+            });
+            
+            // Add a global function to retry loading
+            window.retryLoading = function(targetId, url) {
+                const targetContent = document.getElementById(targetId);
+                const auctionData = targetContent.querySelector('.auction-data');
+                
+                // Show loading again
+                auctionData.innerHTML = `
+                    <div class="loading-container">
+                        <div class="spinner" style="display: block;"></div>
+                        <div class="text-muted mt-3">Loading components...</div>
+                    </div>
+                `;
+                
+                // Try to fetch again
+                fetch(url)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+                        }
+                        return response.text();
+                    })
+                    .then(data => {
+                        auctionData.innerHTML = data;
+                    })
+                    .catch(error => {
+                        console.error('Error on retry:', error);
+                        auctionData.innerHTML = `
+                            <div class="error-container">
+                                <p><strong>Still having trouble loading components.</strong></p>
+                                <p>Please try again later or contact support if the problem persists.</p>
+                                <button class="btn btn-primary mt-2" onclick="retryLoading('${targetId}', '${url}')">Try Again</button>
+                            </div>
+                        `;
+                    });
+            };
+            
+            // Add HTMX error handling
+            document.body.addEventListener('htmx:responseError', function(evt) {
+                const targetElement = evt.detail.elt;
+                console.error('HTMX Error:', evt.detail.xhr.status, evt.detail.xhr.statusText);
+                
+                // Show user-friendly error message
+                const auctionData = targetElement.querySelector('.auction-data');
+                if (auctionData) {
+                    const targetId = targetElement.id;
+                    const url = targetElement.getAttribute('hx-get');
+                    
+                    auctionData.innerHTML = `
+                        <div class="error-container">
+                            <p><strong>We're having trouble loading these components.</strong></p>
+                            <p>Please try again or choose a different auction.</p>
+                            <button class="btn btn-primary mt-2" onclick="retryLoading('${targetId}', '${url}')">Try Again</button>
+                        </div>
+                    `;
+                }
+            });
+        });
+    </script>
+</body>
+</html>

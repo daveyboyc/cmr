@@ -1,0 +1,29 @@
+{% load custom_filters %}
+<div class="card mb-2">
+    <div class="card-header" id="heading-{{ auction_id }}">
+        <h5 class="mb-0">
+            <button id="button-{{ auction_id }}" class="auction-button" data-target="auction-content-{{ auction_id }}">
+                {% if "T-1" in auction_name %}
+                    <span class="badge bg-warning me-2">T-1</span>
+                {% elif "T-4" in auction_name %}
+                    <span class="badge bg-info me-2">T-4</span>
+                {% else %}
+                    <span class="badge bg-secondary me-2">{{ auction_name.split|first }}</span>
+                {% endif %}
+                Auction: {{ auction_name }}
+            </button>
+        </h5>
+    </div>
+    <div id="auction-content-{{ auction_id }}" class="auction-content"
+         hx-get="/api/auction-components/{{ company_id }}/{{ year|url_safe }}/{{ auction_name|url_safe }}/"
+         hx-trigger="revealed"
+         hx-swap="innerHTML"
+         hx-indicator="#spinner-{{ auction_id }}">
+        <div class="auction-data">
+            <div class="loading-container">
+                <div class="spinner htmx-indicator" id="spinner-{{ auction_id }}"></div>
+                <div class="text-muted mt-3">Loading components for {{ auction_name }}...</div>
+            </div>
+        </div>
+    </div>
+</div> 
