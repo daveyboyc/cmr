@@ -427,18 +427,13 @@ def get_auction_components(company_id, year, auction_name):
                     <li>Year: {year}</li>
                     <li>Auction: {auction_name}</li>
                 </ul>
-                {% if user_is_admin %}
                 <details>
-                    <summary>Debug Info (Admin Only)</summary>
+                    <summary>Debug Info</summary>
                     <pre>{json.dumps(debug_info, indent=2)}</pre>
                 </details>
-                {% endif %}
                 <p>Try clicking on a different auction or year.</p>
             </div>"""
             
-            # Replace the placeholder with empty string if not admin
-            message = message.replace("{% if user_is_admin %}", "")
-            message = message.replace("{% endif %}", "")
             return message
 
         # Sort components by some criteria - delivery year, location, etc.
