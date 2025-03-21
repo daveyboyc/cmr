@@ -436,38 +436,73 @@ def get_auction_components(company_id, year, auction_name):
             
             return message
 
-        # Sort components by some criteria - delivery year, location, etc.
-        matching_components.sort(key=lambda x: x.get("Location and Post Code", ""))
+        # Group matching components by auction name
+        auctions = {}
+        for comp in matching_components:
+            auction = comp.get("Auction Name", "No Auction")
+            if auction not in auctions:
+                auctions[auction] = []
+            auctions[auction].append(comp)
 
+        logger.info(f"Grouped components into {len(auctions)} auctions")
+        
         # Format the components into HTML
-        html = f"<h3>Components for {company_name} - {year} - {auction_name}</h3>"
-        html += "<div class='components-grid'>"
+        html = f"<h4>Components for {company_name} - {year} - {auction_name}</h4>"
         
         # Add the debug info for admins
         if limited_results:
-            html += f"<div class='alert alert-info mb-3'>Showing components from {len(cmu_ids_to_process)} of {len(all_cmu_ids)} CMU IDs</div>"
-        
-        html += "<div class='row'>"
-        for component in matching_components:
-            # Extract details from the component
-            location = component.get("Location and Post Code", "")
-            description = component.get("Description of CMU Components", "")
-            tech = component.get("Generating Technology Class", "")
-            cmu_id = component.get("CMU ID", "")
-            
             html += f"""
-                <div class="col-md-6 mb-4">
-                    <div class="card h-100">
-                        <div class="card-body">
-                            <h5 class="card-title">{location}</h5>
-                            <p class="card-text"><small class="text-muted">CMU ID: {cmu_id}</small></p>
-                            <p class="card-text">{description}</p>
-                            <span class="badge bg-info">{tech}</span>
-                        </div>
-                    </div>
-                </div>
+            <div class="alert alert-info mb-3">
+                <small><strong>Note:</strong> Showing partial results for performance reasons. 
+                We found {len(matching_components)} components from {len(cmu_ids_to_process)} of {len(all_cmu_ids)} total CMU IDs.</small>
+            </div>
             """
-        html += "</div></div>"
+
+        # Define a safe key function for sorting that handles None values
+        def safe_sort_key(item):
+            auction_name, _ = item
+            return auction_name or ""
+
+        # Use the safe sort function
+        for auction_name, components in sorted(auctions.items(), key=safe_sort_key):
+            html += f"""
+            <div class="auction-group mb-4">
+                <h5 class="border-bottom pb-2">{auction_name} ({len(components)} components)</h5>
+                <div class="results-list">
+            """
+
+            # Sort components by location with a safe key function
+            def safe_location_key(component):
+                return component.get("Location and Post Code", "") or ""
+                
+            components.sort(key=safe_location_key)
+
+            for component in components:
+                loc = component.get("Location and Post Code", "N/A")
+                desc = component.get("Description of CMU Components", "N/A")
+                tech = component.get("Generating Technology Class", "N/A")
+                auction = component.get("Auction Name", "N/A")
+                cmu_id = component.get("CMU ID", "N/A")
+
+                # Create a unique ID for this component
+                component_id = f"{cmu_id}_{normalize(loc)}"
+
+                # Create CMU ID badge
+                cmu_badge = f'<a href="/components/?q={cmu_id}" class="badge bg-primary" style="font-size: 0.9rem; text-decoration: none;">CMU ID: {cmu_id}</a>'
+
+                # Create the component entry with location as a link
+                html += f"""
+                <div class="result-item mb-3">
+                    <strong><a href="/component/{component_id}/" class="text-primary">{loc}</a></strong>
+                    <div class="mt-1 mb-1"><i>{desc}</i></div>
+                    <div>Technology: {tech} | <b>{auction}</b> | {cmu_badge}</div>
+                </div>
+                """
+
+            html += """
+                </div>
+            </div>
+            """
         
         elapsed_time = time.time() - start_time
         html += f"<p class='text-muted mt-3'>Found {len(matching_components)} components in {elapsed_time:.2f} seconds</p>"
