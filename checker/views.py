@@ -417,3 +417,79 @@ def debug_auction_components(request, company_id, year, auction_name):
     
     # Return the debug info as JSON
     return JsonResponse(debug_info)
+
+
+def debug_component_retrieval(request, cmu_id):
+    """
+    Debug endpoint to directly examine component retrieval for a specific CMU ID.
+    This helps identify where components might be getting lost in the data flow.
+    """
+    import json
+    from django.http import JsonResponse
+    from .services.data_access import get_component_data_from_json, fetch_components_for_cmu_id, get_json_path
+    import os
+    
+    debug_info = {
+        "cmu_id": cmu_id,
+        "json_path": get_json_path(cmu_id),
+        "json_path_exists": os.path.exists(get_json_path(cmu_id)),
+        "json_results": None,
+        "json_components_count": 0,
+        "api_results": None,
+        "api_components_count": 0,
+        "combined_results": None,
+        "error": None
+    }
+    
+    try:
+        # Try to get components from JSON storage
+        json_components = get_component_data_from_json(cmu_id)
+        if json_components:
+            debug_info["json_results"] = "Found components in JSON"
+            debug_info["json_components_count"] = len(json_components)
+            debug_info["json_components"] = [{
+                "Location": comp.get("Location and Post Code", "N/A"),
+                "Description": comp.get("Description of CMU Components", "N/A"),
+                "Technology": comp.get("Generating Technology Class", "N/A"),
+                "Auction": comp.get("Auction Name", "N/A"),
+                "Delivery Year": comp.get("Delivery Year", "N/A")
+            } for comp in json_components[:5]]  # Limit to first 5 for brevity
+        else:
+            debug_info["json_results"] = "No components found in JSON"
+        
+        # Try to get components from API
+        api_components, api_time = fetch_components_for_cmu_id(cmu_id)
+        if api_components:
+            debug_info["api_results"] = f"Found components from API in {api_time:.2f}s"
+            debug_info["api_components_count"] = len(api_components)
+            debug_info["api_components"] = [{
+                "Location": comp.get("Location and Post Code", "N/A"),
+                "Description": comp.get("Description of CMU Components", "N/A"),
+                "Technology": comp.get("Generating Technology Class", "N/A"),
+                "Auction": comp.get("Auction Name", "N/A"),
+                "Delivery Year": comp.get("Delivery Year", "N/A")
+            } for comp in api_components[:5]]  # Limit to first 5 for brevity
+        else:
+            debug_info["api_results"] = "No components found from API"
+        
+        # Check if the combined results would have components
+        combined = json_components or api_components or []
+        debug_info["combined_results"] = f"Total unique components found: {len(combined)}"
+        
+        # Add auction name analysis for each component
+        auction_analysis = {}
+        for comp in combined:
+            auction_name = comp.get("Auction Name", "Unknown")
+            if auction_name not in auction_analysis:
+                auction_analysis[auction_name] = 0
+            auction_analysis[auction_name] += 1
+        
+        debug_info["auction_analysis"] = auction_analysis
+        
+        return JsonResponse(debug_info)
+        
+    except Exception as e:
+        import traceback
+        debug_info["error"] = str(e)
+        debug_info["traceback"] = traceback.format_exc()
+        return JsonResponse(debug_info, status=500)

@@ -5,6 +5,7 @@ import requests
 import pandas as pd
 from django.conf import settings
 from django.core.cache import cache
+import logging
 
 from ..utils import normalize, get_cache_key, get_json_path, ensure_directory_exists
 
@@ -148,42 +149,56 @@ def get_component_data_from_json(cmu_id):
     Get component data from JSON for a specific CMU ID.
     Returns the components as a list or None if not found.
     """
+    logger = logging.getLogger(__name__)
+    
     if not cmu_id:
+        logger.warning("No CMU ID provided to get_component_data_from_json")
         return None
 
+    logger.info(f"Getting component data from JSON for CMU ID: {cmu_id}")
     json_path = get_json_path(cmu_id)
+    logger.info(f"JSON path for {cmu_id}: {json_path}")
 
     # Check if the file exists
     if not os.path.exists(json_path):
+        logger.warning(f"JSON file does not exist: {json_path}")
         # Try the old path as fallback
         old_json_path = os.path.join(settings.BASE_DIR, 'component_data.json')
+        logger.info(f"Trying old JSON path: {old_json_path}")
         if os.path.exists(old_json_path):
             try:
+                logger.info(f"Old JSON file exists, trying to load it")
                 with open(old_json_path, 'r') as f:
                     all_components = json.load(f)
-                return all_components.get(cmu_id)
+                if cmu_id in all_components:
+                    logger.info(f"Found {len(all_components[cmu_id])} components for {cmu_id} in old JSON")
+                    return all_components.get(cmu_id)
+                logger.warning(f"CMU ID {cmu_id} not found in old JSON")
             except Exception as e:
-                print(f"Error reading component data from old JSON: {e}")
+                logger.error(f"Error reading component data from old JSON: {e}")
         return None
 
     try:
+        logger.info(f"Loading JSON file: {json_path}")
         with open(json_path, 'r') as f:
             all_components = json.load(f)
 
         # Try exact match first
         if cmu_id in all_components:
+            logger.info(f"Found exact match for {cmu_id} with {len(all_components[cmu_id])} components")
             return all_components[cmu_id]
 
         # If not found, try case-insensitive match
         for file_cmu_id in all_components.keys():
             if file_cmu_id.lower() == cmu_id.lower():
-                print(f"Found case-insensitive match: {file_cmu_id} for {cmu_id}")
+                logger.info(f"Found case-insensitive match: {file_cmu_id} for {cmu_id} with {len(all_components[file_cmu_id])} components")
                 return all_components[file_cmu_id]
 
         # If still not found, return None
+        logger.warning(f"No match found for CMU ID {cmu_id} in JSON")
         return None
     except Exception as e:
-        print(f"Error reading component data from JSON: {e}")
+        logger.error(f"Error reading component data from JSON: {e}")
         return None
 
 
@@ -257,73 +272,68 @@ def fetch_components_for_cmu_id(cmu_id, limit=100):
     Fetch components for a specific CMU ID.
     Checks cache and JSON before making API request.
     """
+    logger = logging.getLogger(__name__)
+    
     if not cmu_id:
+        logger.warning("No CMU ID provided to fetch_components_for_cmu_id")
         return [], 0
 
     # First check if we already have cached data for this CMU ID
     components_cache_key = get_cache_key("components_for_cmu", cmu_id)
+    logger.info(f"Checking cache for components with key: {components_cache_key}")
     cached_components = cache.get(components_cache_key)
     if cached_components is not None:
-        print(f"Using cached components for {cmu_id}, found {len(cached_components)}")
+        logger.info(f"Using cached components for {cmu_id}, found {len(cached_components)}")
         return cached_components, 0
 
     # Check if we have the data in our JSON file - CASE-INSENSITIVE
+    logger.info(f"Checking JSON for components for CMU ID: {cmu_id}")
     json_components = get_component_data_from_json(cmu_id)
     if json_components is not None:
-        print(f"Using JSON-stored components for {cmu_id}, found {len(json_components)}")
+        logger.info(f"Using JSON-stored components for {cmu_id}, found {len(json_components)}")
         # Also update the cache
         cache.set(components_cache_key, json_components, 3600)
         return json_components, 0
 
-    print(f"Fetching components for {cmu_id} from API")
+    logger.info(f"No components found in cache or JSON for {cmu_id}, fetching from API")
+    
+    start_time = time.time()
+    
+    # Try scraping from the API
     params = {
         "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
+        "q": cmu_id,
         "limit": limit,
-        "q": cmu_id
+        "sort": "Delivery Year desc"
     }
-    start_time = time.time()
+    
+    base_url = "https://api.neso.energy/api/3/action/datastore_search"
     try:
-        response = requests.get(
-            "https://api.neso.energy/api/3/action/datastore_search",
-            params=params,
-            timeout=10
-        )
-        response.raise_for_status()
-        elapsed = time.time() - start_time
-        result = response.json()["result"]
-        components = result.get("records", [])
-
-        print(f"Found {len(components)} components for {cmu_id}")
-
-        # Add company name to each component
-        cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
-
-        # Try exact match first
-        company_name = cmu_to_company_mapping.get(cmu_id, "")
-
-        # If not found, try case-insensitive match
-        if not company_name:
-            for cache_cmu_id, cache_company in cmu_to_company_mapping.items():
-                if cache_cmu_id.lower() == cmu_id.lower():
-                    company_name = cache_company
-                    break
-
-        if company_name:
-            for component in components:
-                if "Company Name" not in component:
-                    component["Company Name"] = company_name
-
-        # Cache the results for this CMU ID - always lowercase in cache
-        cache.set(components_cache_key, components, 3600)  # Cache for 1 hour
-
-        # Also save to JSON for persistence
-        save_component_data_to_json(cmu_id, components)
-
-        return components, elapsed
+        logger.info(f"Making API request for CMU ID: {cmu_id}")
+        response = requests.get(base_url, params=params, timeout=60)
+        response.raise_for_status()  # Raise an error if status code != 200
+        
+        data = response.json()
+        if data.get("success"):
+            records = data.get("result", {}).get("records", [])
+            if records:
+                logger.info(f"API returned {len(records)} records for {cmu_id}")
+                # Update the JSON file
+                save_component_data_to_json(cmu_id, records)
+                # Also update the cache
+                cache.set(components_cache_key, records, 3600)
+                
+                elapsed_time = time.time() - start_time
+                return records, elapsed_time
+            else:
+                logger.warning(f"API returned no records for {cmu_id}")
+        else:
+            logger.error(f"API request unsuccessful for {cmu_id}: {data.get('error', 'Unknown error')}")
     except Exception as e:
-        print(f"Error fetching components for CMU ID {cmu_id}: {e}")
-        elapsed = time.time() - start_time
-        return [], elapsed
+        logger.error(f"Error fetching components for {cmu_id}: {e}")
+    
+    elapsed_time = time.time() - start_time
+    return [], elapsed_time
 
 
 def fetch_component_search_results(query, limit=1000, sort_order="desc"):

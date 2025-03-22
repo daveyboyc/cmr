@@ -375,46 +375,90 @@ def get_auction_components(company_id, year, auction_name):
                     if not year_range_pattern:
                         year_match = True
                     else:
-                        # First try exact substring match
-                        if year_range_pattern in comp_auction:
-                            year_match = True
-                        else:
-                            # Extract years from component auction name for comparison
-                            comp_years_slash = re.findall(r'\d{4}[-/]\d{1,2}', comp_auction)
-                            comp_years_space = re.findall(r'\d{4}\s+\d{1,2}', comp_auction)
-                            comp_years_single = re.findall(r'\d{4}', comp_auction)
+                        # Extract years from component auction name for comparison
+                        comp_years_slash = re.findall(r'\d{4}[-/]\d{1,2}', comp_auction)
+                        comp_years_space = re.findall(r'\d{4}\s+\d{1,2}', comp_auction)
+                        comp_years_single = re.findall(r'\d{4}', comp_auction)
+                        
+                        # Extract the first 4-digit year from our pattern for fallback comparison
+                        pattern_year = re.findall(r'\d{4}', year_range_pattern)[0] if re.findall(r'\d{4}', year_range_pattern) else ""
+                        
+                        # Try to extract the second part of the year range (after space/dash)
+                        pattern_second_year = None
+                        if " " in year_range_pattern:
+                            parts = year_range_pattern.split(" ")
+                            if len(parts) > 1 and parts[1].isdigit():
+                                pattern_second_year = parts[1]
+                        
+                        # Create alternative patterns to try matching
+                        alt_patterns = []
+                        
+                        # If we have both parts of the year range, create normalized patterns
+                        if pattern_year and pattern_second_year:
+                            # Standard pattern with hyphen (2020-21)
+                            alt_patterns.append(f"{pattern_year}-{pattern_second_year}")
                             
-                            # Extract the first 4-digit year from our pattern for fallback comparison
-                            pattern_year = re.findall(r'\d{4}', year_range_pattern)[0] if re.findall(r'\d{4}', year_range_pattern) else ""
+                            # Pattern with adjacent years (2020/21 matches with 2019/20 and 2021/22)
+                            next_year = str(int(pattern_year) + 1)
+                            if len(next_year) == 4:  # Ensure it's still a 4-digit year
+                                next_year_suffix = next_year[2:] if len(next_year) >= 4 else ""
+                                if next_year_suffix:
+                                    alt_patterns.append(f"{pattern_year}-{next_year_suffix}")
+                                    alt_patterns.append(f"{pattern_year}/{next_year_suffix}")
                             
-                            # Try to extract the second part of the year range (after space/dash)
-                            pattern_second_year = None
-                            if " " in year_range_pattern:
-                                parts = year_range_pattern.split(" ")
-                                if len(parts) > 1 and parts[1].isdigit():
-                                    pattern_second_year = parts[1]
+                            prev_year = str(int(pattern_year) - 1)
+                            if len(prev_year) == 4:  # Ensure it's still a 4-digit year
+                                prev_year_suffix = prev_year[2:] if len(prev_year) >= 4 else ""
+                                if prev_year_suffix:
+                                    alt_patterns.append(f"{prev_year}-{prev_year_suffix}")
+                                    alt_patterns.append(f"{prev_year}/{prev_year_suffix}")
+                        
+                        # Also try using just the first year
+                        if pattern_year:
+                            alt_patterns.append(pattern_year)
                             
-                            # Normalized pattern matching - convert the patterns for comparisons
-                            normalized_pattern = None
-                            if pattern_year and pattern_second_year:
-                                normalized_pattern = f"{pattern_year}-{pattern_second_year}"
-                            
-                            # Check for normalized matches first (this handles 2020 21 matching 2020-21)
-                            if normalized_pattern:
-                                for comp_year in comp_years_slash:
-                                    # Compare with dashes/slashes replaced to standardize
-                                    norm_comp_year = comp_year.replace("/", "-")
-                                    if norm_comp_year == normalized_pattern:
+                            # Try the year before and after
+                            next_year = str(int(pattern_year) + 1)
+                            prev_year = str(int(pattern_year) - 1)
+                            if len(next_year) == 4:
+                                alt_patterns.append(next_year)
+                            if len(prev_year) == 4:
+                                alt_patterns.append(prev_year)
+                        
+                        # Log the patterns we're trying
+                        logger.info(f"DEBUG: Trying alternative year patterns: {alt_patterns}")
+                        
+                        # Try matching with all the patterns
+                        for alt_pattern in alt_patterns:
+                            # First try direct substring match
+                            if alt_pattern in comp_auction:
+                                logger.info(f"DEBUG: Matched direct substring with pattern {alt_pattern}")
+                                year_match = True
+                                break
+                                
+                            # Try more complex pattern matching for each extracted year
+                            for comp_years in [comp_years_slash, comp_years_space, comp_years_single]:
+                                for comp_year in comp_years:
+                                    # Normalize both for comparison
+                                    norm_comp_year = comp_year.replace("/", "-").replace(" ", "-")
+                                    norm_alt_pattern = alt_pattern.replace("/", "-").replace(" ", "-")
+                                    
+                                    if norm_comp_year == norm_alt_pattern:
+                                        logger.info(f"DEBUG: Matched normalized year {norm_comp_year} with pattern {norm_alt_pattern}")
                                         year_match = True
                                         break
-                            
-                            # If no normalized match, check if any component year pattern contains our target year
-                            if not year_match:
-                                for comp_pattern in comp_years_slash + comp_years_space + comp_years_single:
-                                    if pattern_year and pattern_year in comp_pattern:
-                                        # Looser matching - just check if the first year is in the component pattern
+                                        
+                                    # Also check if the component year contains our pattern year
+                                    if pattern_year in comp_year:
+                                        logger.info(f"DEBUG: Matched pattern year {pattern_year} in {comp_year}")
                                         year_match = True
                                         break
+                                
+                                if year_match:
+                                    break
+                            
+                            if year_match:
+                                break
                     
                     if year_match:
                         debug_info["year_details"]["matches"] += 1

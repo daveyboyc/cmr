@@ -32,4 +32,16 @@ urlpatterns = [
     
     # Debug endpoint for troubleshooting component issues
     path("debug/auction-components/<str:company_id>/<str:year>/<str:auction_name>/", views.debug_auction_components, name="debug_auction_components"),
+
+    # Debug endpoints
+    path("debug/cache/<str:cmu_id>/",
+         views.debug_cache, name="debug_cache"),
+    path("debug/mapping/",
+         views.debug_mapping, name="debug_mapping"),
+    path("debug/mapping-cache/",
+         views.debug_mapping_cache, name="debug_mapping_cache"),
+         
+    # New debug endpoint for component investigation
+    path("debug/component-retrieval/<str:cmu_id>/",
+         views.debug_component_retrieval, name="debug_component_retrieval"),
 ]
