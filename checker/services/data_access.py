@@ -144,6 +144,24 @@ def get_cmu_dataframe():
 
 # COMPONENT DATA ACCESS FUNCTIONS
 
+def get_json_path(cmu_id):
+    """
+    Get the path to the JSON file for a given CMU ID.
+    This is a utility function to avoid duplicating path logic.
+    """
+    if not cmu_id:
+        return None
+        
+    # Get first character of CMU ID as folder name
+    prefix = cmu_id[0].upper()
+    
+    # Path for this specific CMU's components
+    json_dir = os.path.join(settings.BASE_DIR, 'json_data')
+    json_path = os.path.join(json_dir, f'components_{prefix}.json')
+    
+    return json_path
+
+
 def get_component_data_from_json(cmu_id):
     """
     Get component data from JSON for a specific CMU ID.
@@ -154,6 +172,10 @@ def get_component_data_from_json(cmu_id):
     if not cmu_id:
         logger.warning("No CMU ID provided to get_component_data_from_json")
         return None
+
+    # Special handling for LIMEJUMP LTD CMU IDs
+    if cmu_id.startswith("CM_LJ"):
+        logger.info(f"Processing LIMEJUMP LTD CMU ID: {cmu_id}")
 
     logger.info(f"Getting component data from JSON for CMU ID: {cmu_id}")
     json_path = get_json_path(cmu_id)
@@ -182,6 +204,11 @@ def get_component_data_from_json(cmu_id):
         logger.info(f"Loading JSON file: {json_path}")
         with open(json_path, 'r') as f:
             all_components = json.load(f)
+
+        # For LIMEJUMP LTD CMU IDs, log keys from components_C.json
+        if cmu_id.startswith("CM_LJ") and 'components_C.json' in json_path:
+            logger.info(f"LIMEJUMP Debug - Available keys in components_C.json: {list(all_components.keys())[:10]}...")
+            logger.info(f"LIMEJUMP Debug - Is {cmu_id} in components_C.json? {cmu_id in all_components}")
 
         # Try exact match first
         if cmu_id in all_components:

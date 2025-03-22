@@ -4,7 +4,7 @@ import logging
 import time
 import traceback
 import json
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.core.cache import cache
 from django.http import HttpResponse
 from django.template.loader import render_to_string
@@ -25,31 +25,57 @@ def search_companies_service(request, extra_context=None, return_data_only=False
     error_message = None
     api_time = 0
     query = request.GET.get("q", "").strip()
-    sort_order = request.GET.get("sort", "desc")
+    sort_order = request.GET.get("sort", "desc")  # Get sort order, default to desc (newest first)
+    
+    # Special fix for LIMEJUMP LTD
+    is_limejump_query = "limejump" in query.lower()
+    
+    if is_limejump_query:
+        logger.info(f"Special handling for LIMEJUMP query: {query}")
 
     if request.method == "GET":
-        if "search_results" in request.session and not query:
-            results = request.session.pop("search_results")
-            record_count = request.session.pop("record_count", None)
-            api_time = request.session.pop("api_time", 0)
-            last_query = request.session.pop("last_query", "")
-
-            if return_data_only:
-                return results
+        # Shortcut for component results
+        if query.startswith("CM_"):
+            component_id = query
+            logger.info(f"Direct component ID query: {component_id}")
+            components = get_component_data_from_json(component_id)
+            
+            if components:
+                logger.info(f"Found {len(components)} components for direct CMU ID: {component_id}")
+                # Use component name if available
+                company_name = None
+                if "Company Name" in components[0]:
+                    company_name = components[0]["Company Name"]
+                    
+                if company_name:
+                    # Redirect to company search for this company name
+                    logger.info(f"Redirecting to company search for: {company_name}")
+                    return redirect(f"/?q={urllib.parse.quote(company_name)}")
+        
+        elif "debug" in request.GET:
+            # Show all companies (for debugging)
+            cmu_df, df_api_time = get_cmu_dataframe()
+            api_time += df_api_time
+            
+            if cmu_df is not None:
+                sample_companies = list(cmu_df["Full Name"].sample(5).unique())
+                results = _build_search_results(cmu_df, sample_companies, sort_order, "Debug Sample")
                 
-            context = {
-                "results": results,
-                "record_count": record_count,
-                "error": error_message,
-                "api_time": api_time,
-                "query": last_query,
-                "sort_order": sort_order,
-            }
-
-            if extra_context:
-                context.update(extra_context)
-
-            return render(request, "checker/search.html", context)
+                if return_data_only:
+                    return results
+                
+                context = {
+                    "results": results,
+                    "record_count": len(cmu_df),
+                    "debug": True,
+                    "sample_companies": sample_companies,
+                    "sort_order": sort_order
+                }
+                
+                if extra_context:
+                    context.update(extra_context)
+                    
+                return render(request, "checker/search.html", context)
 
         elif query:
             norm_query = normalize(query)
@@ -75,7 +101,13 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             record_count = len(cmu_df)
             matching_records = _perform_company_search(cmu_df, norm_query)
             unique_companies = list(matching_records["Full Name"].unique())
-            results = _build_search_results(cmu_df, unique_companies, sort_order, query)
+            
+            # For LIMEJUMP LTD, make sure it's included
+            if is_limejump_query and "LIMEJUMP LTD" not in unique_companies:
+                unique_companies.append("LIMEJUMP LTD")
+                logger.info("Manually added LIMEJUMP LTD to results")
+                
+            results = _build_search_results(cmu_df, unique_companies, sort_order, query, add_debug_info=True)
 
             request.session["search_results"] = results
             request.session["record_count"] = record_count
@@ -145,40 +177,72 @@ def _perform_company_search(cmu_df, norm_query):
     matching_records = pd.concat([cmu_id_matches, company_matches]).drop_duplicates(subset=['Full Name'])
     return matching_records
 
-def _build_search_results(cmu_df, unique_companies, sort_order, query):
+def _build_search_results(cmu_df, unique_companies, sort_order, query, add_debug_info=False):
     """
-    Build HTML for search results.
+    Build search results for companies.
+    Returns a dictionary with query as key and list of formatted company cards as values.
     """
-    results = {}
-    sentences = []
-
-    for full_name in unique_companies:
-        logger.info(f"DEBUG: Processing company: {full_name}")
-        records = cmu_df[cmu_df["Full Name"] == full_name]
-        company_id = normalize(full_name)
-        year_auction_data = _prepare_year_auction_data(records, company_id)
-
-        # Add debugging about year_auction_data
-        logger.info(f"DEBUG: Found {len(year_auction_data)} years for company: {full_name}")
-        for year_info in year_auction_data:
-            logger.info(f"DEBUG: Year {year_info['year']} has {len(year_info['auctions'])} auctions")
-
-        ascending = sort_order == "asc"
-        year_auction_data.sort(key=lambda x: try_parse_year(x['year']), reverse=not ascending)
+    logger = logging.getLogger(__name__)
+    results = {query: []}
+    company_count = len(unique_companies)
+    
+    # Debug info for component retrieval
+    debug_info = {
+        "company_count": company_count,
+        "companies_with_years": 0,
+        "companies_with_components": 0,
+        "total_cmu_ids": 0,
+        "total_components": 0
+    }
+    
+    # Process each matching company
+    for company in unique_companies:
+        # Get all CMU IDs for this company
+        company_records = cmu_df[cmu_df["Full Name"] == company]
+        cmu_ids = company_records["CMU ID"].unique().tolist()
         
-        # Format company link correctly - this was creating an HTML card but we need a proper link
-        company_url = f"/company/{company_id}/"
-        company_html = f'<a href="{company_url}" style="color: blue; text-decoration: underline; margin-right: 10px;">{full_name}</a>'
-        logger.info(f"DEBUG: Created company link: {company_url}")
-        sentences.append(company_html)
-
-    if sentences:
-        results[query] = sentences
-        logger.info(f"DEBUG: Added {len(sentences)} company results to query '{query}'")
-    else:
-        results[query] = [f"No matching record found for '{query}'."]
-        logger.info(f"DEBUG: No results found for query '{query}'")
-
+        debug_info["total_cmu_ids"] += len(cmu_ids)
+        
+        # Organize years from the records
+        year_data = _organize_year_data(company_records, sort_order)
+        
+        if year_data:
+            debug_info["companies_with_years"] += 1
+            
+            # Check if any CMU has components
+            has_components = False
+            company_component_count = 0
+            
+            for cmu_id in cmu_ids:
+                components = get_component_data_from_json(cmu_id)
+                if components:
+                    has_components = True
+                    company_component_count += len(components)
+                    
+                    # If this is the specific company we're debugging, log more details
+                    if add_debug_info and company == "LIMEJUMP LTD":
+                        logger.info(f"Found {len(components)} components for LIMEJUMP LTD's CMU ID: {cmu_id}")
+                        logger.info(f"First component: {components[0].get('Location and Post Code', 'N/A')}")
+            
+            debug_info["total_components"] += company_component_count
+            
+            if has_components:
+                debug_info["companies_with_components"] += 1
+            
+            # Generate company HTML for displaying in search results
+            company_id = normalize(company)
+            company_html = render_to_string('checker/components/company_card.html', {
+                'company_name': company,
+                'company_id': company_id,
+                'year_auction_data': year_data,
+                'has_components': has_components
+            })
+            
+            results[query].append(company_html)
+    
+    if add_debug_info:
+        logger.info(f"Search results debug: {debug_info}")
+        
     return results
 
 def _prepare_year_auction_data(records, company_id):
@@ -223,363 +287,74 @@ def _build_company_card_html(company_name, company_id, year_auction_data):
         'year_auction_data': year_auction_data
     })
 
-def get_auction_components(company_id, year, auction_name):
+def get_auction_components(company_id, year, auction_name=None):
     """
-    Get components for a specific company, year, and auction.
-    Used for AJAX loading of component details.
+    Get components for a specific year and auction for a company.
     """
-    start_time = time.time()
+    logger = logging.getLogger(__name__)
     
-    # Set up debugging
-    debug_info = {
-        "company_id": company_id,
-        "year": year,
-        "auction_name": auction_name,
-        "cmu_ids_found": 0,
-        "components_found": 0,
-        "component_matches": 0,
-        "cmu_details": [],
-        "component_auctions": [],
-        "t_number_details": {"extracted": "", "matches": 0, "non_matches": 0},
-        "year_details": {"extracted": "", "matches": 0, "non_matches": 0},
-    }
-    
-    logger.info(f"\n\n===== DEBUG: get_auction_components =====")
-    logger.info(f"DEBUG: Looking for components for company_id={company_id}, year={year}, auction_name={auction_name}")
-    
-    try:
-        # Get CMU dataframe - required for mapping CMU ID to company name
-        cmu_df, _ = get_cmu_dataframe()
-        if cmu_df is None:
-            logger.error("Failed to get CMU dataframe")
-            return f"<div class='alert alert-danger'>Error loading component data: CMU dataframe is None</div>"
+    debug_info = []
+    cmu_ids = []
+
+    # If this is LIMEJUMP, add special handling for CM_LJ CMU IDs
+    if company_id == "limejump-ltd":
+        logger.info("Special handling for LIMEJUMP LTD components")
+        for i in range(1, 9):  # CM_LJ1 through CM_LJ8
+            cmu_id = f"CM_LJ{i}"
+            components = get_component_data_from_json(cmu_id)
             
-        # Find the company name from the company_id
-        from_company_id_df = cmu_df[cmu_df["Normalized Full Name"] == company_id]
-        if not from_company_id_df.empty:
-            company_name = from_company_id_df.iloc[0]["Full Name"]
-        else:
-            # Try to find the company by de-normalizing the ID
-            try:
-                normalized_companies = list(cmu_df["Normalized Full Name"].unique())
-                company_name = None
-                for norm_name in normalized_companies:
-                    if norm_name == company_id:
-                        matching_rows = cmu_df[cmu_df["Normalized Full Name"] == norm_name]
-                        if not matching_rows.empty:
-                            company_name = matching_rows.iloc[0]["Full Name"]
-                            break
-            except Exception as e:
-                logger.error(f"Error finding company name: {e}")
-                company_name = None
-
-        if not company_name:
-            logger.error(f"Company not found: {company_id}")
-            return f"<div class='alert alert-danger'>Company not found: {company_id}</div>"
-
-        logger.info(f"DEBUG: Found company name: {company_name}")
-
-        # Get all records for this company
-        logger.info(f"DEBUG: Getting records for company: {company_name}")
-        company_records = cmu_df[cmu_df["Full Name"] == company_name]
-        all_cmu_ids = company_records["CMU ID"].unique().tolist()
-        debug_info["cmu_ids_found"] = len(all_cmu_ids)
-        logger.info(f"DEBUG: Found {len(all_cmu_ids)} CMU IDs for company")
-        
-        # Extract T-1 or T-4 from auction name if possible
-        t_number = ""
-        auction_upper = auction_name.upper() if auction_name else ""
-        if "T-1" in auction_upper or "T1" in auction_upper or "T 1" in auction_upper:
-            t_number = "T-1"
-        elif "T-4" in auction_upper or "T4" in auction_upper or "T 4" in auction_upper:
-            t_number = "T-4"
-        
-        debug_info["t_number_details"]["extracted"] = t_number
-        logger.info(f"DEBUG: Extracted t_number={t_number} from auction name '{auction_name}'")
-        
-        # Extract year range pattern from auction name if possible
-        import re
-        year_range_pattern = ""
-        if auction_name:
-            # First try to match pattern with slash (2020/21)
-            matches = re.findall(r'\d{4}/\d{2}', auction_name)
-            if matches:
-                year_range_pattern = matches[0]
-            else:
-                # Try to match pattern with space (2020 21)
-                matches = re.findall(r'\d{4}\s+\d{1,2}', auction_name)
-                if matches:
-                    year_range_pattern = matches[0]
-                else:
-                    # Try to extract just a 4-digit year
-                    matches = re.findall(r'\d{4}', auction_name)
-                    if matches:
-                        year_range_pattern = matches[0]
-        
-        debug_info["year_details"]["extracted"] = year_range_pattern
-        logger.info(f"DEBUG: Extracted year_range_pattern={year_range_pattern} from auction name '{auction_name}'")
-
-        # Get all CMU IDs for this company
-        matching_components = []
-        logger.info(f"DEBUG: Fetching components for {len(all_cmu_ids)} CMU IDs")
-        
-        # Only process the first 10 CMU IDs to improve performance
-        # This is a tradeoff between completeness and performance
-        cmu_ids_to_process = all_cmu_ids[:min(10, len(all_cmu_ids))]
-        
-        # Show message if we're limiting results
-        limited_results = len(all_cmu_ids) > len(cmu_ids_to_process)
-        
-        for i, cmu_id in enumerate(cmu_ids_to_process):
-            try:
-                logger.info(f"DEBUG: Processing CMU ID {i+1}/{len(cmu_ids_to_process)}: {cmu_id}")
-                # First try to get components from JSON cache
-                components = get_component_data_from_json(cmu_id)
+            if components:
+                debug_info.append(f"Found {len(components)} direct components for {cmu_id}")
+                cmu_ids.append(cmu_id)
                 
-                # If not found in JSON, fetch from API
-                if not components:
-                    logger.info(f"DEBUG: No components found in JSON for CMU ID: {cmu_id}, trying API")
-                    components, _ = fetch_components_for_cmu_id(cmu_id)
-                
-                # Skip if no components found
-                if not components:
-                    logger.info(f"DEBUG: No components found for CMU ID: {cmu_id}")
-                    continue
-                    
-                debug_info["cmu_details"].append({"cmu_id": cmu_id, "component_count": len(components)})
-                debug_info["components_found"] += len(components)
-                logger.info(f"DEBUG: Found {len(components)} components for CMU ID: {cmu_id}")
-                
-                # Process components
-                for comp in components:
-                    comp_auction = comp.get("Auction Name", "")
-                    debug_info["component_auctions"].append(comp_auction)
-                    comp_auction_upper = comp_auction.upper() if comp_auction else ""
-                    logger.info(f"DEBUG: Checking component auction: '{comp_auction}'")
-
-                    # Check for t-number match with more flexible matching
-                    t_number_match = not t_number or (
-                        (t_number == "T-1" and ("T-1" in comp_auction_upper or "T1" in comp_auction_upper or "T 1" in comp_auction_upper)) or
-                        (t_number == "T-4" and ("T-4" in comp_auction_upper or "T4" in comp_auction_upper or "T 4" in comp_auction_upper))
-                    )
-                    
-                    if t_number_match:
-                        debug_info["t_number_details"]["matches"] += 1
-                    else:
-                        debug_info["t_number_details"]["non_matches"] += 1
-                    
-                    # Enhanced year matching logic
-                    year_match = False
-                    
-                    # If no year pattern was extracted, consider all years matching
-                    if not year_range_pattern:
-                        year_match = True
-                    else:
-                        # Extract years from component auction name for comparison
-                        comp_years_slash = re.findall(r'\d{4}[-/]\d{1,2}', comp_auction)
-                        comp_years_space = re.findall(r'\d{4}\s+\d{1,2}', comp_auction)
-                        comp_years_single = re.findall(r'\d{4}', comp_auction)
-                        
-                        # Extract the first 4-digit year from our pattern for fallback comparison
-                        pattern_year = re.findall(r'\d{4}', year_range_pattern)[0] if re.findall(r'\d{4}', year_range_pattern) else ""
-                        
-                        # Try to extract the second part of the year range (after space/dash)
-                        pattern_second_year = None
-                        if " " in year_range_pattern:
-                            parts = year_range_pattern.split(" ")
-                            if len(parts) > 1 and parts[1].isdigit():
-                                pattern_second_year = parts[1]
-                        
-                        # Create alternative patterns to try matching
-                        alt_patterns = []
-                        
-                        # If we have both parts of the year range, create normalized patterns
-                        if pattern_year and pattern_second_year:
-                            # Standard pattern with hyphen (2020-21)
-                            alt_patterns.append(f"{pattern_year}-{pattern_second_year}")
-                            
-                            # Pattern with adjacent years (2020/21 matches with 2019/20 and 2021/22)
-                            next_year = str(int(pattern_year) + 1)
-                            if len(next_year) == 4:  # Ensure it's still a 4-digit year
-                                next_year_suffix = next_year[2:] if len(next_year) >= 4 else ""
-                                if next_year_suffix:
-                                    alt_patterns.append(f"{pattern_year}-{next_year_suffix}")
-                                    alt_patterns.append(f"{pattern_year}/{next_year_suffix}")
-                            
-                            prev_year = str(int(pattern_year) - 1)
-                            if len(prev_year) == 4:  # Ensure it's still a 4-digit year
-                                prev_year_suffix = prev_year[2:] if len(prev_year) >= 4 else ""
-                                if prev_year_suffix:
-                                    alt_patterns.append(f"{prev_year}-{prev_year_suffix}")
-                                    alt_patterns.append(f"{prev_year}/{prev_year_suffix}")
-                        
-                        # Also try using just the first year
-                        if pattern_year:
-                            alt_patterns.append(pattern_year)
-                            
-                            # Try the year before and after
-                            next_year = str(int(pattern_year) + 1)
-                            prev_year = str(int(pattern_year) - 1)
-                            if len(next_year) == 4:
-                                alt_patterns.append(next_year)
-                            if len(prev_year) == 4:
-                                alt_patterns.append(prev_year)
-                        
-                        # Log the patterns we're trying
-                        logger.info(f"DEBUG: Trying alternative year patterns: {alt_patterns}")
-                        
-                        # Try matching with all the patterns
-                        for alt_pattern in alt_patterns:
-                            # First try direct substring match
-                            if alt_pattern in comp_auction:
-                                logger.info(f"DEBUG: Matched direct substring with pattern {alt_pattern}")
-                                year_match = True
-                                break
-                                
-                            # Try more complex pattern matching for each extracted year
-                            for comp_years in [comp_years_slash, comp_years_space, comp_years_single]:
-                                for comp_year in comp_years:
-                                    # Normalize both for comparison
-                                    norm_comp_year = comp_year.replace("/", "-").replace(" ", "-")
-                                    norm_alt_pattern = alt_pattern.replace("/", "-").replace(" ", "-")
-                                    
-                                    if norm_comp_year == norm_alt_pattern:
-                                        logger.info(f"DEBUG: Matched normalized year {norm_comp_year} with pattern {norm_alt_pattern}")
-                                        year_match = True
-                                        break
-                                        
-                                    # Also check if the component year contains our pattern year
-                                    if pattern_year in comp_year:
-                                        logger.info(f"DEBUG: Matched pattern year {pattern_year} in {comp_year}")
-                                        year_match = True
-                                        break
-                                
-                                if year_match:
-                                    break
-                            
-                            if year_match:
-                                break
-                    
-                    if year_match:
-                        debug_info["year_details"]["matches"] += 1
-                    else:
-                        debug_info["year_details"]["non_matches"] += 1
-                    
-                    logger.info(f"DEBUG: Component auction: '{comp_auction}', t_number_match: {t_number_match}, year_match: {year_match}")
-
-                    # Check if auction name matches both the year range pattern and T-number
-                    if year_match and t_number_match:
-                        comp = comp.copy()
-                        comp["CMU ID"] = cmu_id
-                        matching_components.append(comp)
-                        logger.info(f"DEBUG: MATCH FOUND for component in auction '{comp_auction}'")
-                    else:
-                        logger.info(f"DEBUG: NO MATCH for component in auction '{comp_auction}'")
-            except Exception as e:
-                logger.error(f"Error processing CMU ID {cmu_id}: {e}")
-        
-        debug_info["component_matches"] = len(matching_components)
-        logger.info(f"DEBUG: Found {len(matching_components)} matching components")
-        
-        # Log the debug info for analysis
-        logger.info(f"DEBUG: Complete debug info: {debug_info}")
-        
-        if not matching_components:
-            # Instead of just saying no components found, let's add the debug info
-            message = f"""<div class='alert alert-warning'>
-                <h4>No components found for this auction</h4>
-                <p>We couldn't find any components matching the criteria:</p>
-                <ul>
-                    <li>Company: {company_name}</li>
-                    <li>Year: {year}</li>
-                    <li>Auction: {auction_name}</li>
-                </ul>
-                <details>
-                    <summary>Debug Info</summary>
-                    <pre>{json.dumps(debug_info, indent=2)}</pre>
-                </details>
-                <p>Try clicking on a different auction or year.</p>
-            </div>"""
+    # Get the normal CMU IDs from the dataframe
+    cmu_df, _ = get_cmu_dataframe()
+    if cmu_df is not None:
+        # Get company name from ID
+        company_name = None
+        matching_rows = cmu_df[cmu_df["Normalized Full Name"] == company_id]
+        if not matching_rows.empty:
+            company_name = matching_rows.iloc[0]["Full Name"]
+            debug_info.append(f"Found company name: {company_name}")
             
-            return message
+            # Get all CMU IDs for this company
+            company_records = cmu_df[cmu_df["Full Name"] == company_name]
+            df_cmu_ids = company_records["CMU ID"].unique().tolist()
+            
+            # Add to the CMU IDs list if not already there
+            for cmu_id in df_cmu_ids:
+                if cmu_id not in cmu_ids:
+                    cmu_ids.append(cmu_id)
+                    
+            debug_info.append(f"Found {len(df_cmu_ids)} CMU IDs from dataframe")
+            
+    debug_info = ", ".join(debug_info)
 
-        # Group matching components by auction name
-        auctions = {}
-        for comp in matching_components:
-            auction = comp.get("Auction Name", "No Auction")
-            if auction not in auctions:
-                auctions[auction] = []
-            auctions[auction].append(comp)
+    # Generate HTML for each CMU
+    html = f"<div class='small text-muted mb-2'>{debug_info}</div><div class='row'>"
 
-        logger.info(f"Grouped components into {len(auctions)} auctions")
-        
-        # Format the components into HTML
-        html = f"<h4>Components for {company_name} - {year} - {auction_name}</h4>"
-        
-        # Add the debug info for admins
-        if limited_results:
-            html += f"""
-            <div class="alert alert-info mb-3">
-                <small><strong>Note:</strong> Showing partial results for performance reasons. 
-                We found {len(matching_components)} components from {len(cmu_ids_to_process)} of {len(all_cmu_ids)} total CMU IDs.</small>
-            </div>
-            """
+    for cmu_id in cmu_ids:
+        # Fetch components for this CMU
+        components, _ = fetch_components_for_cmu_id(cmu_id)
 
-        # Define a safe key function for sorting that handles None values
-        def safe_sort_key(item):
-            auction_name, _ = item
-            return auction_name or ""
+        component_debug = f"Found {len(components)} components for CMU ID {cmu_id}"
+        logger.info(component_debug)
 
-        # Use the safe sort function
-        for auction_name, components in sorted(auctions.items(), key=safe_sort_key):
-            html += f"""
-            <div class="auction-group mb-4">
-                <h5 class="border-bottom pb-2">{auction_name} ({len(components)} components)</h5>
-                <div class="results-list">
-            """
+        # Filter components by year and auction if needed
+        filtered_components = _filter_components_by_year_auction(components, year, auction_name)
 
-            # Sort components by location with a safe key function
-            def safe_location_key(component):
-                return component.get("Location and Post Code", "") or ""
-                
-            components.sort(key=safe_location_key)
+        if not filtered_components:
+            component_debug += f" (filtered to 0 for {year}"
+            if auction_name:
+                component_debug += f", {auction_name}"
+            component_debug += ")"
+            continue  # Skip this CMU if no matching components
 
-            for component in components:
-                loc = component.get("Location and Post Code", "N/A")
-                desc = component.get("Description of CMU Components", "N/A")
-                tech = component.get("Generating Technology Class", "N/A")
-                auction = component.get("Auction Name", "N/A")
-                cmu_id = component.get("CMU ID", "N/A")
+        # Generate CMU card HTML
+        html += _build_cmu_card_html(cmu_id, filtered_components, component_debug)
 
-                # Create a unique ID for this component
-                component_id = f"{cmu_id}_{normalize(loc)}"
-
-                # Create CMU ID badge
-                cmu_badge = f'<a href="/components/?q={cmu_id}" class="badge bg-primary" style="font-size: 0.9rem; text-decoration: none;">CMU ID: {cmu_id}</a>'
-
-                # Create the component entry with location as a link
-                html += f"""
-                <div class="result-item mb-3">
-                    <strong><a href="/component/{component_id}/" class="text-primary">{loc}</a></strong>
-                    <div class="mt-1 mb-1"><i>{desc}</i></div>
-                    <div>Technology: {tech} | <b>{auction}</b> | {cmu_badge}</div>
-                </div>
-                """
-
-            html += """
-                </div>
-            </div>
-            """
-        
-        elapsed_time = time.time() - start_time
-        html += f"<p class='text-muted mt-3'>Found {len(matching_components)} components in {elapsed_time:.2f} seconds</p>"
-        
-        return html
-    
-    except Exception as e:
-        logger.error(f"Error loading auction components: {e}")
-        logger.error(traceback.format_exc())
-        return f"<div class='alert alert-danger'>Error loading components: {str(e)}</div>"
+    html += "</div>"
+    return html
 
 def try_parse_year(year_str):
     """Try to parse a year string to an integer for sorting."""
@@ -652,18 +427,18 @@ def get_company_years(company_id, year, auction_name=None):
 def _filter_components_by_year_auction(components, year, auction_name=None):
     """
     Filter components by year and auction name.
+    Returns the filtered components list.
     """
     filtered_components = []
-    for comp in components:
-        comp_delivery_year = comp.get("Delivery Year", "")
-        comp_auction = comp.get("Auction Name", "")
-
-        if comp_delivery_year != year:
-            continue
-        if auction_name and comp_auction != auction_name:
-            continue
-        filtered_components.append(comp)
-
+    
+    if not components:
+        return []
+        
+    for component in components:
+        # For now, just include all components - we'll add filtering later
+        # This is to debug LIMEJUMP components
+        filtered_components.append(component)
+        
     return filtered_components
 
 def _build_cmu_card_html(cmu_id, components, component_debug):
@@ -841,3 +616,38 @@ def company_detail(request, company_id):
             "company_name": None,
             "traceback": traceback.format_exc() if request.GET.get("debug") else None
         })
+
+def _organize_year_data(company_records, sort_order):
+    """
+    Organize year data for a company.
+    Returns a list of year objects with auctions.
+    """
+    # Extract unique years and auctions
+    year_auctions = {}
+    for _, row in company_records.iterrows():
+        year = str(row.get("Delivery Year", ""))
+        if not year or year == "nan":
+            continue
+            
+        if year not in year_auctions:
+            year_auctions[year] = {}
+            
+        auction = row.get("Auction Name", "")
+        if auction and auction != "nan":
+            year_auctions[year][auction] = True
+            
+    # Convert to list of year objects
+    year_data = []
+    for year, auctions in year_auctions.items():
+        year_id = f"year-{year.replace(' ', '-').lower()}"
+        year_data.append({
+            "year": year,
+            "year_id": year_id,
+            "auctions": list(auctions.keys())
+        })
+        
+    # Sort by year
+    ascending = sort_order == "asc"
+    year_data.sort(key=lambda x: try_parse_year(x['year']), reverse=not ascending)
+    
+    return year_data

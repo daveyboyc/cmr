@@ -3,6 +3,9 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_http_methods
 import urllib.parse
 from django.conf import settings
+import os
+import json
+import glob
 
 # Import service functions
 from .services.company_search import search_companies_service, get_company_years, get_cmu_details, \
@@ -12,6 +15,7 @@ from .services.component_search import search_components_service
 from .services.component_detail import get_component_details
 from .services.company_search import company_detail
 from .utils import safe_url_param, from_url_param
+from .services.data_access import get_component_data_from_json, get_json_path
 
 
 def search_companies(request):
@@ -125,58 +129,274 @@ def htmx_cmu_details(request, cmu_id):
     return HttpResponse(cmu_html)
 
 
+def debug_mapping(request):
+    """Debug view to examine the CMU ID to company name mapping"""
+    from django.http import JsonResponse
+    from .services.company_search import get_cmu_dataframe
+    import traceback
+    
+    debug_info = {
+        "status": "success",
+        "message": "CMU to company mapping debug",
+    }
+    
+    try:
+        # Get CMU dataframe
+        cmu_df, df_api_time = get_cmu_dataframe()
+        
+        if cmu_df is None:
+            debug_info["status"] = "error"
+            debug_info["message"] = "Error loading CMU data"
+            return JsonResponse(debug_info, status=500)
+            
+        # Create mapping
+        cmu_to_company = {}
+        for _, row in cmu_df.iterrows():
+            cmu_id = row.get("CMU ID", "")
+            company = row.get("Full Name", "")
+            if cmu_id and company:
+                cmu_to_company[cmu_id] = company
+                
+        # Return a sample of the mapping
+        debug_info["mapping_size"] = len(cmu_to_company)
+        debug_info["mapping_sample"] = dict(list(cmu_to_company.items())[:10])
+        
+        return JsonResponse(debug_info)
+    except Exception as e:
+        debug_info["status"] = "error"
+        debug_info["message"] = f"Error building mapping: {str(e)}"
+        debug_info["traceback"] = traceback.format_exc()
+        return JsonResponse(debug_info, status=500)
+        
+
 def debug_mapping_cache(request):
-    """Debug endpoint to view the CMU to company mapping cache."""
+    """Debug view to examine the cached CMU ID to company name mapping"""
     from django.core.cache import cache
-
+    from django.http import JsonResponse
+    
+    # Get mapping from cache
     cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
+    
+    # Build response
+    response = {
+        "cache_exists": "cmu_to_company_mapping" in cache,
+        "mapping_count": len(cmu_to_company_mapping),
+        "sample_entries": dict(list(cmu_to_company_mapping.items())[:10]) if cmu_to_company_mapping else {}
+    }
+    
+    # If company name is provided, look it up in the mapping
+    company_name = request.GET.get("company", "")
+    if company_name:
+        # Find all CMU IDs for this company name
+        company_cmus = []
+        for cmu_id, comp_name in cmu_to_company_mapping.items():
+            if comp_name == company_name:
+                company_cmus.append(cmu_id)
+                
+        response["company_name"] = company_name
+        response["company_cmus"] = company_cmus
+        response["company_cmu_count"] = len(company_cmus)
+        
+    # If cmu_id is provided, look it up in the mapping
+    cmu_id = request.GET.get("cmu_id", "")
+    if cmu_id:
+        company_name = cmu_to_company_mapping.get(cmu_id, "")
+        
+        # Try case-insensitive match if needed
+        if not company_name:
+            for mapping_cmu_id, mapping_company in cmu_to_company_mapping.items():
+                if mapping_cmu_id.lower() == cmu_id.lower():
+                    company_name = mapping_company
+                    break
+                    
+        response["cmu_id"] = cmu_id
+        response["company_name_for_cmu"] = company_name
+        
+    return JsonResponse(response)
 
-    output = f"<h1>CMU to Company Mapping Cache</h1>"
-    output += f"<p>Total entries: {len(cmu_to_company_mapping)}</p>"
 
-    output += "<h2>Sample Entries</h2>"
-    output += "<table border='1'><tr><th>CMU ID</th><th>Company Name</th></tr>"
+def debug_component_retrieval(request, cmu_id):
+    """Debug view to troubleshoot component retrieval for a specific CMU ID"""
+    from django.http import JsonResponse
+    from .services.data_access import get_component_data_from_json, get_json_path
+    import os
+    
+    # Get component data using the standard function
+    components = get_component_data_from_json(cmu_id)
+    
+    # Get expected path for debugging
+    json_path = get_json_path(cmu_id)
+    
+    # Create response
+    response = {
+        "cmu_id": cmu_id,
+        "components_found": components is not None,
+        "components_count": len(components) if components else 0,
+        "json_path": json_path,
+        "json_file_exists": os.path.exists(json_path) if json_path else False
+    }
+    
+    # Include some component sample data if available
+    if components and len(components) > 0:
+        response["sample_component"] = components[0]
+        
+        # Check if components have Company Name
+        has_company_name = any(c.get("Company Name") for c in components if isinstance(c, dict))
+        response["has_company_name"] = has_company_name
+        
+        if has_company_name:
+            company_names = set()
+            for component in components:
+                if isinstance(component, dict) and component.get("Company Name"):
+                    company_names.add(component["Company Name"])
+            response["company_names"] = list(company_names)
+    
+    return JsonResponse(response)
 
-    for i, (cmu_id, company) in enumerate(cmu_to_company_mapping.items()):
-        output += f"<tr><td>{cmu_id}</td><td>{company}</td></tr>"
-        if i > 20:  # Show only first 20 entries
-            break
 
-    output += "</table>"
-
-    # Add a form to add a new mapping manually
-    output += """
-        <h2>Add Mapping</h2>
-        <form method="post">
-            <label>CMU ID: <input type="text" name="cmu_id"></label><br>
-            <label>Company Name: <input type="text" name="company"></label><br>
-            <input type="submit" value="Add Mapping">
-        </form>
-        """
-
-    # Handle form submission
-    if request.method == "POST":
-        cmu_id = request.POST.get("cmu_id", "").strip()
-        company = request.POST.get("company", "").strip()
-
-        if cmu_id and company:
-            # Update the mapping
-            cmu_to_company_mapping[cmu_id] = company
-            cache.set("cmu_to_company_mapping", cmu_to_company_mapping, 3600)
-
-            # Also update any components for this CMU ID
-            from .services.data_access import get_component_data_from_json, save_component_data_to_json
-            components = get_component_data_from_json(cmu_id)
-            if components:
-                for component in components:
-                    component["Company Name"] = company
-                save_component_data_to_json(cmu_id, components)
-
-            output += f"<p style='color:green'>Added mapping: {cmu_id} -> {company}</p>"
+def debug_company_components(request):
+    """Debug view to examine components for a specific company"""
+    company_name = request.GET.get("company", "").strip()
+    results = {}
+    
+    if not company_name:
+        return render(request, "checker/debug_components.html", {
+            "error": "Please provide a company name",
+            "results": {}
+        })
+    
+    # Get CMU dataframe to find all CMU IDs for this company
+    from .services.company_search import get_cmu_dataframe
+    cmu_df, _ = get_cmu_dataframe()
+    
+    if cmu_df is None:
+        return render(request, "checker/debug_components.html", {
+            "error": "Error loading CMU data",
+            "company_name": company_name,
+            "results": {}
+        })
+    
+    # Find all records for this company
+    company_records = cmu_df[cmu_df["Full Name"] == company_name]
+    
+    if company_records.empty:
+        return render(request, "checker/debug_components.html", {
+            "error": f"No CMU records found for company: {company_name}",
+            "company_name": company_name,
+            "results": {}
+        })
+    
+    # Get all CMU IDs for this company
+    cmu_ids = company_records["CMU ID"].unique().tolist()
+    
+    # Check each JSON file for components
+    json_dir = os.path.join(settings.BASE_DIR, 'json_data')
+    all_components = {}
+    found_count = 0
+    missing_count = 0
+    
+    for cmu_id in cmu_ids:
+        # Get expected JSON path for this CMU ID
+        json_path = get_json_path(cmu_id)
+        file_exists = os.path.exists(json_path)
+        
+        # Get components using the standard function
+        components = get_component_data_from_json(cmu_id)
+        
+        if components:
+            found_count += 1
+            all_components[cmu_id] = {
+                "file_path": json_path,
+                "file_exists": file_exists,
+                "component_count": len(components),
+                "components": components
+            }
         else:
-            output += "<p style='color:red'>Both CMU ID and Company Name are required</p>"
+            missing_count += 1
+            all_components[cmu_id] = {
+                "file_path": json_path,
+                "file_exists": file_exists,
+                "component_count": 0,
+                "components": []
+            }
+    
+    # Also search through all JSON files for any components with this company name
+    found_in_files = []
+    json_files = glob.glob(os.path.join(json_dir, 'components_*.json'))
+    
+    for json_file in json_files:
+        try:
+            with open(json_file, 'r') as f:
+                file_components = json.load(f)
+                
+            for file_cmu_id, cmu_components in file_components.items():
+                if file_cmu_id in all_components:
+                    continue  # Already processed this CMU ID
+                    
+                for component in cmu_components:
+                    if isinstance(component, dict) and component.get("Company Name") == company_name:
+                        if file_cmu_id not in all_components:
+                            all_components[file_cmu_id] = {
+                                "file_path": json_file,
+                                "file_exists": True,
+                                "component_count": len(cmu_components),
+                                "components": cmu_components,
+                                "note": "Found by company name, not in CMU dataframe"
+                            }
+                            found_in_files.append(file_cmu_id)
+                        break
+        except Exception as e:
+            print(f"Error processing {json_file}: {e}")
+    
+    return render(request, "checker/debug_components.html", {
+        "company_name": company_name,
+        "cmu_ids": cmu_ids,
+        "all_components": all_components,
+        "found_count": found_count,
+        "missing_count": missing_count,
+        "found_in_files": found_in_files
+    })
 
-    return HttpResponse(output) # Fixed indentation issue
+
+def debug_cache(request, cmu_id):
+    """Debug view to examine cache for a CMU ID"""
+    from django.core.cache import cache
+    from django.http import JsonResponse
+    from .utils import get_cache_key
+    
+    debug_info = {
+        "cmu_id": cmu_id,
+        "cache_keys": [],
+        "cache_values": {}
+    }
+    
+    # Get direct cache key
+    components_cache_key = get_cache_key("components_for_cmu", cmu_id)
+    cached_components = cache.get(components_cache_key)
+    
+    debug_info["cache_keys"].append(components_cache_key)
+    debug_info["cache_values"][components_cache_key] = {
+        "exists": cached_components is not None,
+        "length": len(cached_components) if cached_components else 0
+    }
+    
+    # Get mapping
+    cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
+    company_name = cmu_to_company_mapping.get(cmu_id)
+    
+    debug_info["cmu_to_company_mapping_exists"] = "cmu_to_company_mapping" in cache
+    debug_info["company_name_from_mapping"] = company_name
+    
+    # Get component data from JSON
+    from .services.data_access import get_component_data_from_json, get_json_path
+    json_path = get_json_path(cmu_id)
+    components = get_component_data_from_json(cmu_id)
+    
+    debug_info["json_path"] = json_path
+    debug_info["json_components_exists"] = components is not None
+    debug_info["json_components_length"] = len(components) if components else 0
+    
+    return JsonResponse(debug_info)
 
 
 def auction_components(request, company_id, year, auction_name):
@@ -371,7 +591,7 @@ def debug_auction_components(request, company_id, year, auction_name):
                                 if norm_comp_year == normalized_pattern:
                                     year_match = True
                                     break
-                        
+                                    
                         # If no normalized match, check if any component year pattern contains our target year
                         if not year_match:
                             for comp_pattern in comp_years_slash + comp_years_space + comp_years_single:
@@ -419,77 +639,7 @@ def debug_auction_components(request, company_id, year, auction_name):
     return JsonResponse(debug_info)
 
 
-def debug_component_retrieval(request, cmu_id):
-    """
-    Debug endpoint to directly examine component retrieval for a specific CMU ID.
-    This helps identify where components might be getting lost in the data flow.
-    """
-    import json
-    from django.http import JsonResponse
-    from .services.data_access import get_component_data_from_json, fetch_components_for_cmu_id, get_json_path
-    import os
-    
-    debug_info = {
-        "cmu_id": cmu_id,
-        "json_path": get_json_path(cmu_id),
-        "json_path_exists": os.path.exists(get_json_path(cmu_id)),
-        "json_results": None,
-        "json_components_count": 0,
-        "api_results": None,
-        "api_components_count": 0,
-        "combined_results": None,
-        "error": None
-    }
-    
-    try:
-        # Try to get components from JSON storage
-        json_components = get_component_data_from_json(cmu_id)
-        if json_components:
-            debug_info["json_results"] = "Found components in JSON"
-            debug_info["json_components_count"] = len(json_components)
-            debug_info["json_components"] = [{
-                "Location": comp.get("Location and Post Code", "N/A"),
-                "Description": comp.get("Description of CMU Components", "N/A"),
-                "Technology": comp.get("Generating Technology Class", "N/A"),
-                "Auction": comp.get("Auction Name", "N/A"),
-                "Delivery Year": comp.get("Delivery Year", "N/A")
-            } for comp in json_components[:5]]  # Limit to first 5 for brevity
-        else:
-            debug_info["json_results"] = "No components found in JSON"
-        
-        # Try to get components from API
-        api_components, api_time = fetch_components_for_cmu_id(cmu_id)
-        if api_components:
-            debug_info["api_results"] = f"Found components from API in {api_time:.2f}s"
-            debug_info["api_components_count"] = len(api_components)
-            debug_info["api_components"] = [{
-                "Location": comp.get("Location and Post Code", "N/A"),
-                "Description": comp.get("Description of CMU Components", "N/A"),
-                "Technology": comp.get("Generating Technology Class", "N/A"),
-                "Auction": comp.get("Auction Name", "N/A"),
-                "Delivery Year": comp.get("Delivery Year", "N/A")
-            } for comp in api_components[:5]]  # Limit to first 5 for brevity
-        else:
-            debug_info["api_results"] = "No components found from API"
-        
-        # Check if the combined results would have components
-        combined = json_components or api_components or []
-        debug_info["combined_results"] = f"Total unique components found: {len(combined)}"
-        
-        # Add auction name analysis for each component
-        auction_analysis = {}
-        for comp in combined:
-            auction_name = comp.get("Auction Name", "Unknown")
-            if auction_name not in auction_analysis:
-                auction_analysis[auction_name] = 0
-            auction_analysis[auction_name] += 1
-        
-        debug_info["auction_analysis"] = auction_analysis
-        
-        return JsonResponse(debug_info)
-        
-    except Exception as e:
-        import traceback
-        debug_info["error"] = str(e)
-        debug_info["traceback"] = traceback.format_exc()
-        return JsonResponse(debug_info, status=500)
+def fetch_components_for_cmu_id(cmu_id, limit=100):
+    """Wrapper around the data_access version to avoid import errors"""
+    from .services.data_access import fetch_components_for_cmu_id as fetch_components
+    return fetch_components(cmu_id, limit)

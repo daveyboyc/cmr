@@ -44,4 +44,8 @@ urlpatterns = [
     # New debug endpoint for component investigation
     path("debug/component-retrieval/<str:cmu_id>/",
          views.debug_component_retrieval, name="debug_component_retrieval"),
+         
+    # Debug endpoint for company components
+    path("debug/company-components/",
+         views.debug_company_components, name="debug_company_components"),
 ]
