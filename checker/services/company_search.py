@@ -492,33 +492,81 @@ def _filter_components_by_year_auction(components, year, auction_name=None):
     # Extract the first year from a year range like "2028-29"
     year_to_match = str(year).split('-')[0].strip() if year else ""
     
+    # Normalize auction name for more flexible matching
+    norm_auction_name = None
+    if auction_name:
+        # Convert to lowercase and remove special characters
+        norm_auction_name = auction_name.lower().replace('-', ' ').replace('(', '').replace(')', '')
+    
     logger.info(f"Filtering {len(components)} components for year={year} (matching={year_to_match}), auction={auction_name}")
     
     year_matches = 0
     auction_matches = 0
     
     for comp in components:
+        # Get component data
         comp_delivery_year = str(comp.get("Delivery Year", ""))
         comp_auction = comp.get("Auction Name", "")
         comp_type = comp.get("Type", "")
         
-        # Log some sample component data for debugging
+        # Log first component for debugging
         if filtered_components == [] and components:
             logger.info(f"Sample component: year={comp_delivery_year}, auction={comp_auction}, type={comp_type}")
         
-        # Check if the starting year matches
-        if not comp_delivery_year.startswith(year_to_match):
+        # SUPER FLEXIBLE YEAR MATCHING - try multiple approaches
+        year_match = False
+        # Strategy 1: Check if the component year contains our year
+        if year_to_match in comp_delivery_year:
+            year_match = True
+        # Strategy 2: Check if our year contains the component year
+        elif comp_delivery_year in year_to_match:
+            year_match = True
+        # Strategy 3: For numeric years, check if they're equal when converted to integers
+        elif year_to_match.isdigit() and comp_delivery_year.isdigit():
+            if int(year_to_match) == int(comp_delivery_year):
+                year_match = True
+                
+        if not year_match:
             continue
             
         year_matches += 1
             
-        # If auction name is specified, check if it's contained in the full auction name
-        # or matches the Type field
+        # If auction name is specified, use very flexible matching
         if auction_name:
-            auction_match = (
-                auction_name.lower() in comp_auction.lower() or
-                auction_name.lower() == comp_type.lower()
-            )
+            auction_match = False
+            
+            # Normalize the component auction name
+            norm_comp_auction = comp_auction.lower().replace('-', ' ').replace('(', '').replace(')', '')
+            norm_comp_type = comp_type.lower().replace('-', ' ')
+            
+            # Strategy 1: Check if normalized strings have significant overlap
+            if norm_auction_name in norm_comp_auction or norm_comp_auction in norm_auction_name:
+                auction_match = True
+            # Strategy 2: Check for type match (T-4, T-1)
+            elif "t 1" in norm_auction_name and ("t 1" in norm_comp_auction or "t1" in norm_comp_auction or "t 1" in norm_comp_type):
+                auction_match = True
+            elif "t 4" in norm_auction_name and ("t 4" in norm_comp_auction or "t4" in norm_comp_auction or "t 4" in norm_comp_type):
+                auction_match = True
+            # Strategy 3: Extract and match year ranges
+            else:
+                # Try to extract year ranges like 2028-29 or 2028 29
+                import re
+                auction_years = re.findall(r'20\d\d[\s-]\d\d', norm_auction_name)
+                comp_years = re.findall(r'20\d\d[\s-]\d\d', norm_comp_auction)
+                
+                # If we found year ranges in both, see if any match
+                if auction_years and comp_years:
+                    # Standardize the format by removing spaces
+                    norm_auction_years = [y.replace(' ', '') for y in auction_years]
+                    norm_comp_years = [y.replace(' ', '') for y in comp_years]
+                    
+                    # Check for any overlap
+                    for a_year in norm_auction_years:
+                        for c_year in norm_comp_years:
+                            if a_year == c_year:
+                                auction_match = True
+                                break
+            
             if not auction_match:
                 continue
                 
