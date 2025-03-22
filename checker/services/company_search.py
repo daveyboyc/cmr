@@ -332,6 +332,7 @@ def get_auction_components(company_id, year, auction_name=None):
     
     debug_info = []
     cmu_ids = []
+    total_components_found = 0  # Add this counter
 
     # If this is LIMEJUMP, add special handling for CM_LJ CMU IDs
     if company_id == "limejump-ltd":
@@ -343,6 +344,7 @@ def get_auction_components(company_id, year, auction_name=None):
             if components:
                 debug_info.append(f"Found {len(components)} direct components for {cmu_id}")
                 cmu_ids.append(cmu_id)
+                total_components_found += len(components)  # Update counter
                 
     # Get the normal CMU IDs from the dataframe
     cmu_df, _ = get_cmu_dataframe()
@@ -365,20 +367,34 @@ def get_auction_components(company_id, year, auction_name=None):
                     
             debug_info.append(f"Found {len(df_cmu_ids)} CMU IDs from dataframe")
             
+    # Add total components counter to debug info        
+    debug_info.append(f"Total components before filtering: {total_components_found}")
     debug_info = ", ".join(debug_info)
 
     # Generate HTML for each CMU
     html = f"<div class='small text-muted mb-2'>{debug_info}</div><div class='row'>"
+    
+    total_filtered_components = 0  # Add counter for filtered components
+    cmu_with_components = 0  # Add counter for CMUs with matching components
 
     for cmu_id in cmu_ids:
         # Fetch components for this CMU
         components, _ = fetch_components_for_cmu_id(cmu_id)
+        
+        # Count total components found
+        if components:
+            total_components_found += len(components)
 
         component_debug = f"Found {len(components)} components for CMU ID {cmu_id}"
         logger.info(component_debug)
 
         # Filter components by year and auction if needed
         filtered_components = _filter_components_by_year_auction(components, year, auction_name)
+        
+        if filtered_components:
+            total_filtered_components += len(filtered_components)
+            cmu_with_components += 1
+            logger.info(f"After filtering: {len(filtered_components)} components match year={year}, auction={auction_name}")
 
         if not filtered_components:
             component_debug += f" (filtered to 0 for {year}"
@@ -390,7 +406,9 @@ def get_auction_components(company_id, year, auction_name=None):
         # Generate CMU card HTML
         html += _build_cmu_card_html(cmu_id, filtered_components, component_debug)
 
-    html += "</div>"
+    # Add summary stats to the HTML
+    html += f"</div><div class='alert alert-info mt-3'>Found {total_filtered_components} components across {cmu_with_components} CMU IDs that match year={year}, auction={auction_name}</div>"
+    
     return html
 
 def try_parse_year(year_str):
@@ -466,32 +484,46 @@ def _filter_components_by_year_auction(components, year, auction_name=None):
     Filter components by year and auction name.
     Returns the filtered components list.
     """
+    logger = logging.getLogger(__name__)
     filtered_components = []
     
     # Extract the first year from a year range like "2028-29"
     year_to_match = str(year).split('-')[0].strip() if year else ""
+    
+    logger.info(f"Filtering {len(components)} components for year={year} (matching={year_to_match}), auction={auction_name}")
+    
+    year_matches = 0
+    auction_matches = 0
     
     for comp in components:
         comp_delivery_year = str(comp.get("Delivery Year", ""))
         comp_auction = comp.get("Auction Name", "")
         comp_type = comp.get("Type", "")
         
+        # Log some sample component data for debugging
+        if filtered_components == [] and components:
+            logger.info(f"Sample component: year={comp_delivery_year}, auction={comp_auction}, type={comp_type}")
+        
         # Check if the starting year matches
         if not comp_delivery_year.startswith(year_to_match):
             continue
             
+        year_matches += 1
+            
         # If auction name is specified, check if it's contained in the full auction name
         # or matches the Type field
         if auction_name:
-            auction_matches = (
+            auction_match = (
                 auction_name.lower() in comp_auction.lower() or
                 auction_name.lower() == comp_type.lower()
             )
-            if not auction_matches:
+            if not auction_match:
                 continue
                 
+        auction_matches += 1
         filtered_components.append(comp)
-        
+    
+    logger.info(f"Filtering results: {len(filtered_components)} matches (year matches: {year_matches}, auction matches: {auction_matches})")
     return filtered_components
 
 def _build_cmu_card_html(cmu_id, components, component_debug):
