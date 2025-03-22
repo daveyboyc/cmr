@@ -288,7 +288,7 @@ def save_component_data_to_json(cmu_id, components):
         return False
 
 
-def fetch_components_for_cmu_id(cmu_id, limit=100):
+def fetch_components_for_cmu_id(cmu_id, limit=1000):
     """
     Fetch components for a specific CMU ID.
     Checks cache and JSON before making API request.

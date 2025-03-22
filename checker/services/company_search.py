@@ -27,12 +27,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
     query = request.GET.get("q", "").strip()
     sort_order = request.GET.get("sort", "desc")  # Get sort order, default to desc (newest first)
     
-    # Special fix for LIMEJUMP LTD
-    is_limejump_query = "limejump" in query.lower()
     
-    if is_limejump_query:
-        logger.info(f"Special handling for LIMEJUMP query: {query}")
-
     if request.method == "GET":
         # Shortcut for component results
         if query.startswith("CM_"):
@@ -131,10 +126,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             matching_records = _perform_company_search(cmu_df, norm_query)
             unique_companies = list(matching_records["Full Name"].unique())
             
-            # For LIMEJUMP LTD, make sure it's included
-            if is_limejump_query and "LIMEJUMP LTD" not in unique_companies:
-                unique_companies.append("LIMEJUMP LTD")
-                logger.info("Manually added LIMEJUMP LTD to results")
+    
                 
             results = _build_search_results(cmu_df, unique_companies, sort_order, query, add_debug_info=True)
 
