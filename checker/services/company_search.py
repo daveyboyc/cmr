@@ -332,21 +332,9 @@ def get_auction_components(company_id, year, auction_name=None):
     
     debug_info = []
     cmu_ids = []
-    total_components_found = 0  # Add this counter
+    total_components_found = 0
 
-    # If this is LIMEJUMP, add special handling for CM_LJ CMU IDs
-    if company_id == "limejump-ltd":
-        logger.info("Special handling for LIMEJUMP LTD components")
-        for i in range(1, 9):  # CM_LJ1 through CM_LJ8
-            cmu_id = f"CM_LJ{i}"
-            components = get_component_data_from_json(cmu_id)
-            
-            if components:
-                debug_info.append(f"Found {len(components)} direct components for {cmu_id}")
-                cmu_ids.append(cmu_id)
-                total_components_found += len(components)  # Update counter
-                
-    # Get the normal CMU IDs from the dataframe
+    # Get the CMU IDs from the dataframe
     cmu_df, _ = get_cmu_dataframe()
     if cmu_df is not None:
         # Get company name from ID
@@ -360,33 +348,47 @@ def get_auction_components(company_id, year, auction_name=None):
             company_records = cmu_df[cmu_df["Full Name"] == company_name]
             df_cmu_ids = company_records["CMU ID"].unique().tolist()
             
-            # Add to the CMU IDs list if not already there
+            # Add to the CMU IDs list
             for cmu_id in df_cmu_ids:
                 if cmu_id not in cmu_ids:
                     cmu_ids.append(cmu_id)
                     
             debug_info.append(f"Found {len(df_cmu_ids)} CMU IDs from dataframe")
-            
-    # Add total components counter to debug info        
+    
+    # Fetch components for all CMU IDs using the method that works in search
+    for cmu_id in cmu_ids:
+        # First try to get components using JSON method (which works in search)
+        components = get_component_data_from_json(cmu_id)
+        
+        # If no components found, try the fetch method as fallback
+        if not components:
+            components, _ = fetch_components_for_cmu_id(cmu_id)
+        
+        # Count total components found
+        if components:
+            total_components_found += len(components)
+            logger.info(f"Found {len(components)} components for CMU ID {cmu_id}")
+    
+    # Now add the total count to debug info
     debug_info.append(f"Total components before filtering: {total_components_found}")
     debug_info = ", ".join(debug_info)
 
     # Generate HTML for each CMU
     html = f"<div class='small text-muted mb-2'>{debug_info}</div><div class='row'>"
     
-    total_filtered_components = 0  # Add counter for filtered components
-    cmu_with_components = 0  # Add counter for CMUs with matching components
+    total_filtered_components = 0
+    cmu_with_components = 0
 
     for cmu_id in cmu_ids:
-        # Fetch components for this CMU
-        components, _ = fetch_components_for_cmu_id(cmu_id)
+        # Get components the same way as before
+        components = get_component_data_from_json(cmu_id)
+        if not components:
+            components, _ = fetch_components_for_cmu_id(cmu_id)
         
-        # Count total components found
-        if components:
-            total_components_found += len(components)
-
+        if not components:
+            continue
+            
         component_debug = f"Found {len(components)} components for CMU ID {cmu_id}"
-        logger.info(component_debug)
 
         # Filter components by year and auction if needed
         filtered_components = _filter_components_by_year_auction(components, year, auction_name)
