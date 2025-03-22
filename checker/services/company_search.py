@@ -467,14 +467,29 @@ def _filter_components_by_year_auction(components, year, auction_name=None):
     Returns the filtered components list.
     """
     filtered_components = []
+    
+    # Extract the first year from a year range like "2028-29"
+    year_to_match = str(year).split('-')[0].strip() if year else ""
+    
     for comp in components:
         comp_delivery_year = str(comp.get("Delivery Year", ""))
         comp_auction = comp.get("Auction Name", "")
-
-        if comp_delivery_year != year:
+        comp_type = comp.get("Type", "")
+        
+        # Check if the starting year matches
+        if not comp_delivery_year.startswith(year_to_match):
             continue
-        if auction_name and comp_auction != auction_name:
-            continue
+            
+        # If auction name is specified, check if it's contained in the full auction name
+        # or matches the Type field
+        if auction_name:
+            auction_matches = (
+                auction_name.lower() in comp_auction.lower() or
+                auction_name.lower() == comp_type.lower()
+            )
+            if not auction_matches:
+                continue
+                
         filtered_components.append(comp)
         
     return filtered_components
