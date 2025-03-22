@@ -217,17 +217,16 @@
         {% if company_links %}
             <div class="section-header">
                 <h3>Matching Companies ({{ company_links|length }})</h3>
-                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#companyLinksCollapse" aria-expanded="{% if company_links|length < 5 %}true{% else %}false{% endif %}" aria-controls="companyLinksCollapse">
-                    <span class="toggle-icon"></span>
-                    <span class="toggle-text">{% if company_links|length < 5 %}Hide{% else %}Show{% endif %}</span>
-                </button>
             </div>
-            <div class="company-links-section collapse {% if company_links|length < 5 %}show{% endif %}" id="companyLinksCollapse">
-                <div class="company-links">
-                    {% for link in company_links %}
+            <div class="alert alert-info">
+                <span class="bi bi-info-circle"></span> Click on the blue company names to view company details
+            </div>
+            <div class="results-list">
+                {% for link in company_links %}
+                    <div class="result-item">
                         {{ link|safe }}
-                    {% endfor %}
-                </div>
+                    </div>
+                {% endfor %}
             </div>
         {% endif %}
 

@@ -66,9 +66,22 @@ def format_location_list(locations, components):
         # Add debug info
         component_count = len(location_components)
 
+        # Create component ID for first component (for linking)
+        component_id = ""
+        if location_components and "CMU ID" in location_components[0]:
+            cmu_id = location_components[0].get("CMU ID", "")
+            if cmu_id:
+                loc_normalized = normalize(location)
+                component_id = f"{cmu_id}_{loc_normalized}"
+
+        # Format location as a blue link if we have a component ID
+        location_html = location
+        if component_id:
+            location_html = f'<a href="/component/{component_id}/" style="color: blue; text-decoration: underline;">{location}</a>'
+
         html += f"""
             <li class="mb-2">
-                <strong>{location}</strong> <span class="text-muted">({component_count} components)</span>
+                <strong>{location_html}</strong> <span class="text-muted">({component_count} components)</span>
                 <ul class="ms-3">
         """
 

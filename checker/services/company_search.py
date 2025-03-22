@@ -44,13 +44,42 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 logger.info(f"Found {len(components)} components for direct CMU ID: {component_id}")
                 # Use component name if available
                 company_name = None
-                if "Company Name" in components[0]:
+                if components and len(components) > 0 and "Company Name" in components[0]:
                     company_name = components[0]["Company Name"]
                     
                 if company_name:
-                    # Redirect to company search for this company name
-                    logger.info(f"Redirecting to company search for: {company_name}")
-                    return redirect(f"/?q={urllib.parse.quote(company_name)}")
+                    # Instead of redirecting, perform a company search
+                    logger.info(f"Searching for company: {company_name}")
+                    norm_query = normalize(company_name)
+                    cmu_df, df_api_time = get_cmu_dataframe()
+                    api_time += df_api_time
+                    
+                    if cmu_df is not None:
+                        matching_records = _perform_company_search(cmu_df, norm_query)
+                        unique_companies = list(matching_records["Full Name"].unique())
+                        
+                        # Make sure the company is included
+                        if company_name not in unique_companies:
+                            unique_companies.append(company_name)
+                            
+                        results = _build_search_results(cmu_df, unique_companies, sort_order, company_name)
+                        
+                        if return_data_only:
+                            return results
+                            
+                        context = {
+                            "results": results,
+                            "record_count": len(cmu_df),
+                            "error": error_message,
+                            "api_time": api_time,
+                            "query": company_name,
+                            "sort_order": sort_order,
+                        }
+                        
+                        if extra_context:
+                            context.update(extra_context)
+                            
+                        return render(request, "checker/search.html", context)
         
         elif "debug" in request.GET:
             # Show all companies (for debugging)
@@ -180,7 +209,7 @@ def _perform_company_search(cmu_df, norm_query):
 def _build_search_results(cmu_df, unique_companies, sort_order, query, add_debug_info=False):
     """
     Build search results for companies.
-    Returns a dictionary with query as key and list of formatted company cards as values.
+    Returns a dictionary with query as key and list of formatted company links as values.
     """
     logger = logging.getLogger(__name__)
     results = {query: []}
@@ -229,14 +258,22 @@ def _build_search_results(cmu_df, unique_companies, sort_order, query, add_debug
             if has_components:
                 debug_info["companies_with_components"] += 1
             
-            # Generate company HTML for displaying in search results
+            # Generate a simple blue link for the company instead of a card
             company_id = normalize(company)
-            company_html = render_to_string('checker/components/company_card.html', {
-                'company_name': company,
-                'company_id': company_id,
-                'year_auction_data': year_data,
-                'has_components': has_components
-            })
+            company_html = f'<a href="/company/{company_id}/" style="color: blue; text-decoration: underline;">{company}</a>'
+            
+            # Add additional information about CMU IDs and components count
+            cmu_ids_str = ", ".join(cmu_ids[:3])
+            if len(cmu_ids) > 3:
+                cmu_ids_str += f" and {len(cmu_ids) - 3} more"
+                
+            company_html = f"""
+            <div>
+                <strong>{company_html}</strong>
+                <div class="mt-1 mb-1"><span class="text-muted">CMU IDs: {cmu_ids_str}</span></div>
+                <div>{company_component_count} components across {len(cmu_ids)} CMU IDs</div>
+            </div>
+            """
             
             results[query].append(company_html)
     
@@ -430,14 +467,15 @@ def _filter_components_by_year_auction(components, year, auction_name=None):
     Returns the filtered components list.
     """
     filtered_components = []
-    
-    if not components:
-        return []
-        
-    for component in components:
-        # For now, just include all components - we'll add filtering later
-        # This is to debug LIMEJUMP components
-        filtered_components.append(component)
+    for comp in components:
+        comp_delivery_year = str(comp.get("Delivery Year", ""))
+        comp_auction = comp.get("Auction Name", "")
+
+        if comp_delivery_year != year:
+            continue
+        if auction_name and comp_auction != auction_name:
+            continue
+        filtered_components.append(comp)
         
     return filtered_components
 
