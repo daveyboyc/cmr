@@ -23,17 +23,13 @@ def search_companies(request):
     # Get the query parameter
     query = request.GET.get("q", "").strip()
     comp_sort = request.GET.get("comp_sort", "desc")  # Sort for component results
-    
-    # Add pagination parameters
-    page = int(request.GET.get("page", 1))  # Current page, default to 1
-    per_page = int(request.GET.get("per_page", 100))  # Items per page, default to 100
-    
+
     # Setup logging first so it's available
     import logging
     logger = logging.getLogger(__name__)
     
     # Add debug logging
-    logger.info(f"DEBUG: search_companies called with query='{query}', comp_sort='{comp_sort}', page={page}")
+    logger.info(f"DEBUG: search_companies called with query='{query}', comp_sort='{comp_sort}'")
 
     # If no query, just return the regular company search page
     if not query:
@@ -43,24 +39,13 @@ def search_companies(request):
     # Get component results if there's a query
     components = []
     component_results = {}
-    total_component_count = 0
     if query:
         logger.info(f"DEBUG: Getting component results for query='{query}'")
         component_results = search_components_service(request, return_data_only=True)
         logger.info(f"DEBUG: Component results keys: {list(component_results.keys()) if component_results else 'None'}")
         if component_results and query in component_results:
-            # Get all components before pagination
-            all_components = component_results[query]
-            total_component_count = len(all_components)
-            
-            # Apply pagination
-            start_idx = (page - 1) * per_page
-            end_idx = start_idx + per_page
-            components = all_components[start_idx:end_idx]
-            
-            # Update the component results with paginated data
-            component_results[query] = components
-            logger.info(f"DEBUG: Paginated components: showing {len(components)} of {total_component_count} total")
+            components = component_results[query]
+            logger.info(f"DEBUG: Found {len(components)} components for query")
 
     # Get company results
     logger.info(f"DEBUG: Getting company results for query='{query}'")
@@ -75,29 +60,16 @@ def search_companies(request):
             company_links.append(company_html)
         logger.info(f"DEBUG: Created {len(company_links)} company links")
 
-    # Calculate pagination details
-    total_pages = (total_component_count + per_page - 1) // per_page
-    has_prev = page > 1
-    has_next = page < total_pages
-    
     # Pass both results to the template
     extra_context = {
         'unified_search': True,
         'company_links': company_links,
         'component_results': component_results,
-        'component_count': total_component_count,  # Show total count, not just current page
-        'displayed_component_count': len(components),  # Add count of displayed components
-        'comp_sort': comp_sort,
-        # Pagination context
-        'page': page,
-        'per_page': per_page,
-        'total_pages': total_pages,
-        'has_prev': has_prev,
-        'has_next': has_next,
-        'page_range': range(max(1, page-2), min(total_pages+1, page+3))
+        'component_count': len(components) if components else 0,
+        'comp_sort': comp_sort
     }
     
-    logger.info(f"DEBUG: Final pagination: page {page}/{total_pages}, showing {len(components)} components")
+    logger.info(f"DEBUG: Final extra_context: unified_search=True, company_links={len(company_links)}, component_count={len(components) if components else 0}")
 
     return search_companies_service(request, extra_context=extra_context)
 

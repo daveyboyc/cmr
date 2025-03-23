@@ -400,6 +400,7 @@ def get_auction_components(company_id, year, auction_name=None):
             continue  # Skip this CMU if no matching components
 
         # Generate CMU card HTML
+        print(f"Building CMU card for {cmu_id} with {len(components)} components")
         html += _build_cmu_card_html(cmu_id, filtered_components, component_debug)
 
     # Add summary stats to the HTML
