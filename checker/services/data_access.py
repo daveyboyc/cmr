@@ -49,7 +49,7 @@ def save_cmu_data_to_json(cmu_records):
         return False
 
 
-def fetch_all_cmu_records(limit=1000):
+def fetch_all_cmu_records(limit=None):
     """
     Fetch all CMU records from the API.
     First checks if we have them stored in JSON.
@@ -288,7 +288,7 @@ def save_component_data_to_json(cmu_id, components):
         return False
 
 
-def fetch_components_for_cmu_id(cmu_id, limit=1000):
+def fetch_components_for_cmu_id(cmu_id, limit=None):
     """
     Fetch components for a specific CMU ID.
     Checks cache and JSON before making API request.

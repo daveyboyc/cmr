@@ -667,7 +667,7 @@ def debug_auction_components(request, company_id, year, auction_name):
     return JsonResponse(debug_info)
 
 
-def fetch_components_for_cmu_id(cmu_id, limit=1000):
+def fetch_components_for_cmu_id(cmu_id, limit=None):
     """Wrapper around the data_access version to avoid import errors"""
     from .services.data_access import fetch_components_for_cmu_id as fetch_components
     return fetch_components(cmu_id, limit)
