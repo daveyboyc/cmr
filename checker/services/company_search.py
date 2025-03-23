@@ -8,12 +8,14 @@ from django.shortcuts import render, redirect
 from django.core.cache import cache
 from django.http import HttpResponse
 from django.template.loader import render_to_string
+import requests
 
 from ..utils import normalize, get_cache_key, format_location_list, safe_url_param, from_url_param
 from .data_access import (
     get_cmu_dataframe,
     fetch_components_for_cmu_id,
-    get_component_data_from_json
+    get_component_data_from_json,
+    save_component_data_to_json
 )
 
 logger = logging.getLogger(__name__)
@@ -778,3 +780,93 @@ def _organize_year_data(company_records, sort_order):
     year_data.sort(key=lambda x: try_parse_year(x['year']), reverse=not ascending)
     
     return year_data
+
+def fetch_components_for_cmu_id(cmu_id, limit=1000):
+    """
+    Fetch components for a specific CMU ID.
+    Checks cache and JSON before making API request.
+    Includes pagination to handle large result sets.
+    """
+    logger = logging.getLogger(__name__)
+    
+    if not cmu_id:
+        logger.warning("No CMU ID provided to fetch_components_for_cmu_id")
+        return [], 0
+
+    # First check if we already have cached data for this CMU ID
+    components_cache_key = get_cache_key("components_for_cmu", cmu_id)
+    logger.info(f"Checking cache for components with key: {components_cache_key}")
+    cached_components = cache.get(components_cache_key)
+    if cached_components is not None:
+        logger.info(f"Using cached components for {cmu_id}, found {len(cached_components)}")
+        return cached_components, 0
+
+    # Check if we have the data in our JSON file - CASE-INSENSITIVE
+    logger.info(f"Checking JSON for components for CMU ID: {cmu_id}")
+    json_components = get_component_data_from_json(cmu_id)
+    if json_components is not None:
+        logger.info(f"Using JSON-stored components for {cmu_id}, found {len(json_components)}")
+        # Also update the cache
+        cache.set(components_cache_key, json_components, 3600)
+        return json_components, 0
+
+    logger.info(f"No components found in cache or JSON for {cmu_id}, fetching from API")
+    
+    start_time = time.time()
+    
+    # Try scraping from the API with pagination
+    all_components = []
+    offset = 0
+    page_size = 100  # API might have a max limit per request
+    
+    base_url = "https://api.neso.energy/api/3/action/datastore_search"
+    
+    while True:
+        try:
+            params = {
+                "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
+                "q": cmu_id,
+                "limit": page_size,
+                "offset": offset,
+                "sort": "Delivery Year desc"
+            }
+            
+            logger.info(f"Making API request for CMU ID: {cmu_id}, offset: {offset}")
+            response = requests.get(base_url, params=params, timeout=60)
+            response.raise_for_status()
+            
+            data = response.json()
+            if data.get("success"):
+                records = data.get("result", {}).get("records", [])
+                logger.info(f"API returned {len(records)} records for {cmu_id} at offset {offset}")
+                
+                if not records:
+                    # No more records to fetch
+                    break
+                    
+                all_components.extend(records)
+                
+                # Check if we've fetched all available records
+                total_available = data.get("result", {}).get("total", 0)
+                if offset + len(records) >= total_available or len(records) < page_size:
+                    break
+                    
+                # Move to the next page
+                offset += page_size
+            else:
+                logger.error(f"API request unsuccessful for {cmu_id}: {data.get('error', 'Unknown error')}")
+                break
+                
+        except Exception as e:
+            logger.error(f"Error fetching components for {cmu_id}: {e}")
+            break
+    
+    if all_components:
+        logger.info(f"Total {len(all_components)} components fetched for {cmu_id}")
+        # Update the JSON file
+        save_component_data_to_json(cmu_id, all_components)
+        # Also update the cache
+        cache.set(components_cache_key, all_components, 3600)
+    
+    elapsed_time = time.time() - start_time
+    return all_components, elapsed_time
