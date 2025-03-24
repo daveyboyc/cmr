@@ -258,6 +258,39 @@
                     {% endfor %}
                 </div>
             {% endfor %}
+
+            <!-- Add after the component results section, before the API time info -->
+            {% if component_count > per_page %}
+            <nav aria-label="Page navigation" class="mt-4">
+              <ul class="pagination justify-content-center">
+                <!-- Previous page button -->
+                <li class="page-item {% if not has_prev %}disabled{% endif %}">
+                  <a class="page-link" href="?q={{ query }}&page={{ page|add:'-1' }}&per_page={{ per_page }}&comp_sort={{ comp_sort }}" aria-label="Previous">
+                    <span aria-hidden="true">&laquo;</span>
+                  </a>
+                </li>
+                
+                <!-- Page numbers -->
+                {% for p in page_range %}
+                  <li class="page-item {% if p == page %}active{% endif %}">
+                    <a class="page-link" href="?q={{ query }}&page={{ p }}&per_page={{ per_page }}&comp_sort={{ comp_sort }}">{{ p }}</a>
+                  </li>
+                {% endfor %}
+                
+                <!-- Next page button -->
+                <li class="page-item {% if not has_next %}disabled{% endif %}">
+                  <a class="page-link" href="?q={{ query }}&page={{ page|add:'1' }}&per_page={{ per_page }}&comp_sort={{ comp_sort }}" aria-label="Next">
+                    <span aria-hidden="true">&raquo;</span>
+                  </a>
+                </li>
+              </ul>
+            </nav>
+
+            <!-- Page info -->
+            <div class="text-center text-muted mb-4">
+              Showing {{ displayed_component_count }} of {{ component_count }} results (Page {{ page }} of {{ total_pages }})
+            </div>
+            {% endif %}
         {% endif %}
 
         <!-- API Time -->
