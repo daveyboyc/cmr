@@ -8,12 +8,14 @@ from django.shortcuts import render, redirect
 from django.core.cache import cache
 from django.http import HttpResponse
 from django.template.loader import render_to_string
+import requests
 
 from ..utils import normalize, get_cache_key, format_location_list, safe_url_param, from_url_param
 from .data_access import (
     get_cmu_dataframe,
     fetch_components_for_cmu_id,
-    get_component_data_from_json
+    get_component_data_from_json,
+    save_component_data_to_json
 )
 
 logger = logging.getLogger(__name__)
@@ -27,12 +29,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
     query = request.GET.get("q", "").strip()
     sort_order = request.GET.get("sort", "desc")  # Get sort order, default to desc (newest first)
     
-    # Special fix for LIMEJUMP LTD
-    is_limejump_query = "limejump" in query.lower()
     
-    if is_limejump_query:
-        logger.info(f"Special handling for LIMEJUMP query: {query}")
-
     if request.method == "GET":
         # Shortcut for component results
         if query.startswith("CM_"):
@@ -131,10 +128,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             matching_records = _perform_company_search(cmu_df, norm_query)
             unique_companies = list(matching_records["Full Name"].unique())
             
-            # For LIMEJUMP LTD, make sure it's included
-            if is_limejump_query and "LIMEJUMP LTD" not in unique_companies:
-                unique_companies.append("LIMEJUMP LTD")
-                logger.info("Manually added LIMEJUMP LTD to results")
+    
                 
             results = _build_search_results(cmu_df, unique_companies, sort_order, query, add_debug_info=True)
 
@@ -332,19 +326,9 @@ def get_auction_components(company_id, year, auction_name=None):
     
     debug_info = []
     cmu_ids = []
+    total_components_found = 0
 
-    # If this is LIMEJUMP, add special handling for CM_LJ CMU IDs
-    if company_id == "limejump-ltd":
-        logger.info("Special handling for LIMEJUMP LTD components")
-        for i in range(1, 9):  # CM_LJ1 through CM_LJ8
-            cmu_id = f"CM_LJ{i}"
-            components = get_component_data_from_json(cmu_id)
-            
-            if components:
-                debug_info.append(f"Found {len(components)} direct components for {cmu_id}")
-                cmu_ids.append(cmu_id)
-                
-    # Get the normal CMU IDs from the dataframe
+    # Get the CMU IDs from the dataframe
     cmu_df, _ = get_cmu_dataframe()
     if cmu_df is not None:
         # Get company name from ID
@@ -358,27 +342,55 @@ def get_auction_components(company_id, year, auction_name=None):
             company_records = cmu_df[cmu_df["Full Name"] == company_name]
             df_cmu_ids = company_records["CMU ID"].unique().tolist()
             
-            # Add to the CMU IDs list if not already there
+            # Add to the CMU IDs list
             for cmu_id in df_cmu_ids:
                 if cmu_id not in cmu_ids:
                     cmu_ids.append(cmu_id)
                     
             debug_info.append(f"Found {len(df_cmu_ids)} CMU IDs from dataframe")
-            
+    
+    # Fetch components for all CMU IDs using the method that works in search
+    for cmu_id in cmu_ids:
+        # First try to get components using JSON method (which works in search)
+        components = get_component_data_from_json(cmu_id)
+        
+        # If no components found, try the fetch method as fallback
+        if not components:
+            components, _ = fetch_components_for_cmu_id(cmu_id)
+        
+        # Count total components found
+        if components:
+            total_components_found += len(components)
+            logger.info(f"Found {len(components)} components for CMU ID {cmu_id}")
+    
+    # Now add the total count to debug info
+    debug_info.append(f"Total components before filtering: {total_components_found}")
     debug_info = ", ".join(debug_info)
 
     # Generate HTML for each CMU
     html = f"<div class='small text-muted mb-2'>{debug_info}</div><div class='row'>"
+    
+    total_filtered_components = 0
+    cmu_with_components = 0
 
     for cmu_id in cmu_ids:
-        # Fetch components for this CMU
-        components, _ = fetch_components_for_cmu_id(cmu_id)
-
+        # Get components the same way as before
+        components = get_component_data_from_json(cmu_id)
+        if not components:
+            components, _ = fetch_components_for_cmu_id(cmu_id)
+        
+        if not components:
+            continue
+            
         component_debug = f"Found {len(components)} components for CMU ID {cmu_id}"
-        logger.info(component_debug)
 
         # Filter components by year and auction if needed
         filtered_components = _filter_components_by_year_auction(components, year, auction_name)
+        
+        if filtered_components:
+            total_filtered_components += len(filtered_components)
+            cmu_with_components += 1
+            logger.info(f"After filtering: {len(filtered_components)} components match year={year}, auction={auction_name}")
 
         if not filtered_components:
             component_debug += f" (filtered to 0 for {year}"
@@ -388,9 +400,12 @@ def get_auction_components(company_id, year, auction_name=None):
             continue  # Skip this CMU if no matching components
 
         # Generate CMU card HTML
+        print(f"Building CMU card for {cmu_id} with {len(components)} components")
         html += _build_cmu_card_html(cmu_id, filtered_components, component_debug)
 
-    html += "</div>"
+    # Add summary stats to the HTML
+    html += f"</div><div class='alert alert-info mt-3'>Found {total_filtered_components} components across {cmu_with_components} CMU IDs that match year={year}, auction={auction_name}</div>"
+    
     return html
 
 def try_parse_year(year_str):
@@ -466,17 +481,94 @@ def _filter_components_by_year_auction(components, year, auction_name=None):
     Filter components by year and auction name.
     Returns the filtered components list.
     """
+    logger = logging.getLogger(__name__)
     filtered_components = []
+    
+    # Extract the first year from a year range like "2028-29"
+    year_to_match = str(year).split('-')[0].strip() if year else ""
+    
+    # Normalize auction name for more flexible matching
+    norm_auction_name = None
+    if auction_name:
+        # Convert to lowercase and remove special characters
+        norm_auction_name = auction_name.lower().replace('-', ' ').replace('(', '').replace(')', '')
+    
+    logger.info(f"Filtering {len(components)} components for year={year} (matching={year_to_match}), auction={auction_name}")
+    
+    year_matches = 0
+    auction_matches = 0
+    
     for comp in components:
+        # Get component data
         comp_delivery_year = str(comp.get("Delivery Year", ""))
         comp_auction = comp.get("Auction Name", "")
-
-        if comp_delivery_year != year:
-            continue
-        if auction_name and comp_auction != auction_name:
-            continue
-        filtered_components.append(comp)
+        comp_type = comp.get("Type", "")
         
+        # Log first component for debugging
+        if filtered_components == [] and components:
+            logger.info(f"Sample component: year={comp_delivery_year}, auction={comp_auction}, type={comp_type}")
+        
+        # SUPER FLEXIBLE YEAR MATCHING - try multiple approaches
+        year_match = False
+        # Strategy 1: Check if the component year contains our year
+        if year_to_match in comp_delivery_year:
+            year_match = True
+        # Strategy 2: Check if our year contains the component year
+        elif comp_delivery_year in year_to_match:
+            year_match = True
+        # Strategy 3: For numeric years, check if they're equal when converted to integers
+        elif year_to_match.isdigit() and comp_delivery_year.isdigit():
+            if int(year_to_match) == int(comp_delivery_year):
+                year_match = True
+                
+        if not year_match:
+            continue
+            
+        year_matches += 1
+            
+        # If auction name is specified, use very flexible matching
+        if auction_name:
+            auction_match = False
+            
+            # Normalize the component auction name
+            norm_comp_auction = comp_auction.lower().replace('-', ' ').replace('(', '').replace(')', '')
+            norm_comp_type = comp_type.lower().replace('-', ' ')
+            
+            # Strategy 1: Check if normalized strings have significant overlap
+            if norm_auction_name in norm_comp_auction or norm_comp_auction in norm_auction_name:
+                auction_match = True
+            # Strategy 2: Check for type match (T-4, T-1)
+            elif "t 1" in norm_auction_name and ("t 1" in norm_comp_auction or "t1" in norm_comp_auction or "t 1" in norm_comp_type):
+                auction_match = True
+            elif "t 4" in norm_auction_name and ("t 4" in norm_comp_auction or "t4" in norm_comp_auction or "t 4" in norm_comp_type):
+                auction_match = True
+            # Strategy 3: Extract and match year ranges
+            else:
+                # Try to extract year ranges like 2028-29 or 2028 29
+                import re
+                auction_years = re.findall(r'20\d\d[\s-]\d\d', norm_auction_name)
+                comp_years = re.findall(r'20\d\d[\s-]\d\d', norm_comp_auction)
+                
+                # If we found year ranges in both, see if any match
+                if auction_years and comp_years:
+                    # Standardize the format by removing spaces
+                    norm_auction_years = [y.replace(' ', '') for y in auction_years]
+                    norm_comp_years = [y.replace(' ', '') for y in comp_years]
+                    
+                    # Check for any overlap
+                    for a_year in norm_auction_years:
+                        for c_year in norm_comp_years:
+                            if a_year == c_year:
+                                auction_match = True
+                                break
+            
+            if not auction_match:
+                continue
+                
+        auction_matches += 1
+        filtered_components.append(comp)
+    
+    logger.info(f"Filtering results: {len(filtered_components)} matches (year matches: {year_matches}, auction matches: {auction_matches})")
     return filtered_components
 
 def _build_cmu_card_html(cmu_id, components, component_debug):
@@ -689,3 +781,93 @@ def _organize_year_data(company_records, sort_order):
     year_data.sort(key=lambda x: try_parse_year(x['year']), reverse=not ascending)
     
     return year_data
+
+def fetch_components_for_cmu_id(cmu_id, limit=1000):
+    """
+    Fetch components for a specific CMU ID.
+    Checks cache and JSON before making API request.
+    Includes pagination to handle large result sets.
+    """
+    logger = logging.getLogger(__name__)
+    
+    if not cmu_id:
+        logger.warning("No CMU ID provided to fetch_components_for_cmu_id")
+        return [], 0
+
+    # First check if we already have cached data for this CMU ID
+    components_cache_key = get_cache_key("components_for_cmu", cmu_id)
+    logger.info(f"Checking cache for components with key: {components_cache_key}")
+    cached_components = cache.get(components_cache_key)
+    if cached_components is not None:
+        logger.info(f"Using cached components for {cmu_id}, found {len(cached_components)}")
+        return cached_components, 0
+
+    # Check if we have the data in our JSON file - CASE-INSENSITIVE
+    logger.info(f"Checking JSON for components for CMU ID: {cmu_id}")
+    json_components = get_component_data_from_json(cmu_id)
+    if json_components is not None:
+        logger.info(f"Using JSON-stored components for {cmu_id}, found {len(json_components)}")
+        # Also update the cache
+        cache.set(components_cache_key, json_components, 3600)
+        return json_components, 0
+
+    logger.info(f"No components found in cache or JSON for {cmu_id}, fetching from API")
+    
+    start_time = time.time()
+    
+    # Try scraping from the API with pagination
+    all_components = []
+    offset = 0
+    page_size = 100  # API might have a max limit per request
+    
+    base_url = "https://api.neso.energy/api/3/action/datastore_search"
+    
+    while True:
+        try:
+            params = {
+                "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
+                "q": cmu_id,
+                "limit": page_size,
+                "offset": offset,
+                "sort": "Delivery Year desc"
+            }
+            
+            logger.info(f"Making API request for CMU ID: {cmu_id}, offset: {offset}")
+            response = requests.get(base_url, params=params, timeout=60)
+            response.raise_for_status()
+            
+            data = response.json()
+            if data.get("success"):
+                records = data.get("result", {}).get("records", [])
+                logger.info(f"API returned {len(records)} records for {cmu_id} at offset {offset}")
+                
+                if not records:
+                    # No more records to fetch
+                    break
+                    
+                all_components.extend(records)
+                
+                # Check if we've fetched all available records
+                total_available = data.get("result", {}).get("total", 0)
+                if offset + len(records) >= total_available or len(records) < page_size:
+                    break
+                    
+                # Move to the next page
+                offset += page_size
+            else:
+                logger.error(f"API request unsuccessful for {cmu_id}: {data.get('error', 'Unknown error')}")
+                break
+                
+        except Exception as e:
+            logger.error(f"Error fetching components for {cmu_id}: {e}")
+            break
+    
+    if all_components:
+        logger.info(f"Total {len(all_components)} components fetched for {cmu_id}")
+        # Update the JSON file
+        save_component_data_to_json(cmu_id, all_components)
+        # Also update the cache
+        cache.set(components_cache_key, all_components, 3600)
+    
+    elapsed_time = time.time() - start_time
+    return all_components, elapsed_time

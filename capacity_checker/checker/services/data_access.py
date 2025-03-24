@@ -5,6 +5,7 @@ import requests
 import pandas as pd
 from django.conf import settings
 from django.core.cache import cache
+import logging
 
 from ..utils import normalize, get_cache_key, get_json_path, ensure_directory_exists
 
@@ -48,7 +49,7 @@ def save_cmu_data_to_json(cmu_records):
         return False
 
 
-def fetch_all_cmu_records(limit=1000):
+def fetch_all_cmu_records(limit=None):
     """
     Fetch all CMU records from the API.
     First checks if we have them stored in JSON.
@@ -143,47 +144,82 @@ def get_cmu_dataframe():
 
 # COMPONENT DATA ACCESS FUNCTIONS
 
+def get_json_path(cmu_id):
+    """
+    Get the path to the JSON file for a given CMU ID.
+    This is a utility function to avoid duplicating path logic.
+    """
+    if not cmu_id:
+        return None
+        
+    # Get first character of CMU ID as folder name
+    prefix = cmu_id[0].upper()
+    
+    # Path for this specific CMU's components
+    json_dir = os.path.join(settings.BASE_DIR, 'json_data')
+    json_path = os.path.join(json_dir, f'components_{prefix}.json')
+    
+    return json_path
+
+
 def get_component_data_from_json(cmu_id):
     """
     Get component data from JSON for a specific CMU ID.
     Returns the components as a list or None if not found.
     """
+    logger = logging.getLogger(__name__)
+    
     if not cmu_id:
+        logger.warning("No CMU ID provided to get_component_data_from_json")
         return None
 
+    # Special handling for LIMEJUMP LTD CMU IDs
+    is_limejump_cmu = cmu_id.startswith("CM_LJ")
+
+    logger.info(f"Getting component data from JSON for CMU ID: {cmu_id}")
     json_path = get_json_path(cmu_id)
+    logger.info(f"JSON path for {cmu_id}: {json_path}")
 
     # Check if the file exists
     if not os.path.exists(json_path):
+        logger.warning(f"JSON file does not exist: {json_path}")
         # Try the old path as fallback
         old_json_path = os.path.join(settings.BASE_DIR, 'component_data.json')
+        logger.info(f"Trying old JSON path: {old_json_path}")
         if os.path.exists(old_json_path):
             try:
+                logger.info(f"Old JSON file exists, trying to load it")
                 with open(old_json_path, 'r') as f:
                     all_components = json.load(f)
-                return all_components.get(cmu_id)
+                if cmu_id in all_components:
+                    logger.info(f"Found {len(all_components[cmu_id])} components for {cmu_id} in old JSON")
+                    return all_components.get(cmu_id)
+                logger.warning(f"CMU ID {cmu_id} not found in old JSON")
             except Exception as e:
-                print(f"Error reading component data from old JSON: {e}")
+                logger.error(f"Error reading component data from old JSON: {e}")
         return None
 
     try:
+        logger.info(f"Loading JSON file: {json_path}")
         with open(json_path, 'r') as f:
             all_components = json.load(f)
 
         # Try exact match first
         if cmu_id in all_components:
+            logger.info(f"Found exact match for {cmu_id} with {len(all_components[cmu_id])} components")
             return all_components[cmu_id]
 
         # If not found, try case-insensitive match
         for file_cmu_id in all_components.keys():
             if file_cmu_id.lower() == cmu_id.lower():
-                print(f"Found case-insensitive match: {file_cmu_id} for {cmu_id}")
+                logger.info(f"Found case-insensitive match: {file_cmu_id} for {cmu_id} with {len(all_components[file_cmu_id])} components")
                 return all_components[file_cmu_id]
 
         # If still not found, return None
+        logger.warning(f"No match found for CMU ID {cmu_id} in JSON")
         return None
     except Exception as e:
-        print(f"Error reading component data from JSON: {e}")
+        logger.error(f"Error reading component data from JSON: {e}")
         return None
 
 
@@ -252,78 +288,114 @@ def save_component_data_to_json(cmu_id, components):
         return False
 
 
-def fetch_components_for_cmu_id(cmu_id, limit=100):
+def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
     """
-    Fetch components for a specific CMU ID.
-    Checks cache and JSON before making API request.
+    Fetch components for a given CMU ID with pagination support
     """
-    if not cmu_id:
-        return [], 0
-
-    # First check if we already have cached data for this CMU ID
-    components_cache_key = get_cache_key("components_for_cmu", cmu_id)
-    cached_components = cache.get(components_cache_key)
-    if cached_components is not None:
-        print(f"Using cached components for {cmu_id}, found {len(cached_components)}")
-        return cached_components, 0
-
-    # Check if we have the data in our JSON file - CASE-INSENSITIVE
-    json_components = get_component_data_from_json(cmu_id)
-    if json_components is not None:
-        print(f"Using JSON-stored components for {cmu_id}, found {len(json_components)}")
-        # Also update the cache
-        cache.set(components_cache_key, json_components, 3600)
-        return json_components, 0
-
-    print(f"Fetching components for {cmu_id} from API")
-    params = {
-        "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
-        "limit": limit,
-        "q": cmu_id
-    }
+    import time
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"Fetching components for CMU ID {cmu_id} (page={page}, per_page={per_page}, limit={limit})")
+    
+    # First check JSON cache
     start_time = time.time()
+    all_components = get_component_data_from_json(cmu_id)
+    
+    # If components found in JSON cache
+    if all_components:
+        logger.info(f"Found {len(all_components)} components in JSON cache for {cmu_id}")
+        total_count = len(all_components)
+        
+        # Apply pagination
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        
+        # Safety check for valid indices
+        if start_idx >= len(all_components):
+            start_idx = 0
+            end_idx = min(per_page, len(all_components))
+        
+        paginated_components = all_components[start_idx:end_idx]
+        
+        # Calculate total pages
+        total_pages = (total_count + per_page - 1) // per_page
+        
+        metadata = {
+            "total_count": total_count,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages,
+            "source": "json_cache",
+            "processing_time": time.time() - start_time
+        }
+        
+        logger.info(f"Returning {len(paginated_components)} components (page {page} of {total_pages})")
+        return paginated_components, metadata
+    
+    # If not in JSON cache, try API
     try:
+        # Set actual limit to much higher than per_page to ensure we get all records
+        api_limit = 1000  # Try to get as many as possible from API
+        api_offset = (page - 1) * per_page
+        
+        params = {
+            "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
+            "q": cmu_id,
+            "limit": api_limit  # Request a larger limit from API
+        }
+        
+        logger.info(f"Making API request for {cmu_id} with limit={api_limit}")
+        import requests
         response = requests.get(
-            "https://api.neso.energy/api/3/action/datastore_search",
+            "https://data.nationalgrideso.com/api/3/action/datastore_search",
             params=params,
-            timeout=10
+            timeout=30  # Increased timeout for larger results
         )
-        response.raise_for_status()
-        elapsed = time.time() - start_time
-        result = response.json()["result"]
-        components = result.get("records", [])
-
-        print(f"Found {len(components)} components for {cmu_id}")
-
-        # Add company name to each component
-        cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
-
-        # Try exact match first
-        company_name = cmu_to_company_mapping.get(cmu_id, "")
-
-        # If not found, try case-insensitive match
-        if not company_name:
-            for cache_cmu_id, cache_company in cmu_to_company_mapping.items():
-                if cache_cmu_id.lower() == cmu_id.lower():
-                    company_name = cache_company
-                    break
-
-        if company_name:
-            for component in components:
-                if "Company Name" not in component:
-                    component["Company Name"] = company_name
-
-        # Cache the results for this CMU ID - always lowercase in cache
-        cache.set(components_cache_key, components, 3600)  # Cache for 1 hour
-
-        # Also save to JSON for persistence
-        save_component_data_to_json(cmu_id, components)
-
-        return components, elapsed
+        
+        if response.status_code == 200:
+            result = response.json().get("result", {})
+            all_api_components = result.get("records", [])
+            total_count = result.get("total", len(all_api_components))
+            
+            logger.info(f"API returned {len(all_api_components)} components (total: {total_count})")
+            
+            # Save to JSON cache for future use
+            if all_api_components:
+                save_component_data_to_json(cmu_id, all_api_components)
+                logger.info(f"Saved {len(all_api_components)} components to JSON cache")
+            
+            # Apply pagination on the API results ourselves
+            start_idx = (page - 1) * per_page
+            end_idx = start_idx + per_page
+            
+            # Safety check
+            if start_idx >= len(all_api_components):
+                start_idx = 0
+                end_idx = min(per_page, len(all_api_components))
+                
+            paginated_components = all_api_components[start_idx:end_idx]
+            
+            # Calculate total pages
+            total_pages = (total_count + per_page - 1) // per_page
+            
+            metadata = {
+                "total_count": total_count,
+                "page": page,
+                "per_page": per_page,
+                "total_pages": total_pages,
+                "source": "api",
+                "processing_time": time.time() - start_time
+            }
+            
+            logger.info(f"Returning {len(paginated_components)} components (page {page} of {total_pages})")
+            return paginated_components, metadata
+        else:
+            logger.error(f"API error: {response.status_code}")
+            return [], {"error": f"API error: {response.status_code}"}
     except Exception as e:
-        print(f"Error fetching components for CMU ID {cmu_id}: {e}")
-        elapsed = time.time() - start_time
-        return [], elapsed
+        logger.exception(f"Exception in fetch_components_for_cmu_id: {str(e)}")
+        return [], {"error": str(e)}
 
 
 def fetch_component_search_results(query, limit=1000, sort_order="desc"):

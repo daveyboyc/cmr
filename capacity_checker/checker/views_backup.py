@@ -15,7 +15,7 @@ from .services.component_search import search_components_service
 from .services.component_detail import get_component_details
 from .services.company_search import company_detail
 from .utils import safe_url_param, from_url_param
-from .services.data_access import get_component_data_from_json, get_json_path, fetch_components_for_cmu_id
+from .services.data_access import get_component_data_from_json, get_json_path
 
 
 def search_companies(request):
@@ -23,35 +23,53 @@ def search_companies(request):
     # Get the query parameter
     query = request.GET.get("q", "").strip()
     comp_sort = request.GET.get("comp_sort", "desc")  # Sort for component results
-    
-    # Setup logging
+
+    # Setup logging first so it's available
     import logging
     logger = logging.getLogger(__name__)
     
+    # Add debug logging
+    logger.info(f"DEBUG: search_companies called with query='{query}', comp_sort='{comp_sort}'")
+
     # If no query, just return the regular company search page
     if not query:
+        logger.info("DEBUG: No query, returning regular search page")
         return search_companies_service(request)
 
     # Get component results if there's a query
+    components = []
     component_results = {}
     if query:
+        logger.info(f"DEBUG: Getting component results for query='{query}'")
         component_results = search_components_service(request, return_data_only=True)
+        logger.info(f"DEBUG: Component results keys: {list(component_results.keys()) if component_results else 'None'}")
+        if component_results and query in component_results:
+            components = component_results[query]
+            logger.info(f"DEBUG: Found {len(components)} components for query")
 
     # Get company results
+    logger.info(f"DEBUG: Getting company results for query='{query}'")
     company_results = search_companies_service(request, return_data_only=True)
+    logger.info(f"DEBUG: Company results keys: {list(company_results.keys()) if company_results else 'None'}")
 
     # Create company links for the unified search
     company_links = []
     if company_results and query in company_results:
+        logger.info(f"DEBUG: Found company results for query, building links")
         for company_html in company_results[query]:
             company_links.append(company_html)
+        logger.info(f"DEBUG: Created {len(company_links)} company links")
 
     # Pass both results to the template
     extra_context = {
         'unified_search': True,
         'company_links': company_links,
         'component_results': component_results,
+        'component_count': len(components) if components else 0,
+        'comp_sort': comp_sort
     }
+    
+    logger.info(f"DEBUG: Final extra_context: unified_search=True, company_links={len(company_links)}, component_count={len(components) if components else 0}")
 
     return search_companies_service(request, extra_context=extra_context)
 
@@ -621,11 +639,7 @@ def debug_auction_components(request, company_id, year, auction_name):
     return JsonResponse(debug_info)
 
 
-def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
+def fetch_components_for_cmu_id(cmu_id, limit=1000):
     """Wrapper around the data_access version to avoid import errors"""
     from .services.data_access import fetch_components_for_cmu_id as fetch_components
-    
-    # Pass the pagination parameters to the data_access function
-    # If the data_access function doesn't support these parameters yet, 
-    # you'll need to update it separately
-    return fetch_components(cmu_id, limit=limit, page=page, per_page=per_page)
+    return fetch_components(cmu_id, limit)

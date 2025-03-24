@@ -85,6 +85,31 @@ def search_components_service(request, return_data_only=False):
                         debug_info["matching_records"] = len(matching_records)
                         debug_info["unique_companies"] = unique_companies
 
+                        # Filter out companies with no components
+                        companies_with_components = []
+                        for company in unique_companies:
+                            # Get all CMU IDs for this company
+                            company_records = cmu_df[cmu_df["Full Name"] == company]
+                            cmu_ids = company_records["CMU ID"].unique().tolist()
+                            
+                            # Check if any of these CMU IDs have components
+                            has_components = False
+                            for cmu_id in cmu_ids:
+                                components = get_component_data_from_json(cmu_id)
+                                if components and len(components) > 0:
+                                    has_components = True
+                                    break
+                            
+                            if has_components:
+                                companies_with_components.append(company)
+                        
+                        # Log the filtering results
+                        logger.info(f"DEBUG: Found {len(unique_companies)} companies, {len(companies_with_components)} have components")
+                        debug_info["companies_filtered_out"] = len(unique_companies) - len(companies_with_components)
+                        
+                        # Use only companies that have components
+                        unique_companies = companies_with_components
+
                         # Create blue links for each company - TEMPORARILY point to company search page
                         company_links = [
                             f'<a href="/?q={urllib.parse.quote(company)}" style="color: blue; text-decoration: underline;">{company}</a>'
@@ -271,7 +296,10 @@ def format_component_record(record, cmu_to_company_mapping):
     company_info = ""
     if company_name:
         encoded_company_name = urllib.parse.quote(company_name)
-        company_link = f'<a href="/?q={encoded_company_name}" class="badge bg-success" style="font-size: 1rem; text-decoration: none;">{company_name}</a>'
+        # Generate the normalized company ID for the detail page
+        company_id = normalize(company_name)
+        # Link directly to company detail page instead of search
+        company_link = f'<a href="/company/{company_id}/" class="badge bg-success" style="font-size: 1rem; text-decoration: none;">{company_name}</a>'
         company_info = f'<div class="mt-2 mb-2">{company_link}</div>'
     else:
         company_info = f'<div class="mt-2 mb-2"><span class="badge bg-warning">No Company Found</span></div>'
@@ -297,6 +325,46 @@ def format_component_record(record, cmu_to_company_mapping):
         {company_info}
     </div>
     """
+
+
+def format_components_for_display(component, query=None):
+    """
+    Format a component dictionary into an HTML string for display.
+    This mimics the formatting done in search_components_service.
+    
+    Args:
+        component: Dictionary containing component data
+        query: Optional search query for highlighting
+        
+    Returns:
+        HTML string formatted for display
+    """
+    try:
+        # Get key attributes (adjust these based on your data structure)
+        component_id = component.get('_id', '')
+        location = component.get('Location and Post Code', 'No location')
+        description = component.get('Description of CMU Components', 'No description')
+        
+        # Format as HTML with blue links for the location
+        html = f'<div class="component-item">'
+        
+        # If we have a component ID, make the location a link
+        if component_id:
+            html += f'<a href="/component/{component_id}" class="component-link">{location}</a>'
+        else:
+            html += f'<span>{location}</span>'
+            
+        # Add description if available
+        if description:
+            html += f'<div class="component-description">{description}</div>'
+            
+        html += '</div>'
+        
+        return html
+    except Exception as e:
+        # Fallback for any formatting errors
+        import json
+        return json.dumps(component)
 
 
 # Add this function to your services/company_search.py file
