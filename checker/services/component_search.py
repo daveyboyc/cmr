@@ -327,6 +327,46 @@ def format_component_record(record, cmu_to_company_mapping):
     """
 
 
+def format_components_for_display(component, query=None):
+    """
+    Format a component dictionary into an HTML string for display.
+    This mimics the formatting done in search_components_service.
+    
+    Args:
+        component: Dictionary containing component data
+        query: Optional search query for highlighting
+        
+    Returns:
+        HTML string formatted for display
+    """
+    try:
+        # Get key attributes (adjust these based on your data structure)
+        component_id = component.get('_id', '')
+        location = component.get('Location and Post Code', 'No location')
+        description = component.get('Description of CMU Components', 'No description')
+        
+        # Format as HTML with blue links for the location
+        html = f'<div class="component-item">'
+        
+        # If we have a component ID, make the location a link
+        if component_id:
+            html += f'<a href="/component/{component_id}" class="component-link">{location}</a>'
+        else:
+            html += f'<span>{location}</span>'
+            
+        # Add description if available
+        if description:
+            html += f'<div class="component-description">{description}</div>'
+            
+        html += '</div>'
+        
+        return html
+    except Exception as e:
+        # Fallback for any formatting errors
+        import json
+        return json.dumps(component)
+
+
 # Add this function to your services/company_search.py file
 def company_detail(request, company_id):
     """
