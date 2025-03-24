@@ -45,68 +45,21 @@ def search_companies(request):
     component_results = {}
     total_component_count = 0
     if query:
-        # For CMU ID queries, first try direct component fetching
-        if query and (query.startswith("CM") or query.startswith("T-")):
-            logger.info(f"DEBUG: Query looks like a CMU ID, trying direct fetch first")
-            raw_components, metadata = fetch_components_for_cmu_id(query, limit=None, page=page, per_page=per_page)
-            
-            if raw_components:
-                logger.info(f"DEBUG: Direct fetch found {len(raw_components)} components out of {metadata.get('total_count', 0)}")
-                total_component_count = metadata.get('total_count', len(raw_components))
-                
-                # Format each component similar to what appears in the UI
-                formatted_components = []
-                
-                # Format components to match existing display
-                for component in raw_components:
-                    # Create a formatted string representation
-                    comp_id = component.get('_id', '')
-                    location = component.get('Location and Post Code', 'Unknown Location')
-                    description = component.get('Description of CMU Components', '')
-                    auction = component.get('Auction Name', '')
-                    tech = component.get('Generating Technology Class', '')
-                    company = component.get('Company Name', '')
-                    cmu_id = component.get('CMU ID', '')
-                    
-                    # Format HTML similar to current display
-                    html = f'<a href="/component/{comp_id}" class="component-link">{location}</a>'
-                    html += f'<div>{description}</div>'
-                    html += f'<div>Technology: {tech} | {auction} | CMU ID: {cmu_id}</div>'
-                    if company:
-                        html += f'<div class="badge bg-success">{company}</div>'
-                    
-                    formatted_components.append(html)
-                
-                # Store the formatted components in the results
-                component_results[query] = formatted_components
-                components = formatted_components
-                logger.info(f"DEBUG: Formatted {len(formatted_components)} components")
-            else:
-                # Fall back to standard search
-                logger.info(f"DEBUG: No components found via direct fetch, trying standard search")
-                component_results = search_components_service(request, return_data_only=True)
-        else:
-            # For non-CMU-ID queries, use the standard search approach
-            logger.info(f"DEBUG: Getting component results via standard search")
-            component_results = search_components_service(request, return_data_only=True)
-        
-        # If we have component results for this query from standard search
-        if not components and component_results and query in component_results:
-            logger.info(f"DEBUG: Found components via search service")
+        logger.info(f"DEBUG: Getting component results for query='{query}'")
+        component_results = search_components_service(request, return_data_only=True)
+        logger.info(f"DEBUG: Component results keys: {list(component_results.keys()) if component_results else 'None'}")
+        if component_results and query in component_results:
+            # Get all components before pagination
             all_components = component_results[query]
             total_component_count = len(all_components)
             
             # Apply pagination
             start_idx = (page - 1) * per_page
             end_idx = start_idx + per_page
-            if start_idx < len(all_components):
-                components = all_components[start_idx:end_idx]
-            else:
-                components = all_components[:per_page]
+            components = all_components[start_idx:end_idx]
             
             # Update the component results with paginated data
             component_results[query] = components
-            
             logger.info(f"DEBUG: Paginated components: showing {len(components)} of {total_component_count} total")
 
     # Get company results
@@ -145,7 +98,7 @@ def search_companies(request):
         'page_range': range(max(1, page-2), min(total_pages+1, page+3))
     }
     
-    logger.info(f"DEBUG: Final pagination: page {page}/{total_pages}, showing {len(components)} of {total_component_count}")
+    logger.info(f"DEBUG: Final pagination: page {page}/{total_pages}, showing {len(components)} components")
 
     return search_companies_service(request, extra_context=extra_context)
 
