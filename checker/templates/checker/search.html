@@ -259,8 +259,8 @@
                 </div>
             {% endfor %}
 
-            <!-- Pagination controls - add right after component results section -->
-            {% if component_count > per_page %}
+            <!-- Pagination controls - update to always show when we have component results -->
+            {% if component_results %}
             <div class="section-header mt-4">
                 <h4>Page {{ page }} of {{ total_pages }}</h4>
                 <span class="text-muted">Showing {{ displayed_component_count }} of {{ component_count }} total results</span>
@@ -276,44 +276,11 @@
                 </li>
                 
                 <!-- Page numbers -->
-                {% if total_pages <= 10 %}
-                  {% for p in page_range %}
-                    <li class="page-item {% if p == page %}active{% endif %}">
-                      <a class="page-link" href="?q={{ query }}&page={{ p }}&per_page={{ per_page }}&comp_sort={{ comp_sort }}">{{ p }}</a>
-                    </li>
-                  {% endfor %}
-                {% else %}
-                  <!-- First page -->
-                  <li class="page-item {% if page == 1 %}active{% endif %}">
-                    <a class="page-link" href="?q={{ query }}&page=1&per_page={{ per_page }}&comp_sort={{ comp_sort }}">1</a>
+                {% for p in page_range %}
+                  <li class="page-item {% if p == page %}active{% endif %}">
+                    <a class="page-link" href="?q={{ query }}&page={{ p }}&per_page={{ per_page }}&comp_sort={{ comp_sort }}">{{ p }}</a>
                   </li>
-                  
-                  <!-- Ellipsis if needed -->
-                  {% if page > 4 %}
-                    <li class="page-item disabled">
-                      <span class="page-link">...</span>
-                    </li>
-                  {% endif %}
-                  
-                  <!-- Pages around current -->
-                  {% for p in page_range %}
-                    <li class="page-item {% if p == page %}active{% endif %}">
-                      <a class="page-link" href="?q={{ query }}&page={{ p }}&per_page={{ per_page }}&comp_sort={{ comp_sort }}">{{ p }}</a>
-                    </li>
-                  {% endfor %}
-                  
-                  <!-- Ellipsis if needed -->
-                  {% if page < total_pages|add:'-3' %}
-                    <li class="page-item disabled">
-                      <span class="page-link">...</span>
-                    </li>
-                  {% endif %}
-                  
-                  <!-- Last page -->
-                  <li class="page-item {% if page == total_pages %}active{% endif %}">
-                    <a class="page-link" href="?q={{ query }}&page={{ total_pages }}&per_page={{ per_page }}&comp_sort={{ comp_sort }}">{{ total_pages }}</a>
-                  </li>
-                {% endif %}
+                {% endfor %}
                 
                 <!-- Next page button -->
                 <li class="page-item {% if not has_next %}disabled{% endif %}">
