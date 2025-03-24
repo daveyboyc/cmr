@@ -294,81 +294,132 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
     
     Args:
         cmu_id: CMU ID to fetch components for
-        limit: Optional overall limit on total number of components
+        limit: Optional overall limit on total number of components (None means no limit)
         page: Page number to fetch (starting at 1)
         per_page: Number of components per page
         
     Returns:
         Tuple of (components_list, metadata_dict)
     """
-    import requests
-    from django.conf import settings
     import time
     
-    # Calculate offset for API request
-    offset = (page - 1) * per_page
+    # First try to get components from JSON cache
+    start_time = time.time()
+    logger = logging.getLogger(__name__)
+    logger.info(f"Fetching components for CMU ID {cmu_id} (page {page}, per_page {per_page})")
     
-    # Calculate effective limit for this page
-    # If limit is None, use per_page as the limit for this request
-    # If limit is not None, make sure we don't fetch more than needed
-    effective_limit = per_page
-    if limit is not None:
-        remaining = max(0, limit - offset)
-        effective_limit = min(per_page, remaining)
+    all_components = get_component_data_from_json(cmu_id)
+    
+    # If components found in JSON, apply pagination
+    if all_components:
+        logger.info(f"Found {len(all_components)} components in JSON cache for {cmu_id}")
+        total_count = len(all_components)
         
-        # If nothing left to fetch, return empty results
-        if remaining <= 0:
-            return [], {"total_count": limit, "page": page, "per_page": per_page}
+        # Apply pagination
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        
+        # Get the components for current page
+        paginated_components = all_components[start_idx:end_idx]
+        
+        # Calculate total pages
+        total_pages = (total_count + per_page - 1) // per_page
+        
+        metadata = {
+            "total_count": total_count,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages,
+            "source": "json_cache",
+            "processing_time": time.time() - start_time
+        }
+        
+        return paginated_components, metadata
     
-    api_url = f"{settings.COMPONENTS_API_URL}?cmu_id={cmu_id}"
-    
-    # Add pagination parameters to API URL
-    api_url += f"&offset={offset}&limit={effective_limit}"
+    # If not in JSON, try to fetch from API
+    logger.info(f"No components found in JSON cache for {cmu_id}, trying API")
     
     try:
-        start_time = time.time()
+        # Calculate API parameters
+        api_limit = per_page
+        api_offset = (page - 1) * per_page
         
-        # Add any required headers from settings
-        headers = getattr(settings, 'API_HEADERS', {})
+        # If limit is specified, don't fetch more than needed
+        if limit is not None:
+            remaining = max(0, limit - api_offset)
+            api_limit = min(per_page, remaining)
+            
+            if remaining <= 0:
+                return [], {
+                    "total_count": 0,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": 0
+                }
         
-        # Make the API request
-        response = requests.get(api_url, headers=headers)
-        api_time = time.time() - start_time
+        # Use the API URL from your cache_data.py command
+        params = {
+            "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
+            "q": cmu_id,
+            "limit": api_limit,
+            "offset": api_offset
+        }
+        
+        logger.info(f"Making API request with params: {params}")
+        response = requests.get(
+            "https://data.nationalgrideso.com/api/3/action/datastore_search",
+            params=params,
+            timeout=20
+        )
+        processing_time = time.time() - start_time
         
         if response.status_code == 200:
-            data = response.json()
-            
-            # Extract components from API response - adjust this based on your API structure
-            if isinstance(data, dict):
-                components = data.get('components', [])
-                # Get total count from API response if available, otherwise use length
-                total_count = data.get('total_count', len(components))
-            else:
-                # If API returns just a list, use it directly
-                components = data
-                total_count = len(components)
+            result = response.json().get("result", {})
+            components = result.get("records", [])
+            total_count = result.get("total", len(components))
             
             # Calculate total pages
-            total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
+            total_pages = (total_count + per_page - 1) // per_page
             
-            # Create metadata dictionary
+            logger.info(f"API returned {len(components)} components (total: {total_count})")
+            
+            # Save to JSON cache for future use
+            if components:
+                existing_components = get_component_data_from_json(cmu_id) or []
+                # Add any new components to existing ones
+                updated_components = existing_components.copy()
+                for component in components:
+                    if component not in existing_components:
+                        updated_components.append(component)
+                
+                if len(updated_components) > len(existing_components):
+                    logger.info(f"Saving {len(updated_components)} components to JSON cache")
+                    save_component_data_to_json(cmu_id, updated_components)
+            
             metadata = {
                 "total_count": total_count,
                 "page": page,
-                "per_page": per_page, 
+                "per_page": per_page,
                 "total_pages": total_pages,
-                "api_time": api_time
+                "source": "api",
+                "processing_time": processing_time
             }
             
             return components, metadata
         else:
-            # Handle API error
-            print(f"API error: {response.status_code}")
-            return [], {"error": f"API error: {response.status_code}"}
+            logger.warning(f"API error: {response.status_code}")
+            return [], {
+                "error": f"API error: {response.status_code}",
+                "source": "api",
+                "processing_time": processing_time
+            }
     except Exception as e:
-        # Handle any exceptions
-        print(f"Exception in fetch_components_for_cmu_id: {str(e)}")
-        return [], {"error": str(e)}
+        logger.error(f"Exception in fetch_components_for_cmu_id: {str(e)}")
+        return [], {
+            "error": str(e),
+            "source": "api",
+            "processing_time": time.time() - start_time
+        }
 
 
 def fetch_component_search_results(query, limit=1000, sort_order="desc"):

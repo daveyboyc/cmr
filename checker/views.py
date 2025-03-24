@@ -46,38 +46,34 @@ def search_companies(request):
     total_component_count = 0
     if query:
         logger.info(f"DEBUG: Getting component results for query='{query}'")
-        # Get components using pagination via the fetch_components wrapper
-        from .services.component_search import search_components_service
+        
+        # First try using component search service
         component_results = search_components_service(request, return_data_only=True)
         
-        # If no components found via the component search service, try direct fetch
+        # If no results, try direct fetch with pagination
         if not component_results or query not in component_results:
             logger.info(f"DEBUG: No components found via search service, trying direct fetch")
             components, metadata = fetch_components_for_cmu_id(query, limit=None, page=page, per_page=per_page)
+            
             if components:
+                logger.info(f"DEBUG: Direct fetch found {len(components)} components")
                 total_component_count = metadata.get('total_count', len(components))
-                # Store components in expected format for template
                 component_results = {query: components}
-                logger.info(f"DEBUG: Found {len(components)} components via direct fetch, total count: {total_component_count}")
-        else:
-            # We got components from the search service
-            all_components = component_results[query]
-            # Check if the components already have pagination info
-            if isinstance(all_components, dict) and 'total_count' in all_components:
-                # Components are already paginated from the service
-                total_component_count = all_components.get('total_count', 0)
-                components = all_components.get('components', [])
-                # Update the format for template
-                component_results[query] = components
             else:
-                # Components from search service need manual pagination
-                total_component_count = len(all_components)
-                # Apply pagination
-                start_idx = (page - 1) * per_page
-                end_idx = start_idx + per_page
-                components = all_components[start_idx:end_idx]
-                # Update the component results with paginated data
-                component_results[query] = components
+                logger.info(f"DEBUG: No components found via direct fetch")
+        else:
+            # We have results from the search service
+            logger.info(f"DEBUG: Found components via search service")
+            all_components = component_results[query]
+            total_component_count = len(all_components)
+            
+            # Apply pagination
+            start_idx = (page - 1) * per_page
+            end_idx = start_idx + per_page
+            components = all_components[start_idx:end_idx]
+            
+            # Update the component results with paginated data
+            component_results[query] = components
             
             logger.info(f"DEBUG: Paginated components: showing {len(components)} of {total_component_count} total")
 
@@ -107,7 +103,7 @@ def search_companies(request):
         'component_count': total_component_count,  # Show total count, not just current page
         'displayed_component_count': len(components),  # Add count of displayed components
         'comp_sort': comp_sort,
-        'query': query,  # Add the query for pagination links
+        'query': query,  # Add query for pagination links
         # Pagination context
         'page': page,
         'per_page': per_page,
