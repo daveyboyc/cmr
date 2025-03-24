@@ -54,13 +54,10 @@ def search_companies(request):
                 logger.info(f"DEBUG: Direct fetch found {len(raw_components)} components out of {metadata.get('total_count', 0)}")
                 total_component_count = metadata.get('total_count', len(raw_components))
                 
-                # Get the formatted components - this must match existing format
-                from .services.component_search import search_components_service
-                # Use search components to format results (we'll override return_data_only later)
-                temp_request = request
+                # Format each component similar to what appears in the UI
                 formatted_components = []
                 
-                # Format each component similar to what appears in the UI
+                # Format components to match existing display
                 for component in raw_components:
                     # Create a formatted string representation
                     comp_id = component.get('_id', '')
@@ -85,8 +82,8 @@ def search_companies(request):
                 components = formatted_components
                 logger.info(f"DEBUG: Formatted {len(formatted_components)} components")
             else:
-                logger.info(f"DEBUG: No components found via direct fetch, trying standard search")
                 # Fall back to standard search
+                logger.info(f"DEBUG: No components found via direct fetch, trying standard search")
                 component_results = search_components_service(request, return_data_only=True)
         else:
             # For non-CMU-ID queries, use the standard search approach
