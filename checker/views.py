@@ -47,52 +47,50 @@ def search_companies(request):
     if query:
         logger.info(f"DEBUG: Getting component results for query='{query}'")
         
-        # Use standard search approach first - this maintains all formatting
-        # Pass the pagination parameters to search_components_service
-        # Modify request to include pagination parameters
-        modified_request = request.copy()
-        modified_request.GET = request.GET.copy()
-        modified_request.GET['page'] = str(page)
-        modified_request.GET['per_page'] = str(per_page)
+        # Use the original component search approach - this maintains styling
+        component_results = search_components_service(request, return_data_only=True)
         
-        component_results = search_components_service(modified_request, return_data_only=True)
-        
-        # Check if we got results
+        # If we have component results for this query
         if component_results and query in component_results:
             logger.info(f"DEBUG: Found components via search service")
-            all_components = component_results.get(query, [])
+            all_components = component_results[query]
+            total_component_count = len(all_components)
             
-            # Check if we have pagination metadata
-            if isinstance(all_components, dict) and 'total_count' in all_components:
-                # Components come back with pagination info already
-                total_component_count = all_components.get('total_count', 0)
-                components = all_components.get('components', [])
-            else:
-                # Use the complete list
-                total_component_count = len(all_components)
-                components = all_components
+            # Apply pagination
+            start_idx = (page - 1) * per_page
+            end_idx = start_idx + per_page
+            components = all_components[start_idx:end_idx]
+            
+            # Update the component results with paginated data
+            component_results[query] = components
+            
+            logger.info(f"DEBUG: Paginated components: showing {len(components)} of {total_component_count} total")
         else:
-            # If no results from standard search, try fetching by CMU ID
-            # This is for cases where the query is a CMU ID
+            # If no results from search_components_service, try direct component fetching
+            # This would be used if the query is a CMU ID
             logger.info(f"DEBUG: No components found via search service, trying direct fetch")
-            
-            # First fetch components
             raw_components, metadata = fetch_components_for_cmu_id(query, limit=None, page=page, per_page=per_page)
             
             if raw_components:
                 logger.info(f"DEBUG: Direct fetch found {len(raw_components)} components")
                 total_component_count = metadata.get('total_count', len(raw_components))
                 
-                # Format components like search_components_service would
-                # This is the critical part to maintain styling
-                from .services.component_search import format_components_for_display
+                # Need to format raw components for display
+                # This will maintain the original styling
+                # We'll build similar HTML as would be created by search_components_service
                 formatted_components = []
                 for component in raw_components:
-                    formatted_html = format_components_for_display(component, query)
+                    # Extract key attributes
+                    component_id = component.get('_id', '')
+                    location = component.get('Location and Post Code', 'No location')
+                    description = component.get('Description of CMU Components', 'No description')
+                    
+                    # Format similar to how it appears in the UI now
+                    formatted_html = str(component)
                     formatted_components.append(formatted_html)
                 
-                # Store the formatted components in the results
-                component_results = {query: formatted_components}
+                # Store in component_results
+                component_results[query] = formatted_components
                 components = formatted_components
 
     # Get company results
