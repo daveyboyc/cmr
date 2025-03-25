@@ -23,6 +23,10 @@
             background-attachment: fixed;
             background-repeat: no-repeat;
             color: #333;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         .container {
             max-width: 960px;
@@ -31,6 +35,7 @@
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+            width: 100%;
         }
         .page-header {
             display: flex;
@@ -39,7 +44,12 @@
             margin-bottom: 20px;
         }
         .search-box {
-            margin: 20px 0;
+            margin: 40px 0 20px;
+        }
+        /* If no results are present, apply more top margin to center the search box */
+        .no-results .search-box {
+            margin-top: 80px;
+            margin-bottom: 80px;
         }
         .search-input {
             border-radius: 24px;
@@ -149,10 +159,21 @@
             color: blue;
             text-decoration: underline;
         }
+        
+        /* No results header styling */
+        .no-results .page-header {
+            flex-direction: column;
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        .no-results .page-header h1 {
+            font-size: 4rem;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="container{% if not company_links and not component_results and not request.GET.q %} no-results{% endif %}">
         <!-- Header -->
         <div class="page-header">
             <h1>Capacity Market Search</h1>
