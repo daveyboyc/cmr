@@ -164,6 +164,9 @@ def search_components_service(request, return_data_only=False):
 
             try:
                 if query:  # Only search for components if there's a query
+                    # Check if this might be a large result set search
+                    might_be_large_query = len(query) < 20 and query.isalpha()
+                    
                     # First try to get components directly from JSON
                     logger.info(f"DEBUG: Searching for components with query: {query}")
                     components = get_component_data_from_json(query) or []
@@ -201,6 +204,11 @@ def search_components_service(request, return_data_only=False):
                         start_idx = (page - 1) * per_page
                         end_idx = min(start_idx + per_page, len(components))
                         components = components[start_idx:end_idx]
+                        
+                    # Perform a sanity check on the results
+                    if components and total_component_count < len(components):
+                        logger.warning(f"Total count ({total_component_count}) is less than actual components ({len(components)}). Adjusting.")
+                        total_component_count = len(components)
             except Exception as e:
                 import traceback
                 logger.error(f"DEBUG ERROR in component search: {str(e)}")
@@ -215,17 +223,15 @@ def search_components_service(request, return_data_only=False):
             # Set the displayed count based on how many we're showing on this page
             displayed_component_count = len(components)
 
-            # Calculate pagination values
+            # Calculate pagination values for all searches
             if total_component_count > 0:
                 total_pages = (total_component_count + per_page - 1) // per_page
-                has_prev = page > 1
-                has_next = page < total_pages
-                page_range = range(max(1, page - 2), min(total_pages + 1, page + 3))
             else:
                 total_pages = 1
-                has_prev = False
-                has_next = False
-                page_range = range(1, 2)
+                
+            has_prev = page > 1
+            has_next = page < total_pages
+            page_range = range(max(1, page - 2), min(total_pages + 1, page + 3))
 
             # Add log to verify correct counts
             logger.info(f"DEBUG: Displaying {displayed_component_count} of {total_component_count} total components (Page {page} of {total_pages})")

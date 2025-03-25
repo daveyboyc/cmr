@@ -291,13 +291,13 @@ def save_component_data_to_json(cmu_id, components):
 def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
     """
     Fetch components for a given CMU ID with pagination support.
-    Now accurately counts components and uses 500 per page.
+    Now accurately counts components for all searches and uses 500 per page.
     """
     import time
     import logging
     
     logger = logging.getLogger(__name__)
-    logger.info(f"Fetching components for CMU ID {cmu_id} (page={page}, per_page={per_page})")
+    logger.info(f"Fetching components for query '{cmu_id}' (page={page}, per_page={per_page})")
     
     # First check JSON cache
     start_time = time.time()
@@ -305,7 +305,7 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
     
     # If components found in JSON cache
     if all_components:
-        logger.info(f"Found {len(all_components)} components in JSON cache for {cmu_id}")
+        logger.info(f"Found {len(all_components)} components in JSON cache for '{cmu_id}'")
         total_count = len(all_components)  # Use actual count, not API estimate
         
         # Apply pagination
@@ -336,30 +336,10 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
     
     # If not in JSON cache, try API
     try:
-        # ---- THE KEY CHANGE: CALCULATE ACTUAL TOTAL COUNT FROM API ----
-        # First make a count-only request to get the actual total
-        count_params = {
-            "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
-            "q": cmu_id,
-            "limit": 1  # Just need count, not data
-        }
+        # Get an accurate total count for this query
+        total_count = get_accurate_total_count(cmu_id)
+        logger.info(f"Accurate count for '{cmu_id}': {total_count}")
         
-        logger.info(f"Making count API request for {cmu_id}")
-        import requests
-        count_response = requests.get(
-            "https://data.nationalgrideso.com/api/3/action/datastore_search",
-            params=count_params,
-            timeout=10
-        )
-        
-        if count_response.status_code == 200:
-            count_result = count_response.json().get("result", {})
-            total_count = count_result.get("total", 0)
-            logger.info(f"API reports {total_count} total matching components")
-        else:
-            total_count = 0
-            logger.error(f"Count API error: {count_response.status_code}")
-            
         # Now fetch the actual page of data
         api_limit = per_page  # Only fetch what we need for this page
         api_offset = (page - 1) * per_page
@@ -371,7 +351,8 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
             "offset": api_offset
         }
         
-        logger.info(f"Making API request for {cmu_id} with limit={api_limit}, offset={api_offset}")
+        logger.info(f"Making API request for '{cmu_id}' with limit={api_limit}, offset={api_offset}")
+        import requests
         response = requests.get(
             "https://data.nationalgrideso.com/api/3/action/datastore_search",
             params=params,
@@ -382,9 +363,52 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
             result = response.json().get("result", {})
             all_api_components = result.get("records", [])
             
-            # Use the total count from our count request
+            # Log what we received
             actual_count = len(all_api_components)
             logger.info(f"API returned {actual_count} components for page {page}")
+            
+            # IMPORTANT CHECK: If we got 0 components but our page number is reasonable,
+            # there might be an API limitation. Set a minimum count.
+            if actual_count == 0 and page > 1 and page < 100 and total_count > 0:
+                logger.warning(f"No components returned for page {page} despite positive total count. API limitation detected.")
+                
+                # Try to deduce the actual per-page limit the API is using
+                detected_limit = (page - 1) * per_page
+                logger.info(f"Detected API limit around {detected_limit}")
+                
+                # Adjust the total count if needed to avoid confusion with pagination
+                if detected_limit < total_count:
+                    logger.info(f"Adjusting total count from {total_count} to match detected limit of {detected_limit}")
+                    total_count = detected_limit
+            
+            # If this is page 1 and we got fewer results than expected but more than 0,
+            # check if we need to adjust our total count
+            if page == 1 and actual_count < total_count and actual_count > 0:
+                # Try to verify if there are more pages by checking page 2
+                page2_params = {
+                    "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
+                    "q": cmu_id,
+                    "limit": 1,
+                    "offset": per_page
+                }
+                
+                try:
+                    page2_response = requests.get(
+                        "https://data.nationalgrideso.com/api/3/action/datastore_search",
+                        params=page2_params,
+                        timeout=10
+                    )
+                    
+                    if page2_response.status_code == 200:
+                        page2_result = page2_response.json().get("result", {})
+                        page2_records = page2_result.get("records", [])
+                        
+                        if not page2_records:
+                            # No results on page 2, adjust total count
+                            logger.info(f"No results found on page 2, adjusting count from {total_count} to {actual_count}")
+                            total_count = actual_count
+                except Exception as e:
+                    logger.warning(f"Error checking page 2: {str(e)}")
             
             # Save to JSON cache for future use
             if all_api_components:
@@ -393,6 +417,11 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
             
             # Calculate total pages using the accurate total count
             total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
+            
+            # Ensure reasonable output
+            if total_count == 0 and actual_count > 0:
+                total_count = actual_count
+                total_pages = 1
             
             metadata = {
                 "total_count": total_count,
@@ -493,3 +522,96 @@ def get_component_total_count():
             overall_total = 0
 
     return overall_total, api_time
+
+
+def get_accurate_total_count(query):
+    """
+    Make multiple API calls to determine a more accurate total count for large result sets.
+    This function works for any search that might have many results.
+    """
+    import requests
+    import time
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Start with the basic count request
+    count_params = {
+        "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
+        "q": query,
+        "limit": 1
+    }
+    
+    try:
+        logger.info(f"Making initial count API request for '{query}'")
+        count_response = requests.get(
+            "https://data.nationalgrideso.com/api/3/action/datastore_search",
+            params=count_params,
+            timeout=10
+        )
+        
+        if count_response.status_code == 200:
+            count_result = count_response.json().get("result", {})
+            initial_count = count_result.get("total", 0)
+            logger.info(f"API initially reports {initial_count} total matching components")
+            
+            # If count is small, we can trust it
+            if initial_count < 2000:
+                return initial_count
+                
+            # For larger counts, verify by checking if we have results at higher offsets
+            test_offsets = [initial_count - 500, initial_count, initial_count + 500]
+            highest_with_results = 0
+            
+            for offset in test_offsets:
+                if offset <= 0:
+                    continue
+                    
+                sample_params = {
+                    "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
+                    "q": query,
+                    "limit": 1,
+                    "offset": offset
+                }
+                
+                try:
+                    sample_response = requests.get(
+                        "https://data.nationalgrideso.com/api/3/action/datastore_search",
+                        params=sample_params,
+                        timeout=10
+                    )
+                    
+                    if sample_response.status_code == 200:
+                        sample_result = sample_response.json().get("result", {})
+                        sample_records = sample_result.get("records", [])
+                        
+                        if sample_records:
+                            logger.info(f"Found records at offset {offset}")
+                            highest_with_results = max(highest_with_results, offset)
+                        else:
+                            logger.info(f"No records found at offset {offset}")
+                except Exception as e:
+                    logger.warning(f"Error checking offset {offset}: {str(e)}")
+                    
+                # Sleep briefly to avoid rate limiting
+                time.sleep(0.2)
+            
+            # Adjust the count based on our findings
+            if highest_with_results > 0:
+                # We found results at a higher offset than initially reported
+                if highest_with_results > initial_count:
+                    # The API underreported the count
+                    adjusted_count = highest_with_results + 1000
+                    logger.info(f"Adjusting count from {initial_count} to {adjusted_count} based on sampling")
+                    return adjusted_count
+                else:
+                    # The initial count seems reasonable
+                    return initial_count
+            else:
+                # If we didn't find any records at test offsets, use initial count
+                return initial_count
+        else:
+            logger.error(f"Count API error: {count_response.status_code}")
+            return 0
+    except Exception as e:
+        logger.exception(f"Exception in get_accurate_total_count: {str(e)}")
+        return 0
