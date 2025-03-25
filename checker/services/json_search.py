@@ -90,6 +90,17 @@ def search_all_json_files(query, page=1, per_page=500):
                                         logger.info(f"Postcode match found: '{norm_query}' in '{location_str}'")
                                         matches = True
                                         break
+                                        
+                                    # Additional UK postcode specific matching
+                                    # UK postcodes have format: AA9A 9AA or AA99 9AA
+                                    # Check if query might be a partial postcode (e.g., just the first part)
+                                    parts = location_str.replace(',', ' ').split()
+                                    for part in parts:
+                                        # Handle postcodes with or without spaces
+                                        if len(part) >= 2 and part.replace(" ", "").startswith(normalized_query):
+                                            logger.info(f"Partial postcode match found: '{norm_query}' at start of '{part}' in '{location_str}'")
+                                            matches = True
+                                            break
                         
                         if matches:
                             # Add CMU ID to component if not present
