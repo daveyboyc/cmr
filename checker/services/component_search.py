@@ -164,50 +164,30 @@ def search_components_service(request, return_data_only=False):
 
             try:
                 if query:  # Only search for components if there's a query
-                    # Check if this might be a large result set search
-                    might_be_large_query = len(query) < 20 and query.isalpha()
-                    
                     # First try to get components directly from JSON
                     logger.info(f"DEBUG: Searching for components with query: {query}")
                     components = get_component_data_from_json(query) or []
                     logger.info(f"DEBUG: Found {len(components)} components in JSON")
                     debug_info["json_components_found"] = len(components)
 
-                    # If not found or explicitly requesting a different page, try fetch with API
-                    if not components or page > 1:
-                        logger.info(f"DEBUG: Fetching from API with query: {query}, page: {page}, per_page: {per_page}")
+                    # If not found, try to fetch components by CMU ID
+                    if not components:
+                        logger.info(f"DEBUG: No components found in JSON, trying API with CMU ID: {query}")
                         api_components, components_metadata = fetch_components_for_cmu_id(query, page=page, per_page=per_page)
+                        components = api_components or []
                         
-                        # If we have API components, use those
-                        if api_components:
-                            components = api_components
-                            
-                            # Get accurate total count from metadata
-                            if isinstance(components_metadata, dict):
-                                total_component_count = components_metadata.get("total_count", 0)
-                                components_api_time = components_metadata.get("processing_time", 0)
-                                total_pages = components_metadata.get("total_pages", 1)
-                                api_time += components_api_time
-                                logger.info(f"DEBUG: API reports total of {total_component_count} components, {total_pages} pages")
+                        # Get accurate total count from metadata
+                        if isinstance(components_metadata, dict):
+                            total_component_count = components_metadata.get("total_count", len(components))
+                            components_api_time = components_metadata.get("processing_time", 0)
+                            api_time += components_api_time
                         else:
-                            # If using JSON cache with pagination
-                            if components:
-                                total_component_count = len(components)
-                                # Apply pagination manually
-                                start_idx = (page - 1) * per_page
-                                end_idx = min(start_idx + per_page, len(components))
-                                components = components[start_idx:end_idx]
+                            total_component_count = len(components)
+                            
+                        logger.info(f"DEBUG: Found {len(components)} components via API (total: {total_component_count})")
+                        debug_info["api_components_found"] = len(components)
                     else:
-                        # Using JSON cache with all components
-                        total_component_count = len(components)
-                        # Apply pagination manually
-                        start_idx = (page - 1) * per_page
-                        end_idx = min(start_idx + per_page, len(components))
-                        components = components[start_idx:end_idx]
-                        
-                    # Perform a sanity check on the results
-                    if components and total_component_count < len(components):
-                        logger.warning(f"Total count ({total_component_count}) is less than actual components ({len(components)}). Adjusting.")
+                        # If we found components in JSON, use that count
                         total_component_count = len(components)
             except Exception as e:
                 import traceback
@@ -223,15 +203,17 @@ def search_components_service(request, return_data_only=False):
             # Set the displayed count based on how many we're showing on this page
             displayed_component_count = len(components)
 
-            # Calculate pagination values for all searches
+            # Calculate pagination values if not already provided by the API
             if total_component_count > 0:
                 total_pages = (total_component_count + per_page - 1) // per_page
+                has_prev = page > 1
+                has_next = page < total_pages
+                page_range = range(max(1, page - 2), min(total_pages + 1, page + 3))
             else:
                 total_pages = 1
-                
-            has_prev = page > 1
-            has_next = page < total_pages
-            page_range = range(max(1, page - 2), min(total_pages + 1, page + 3))
+                has_prev = False
+                has_next = False
+                page_range = range(1, 2)
 
             # Add log to verify correct counts
             logger.info(f"DEBUG: Displaying {displayed_component_count} of {total_component_count} total components (Page {page} of {total_pages})")
