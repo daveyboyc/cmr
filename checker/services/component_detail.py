@@ -3,7 +3,7 @@ import traceback
 from django.shortcuts import render
 from django.core.cache import cache
 from ..utils import normalize
-from .data_access import fetch_components_for_cmu_id
+from .data_access import fetch_components_for_cmu_id, get_cmu_data_by_id
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +31,18 @@ def get_component_details(request, component_id):
 
         # Fetch components for this CMU
         components, api_time = fetch_components_for_cmu_id(cmu_id)
+        
+        # Fetch additional CMU data from cmu_data.json
+        additional_cmu_data = get_cmu_data_by_id(cmu_id)
+        logger.info(f"Additional CMU data found: {additional_cmu_data is not None}")
 
         if not components:
             logger.warning(f"No components found for CMU ID: {cmu_id}")
             return render(request, "checker/component_detail.html", {
                 "error": f"No components found for CMU ID: {cmu_id}",
                 "component": None,
-                "api_time": api_time
+                "api_time": api_time,
+                "additional_cmu_data": additional_cmu_data
             })
 
         # Find the specific component that matches the normalized location
@@ -56,7 +61,8 @@ def get_component_details(request, component_id):
                 "component": None,
                 "api_time": api_time,
                 "cmu_id": cmu_id,
-                "all_components": components  # Provide all components in case they want to browse
+                "all_components": components,  # Provide all components in case they want to browse
+                "additional_cmu_data": additional_cmu_data
             })
 
         # Add CMU ID to the component data if not already present
@@ -106,6 +112,28 @@ def get_component_details(request, component_id):
             },
             "Additional Information": {}
         }
+        
+        # Add a separate section for additional CMU data if available
+        if additional_cmu_data:
+            cmu_data_section = {}
+            
+            # Add relevant fields from additional_cmu_data
+            # Include fields that would be useful for users
+            important_fields = [
+                "Auction", "Type", "Delivery Year", "Name of Applicant", 
+                "Agent Name", "CM Unit Name", "Low Carbon Exclusion CMU",
+                "Agreement End Date", "Agreement Start Date", "Auction Result Date",
+                "Capacity Obligation (MW)", "Capacity Agreement", "Contact Name",
+                "CM Trading Contact Email", "CM Trading Contact Phone",
+                "Secondary Trading", "Price Cap (£/kW)", "Price Taker Threshold (£/kW)"
+            ]
+            
+            for field in important_fields:
+                if field in additional_cmu_data and additional_cmu_data[field] not in ["", "N/A", None]:
+                    cmu_data_section[field] = additional_cmu_data[field]
+            
+            if cmu_data_section:
+                organized_data["CMU Registry Data"] = cmu_data_section
 
         # Add remaining fields to Additional Information
         for k, v in component_detail.items():
@@ -123,7 +151,8 @@ def get_component_details(request, component_id):
             "organized_data": organized_data,
             "api_time": api_time,
             "cmu_id": cmu_id,
-            "location": target_component.get("Location and Post Code", "N/A")
+            "location": target_component.get("Location and Post Code", "N/A"),
+            "additional_cmu_data": additional_cmu_data
         })
 
     except Exception as e:

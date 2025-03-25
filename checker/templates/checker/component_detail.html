@@ -171,6 +171,22 @@
                         </div>
                     </div>
                 </div>
+                
+                <!-- Additional CMU Registry Data (for developers) -->
+                {% if additional_cmu_data %}
+                <div class="detail-section">
+                    <h3 class="detail-title">
+                        <a class="text-decoration-none" data-bs-toggle="collapse" href="#rawCmuDataSection" role="button" aria-expanded="false">
+                            <span class="bi bi-code-square"></span> Raw CMU Registry Data
+                        </a>
+                    </h3>
+                    <div class="collapse" id="rawCmuDataSection">
+                        <div class="card card-body">
+                            <pre>{{ additional_cmu_data|pprint }}</pre>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
             </div>
         {% endif %}
 

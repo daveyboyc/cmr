@@ -754,3 +754,44 @@ def search_all_json_files(query, page=1, per_page=500):
     
     logger.info(f"Returning {len(paginated_components)} components (page {page} of {total_pages})")
     return paginated_components, metadata
+
+
+def get_cmu_data_by_id(cmu_id):
+    """
+    Fetch additional data from cmu_data.json for a specific CMU ID.
+    
+    Args:
+        cmu_id: The CMU ID to look up
+        
+    Returns:
+        A dictionary containing the additional data for the CMU ID or None if not found
+    """
+    logger = logging.getLogger(__name__)
+    
+    if not cmu_id:
+        logger.warning("No CMU ID provided to get_cmu_data_by_id")
+        return None
+    
+    # Try to get from cache first
+    cache_key = f"cmu_data_{cmu_id}"
+    cached_data = cache.get(cache_key)
+    if cached_data:
+        logger.info(f"Using cached CMU data for {cmu_id}")
+        return cached_data
+    
+    # Get the data from cmu_data.json
+    all_cmu_data = get_cmu_data_from_json()
+    if not all_cmu_data:
+        logger.warning("No CMU data available from JSON")
+        return None
+    
+    # Find the matching CMU ID
+    for cmu_data in all_cmu_data:
+        if str(cmu_data.get("CMU ID", "")) == str(cmu_id):
+            logger.info(f"Found matching CMU data for {cmu_id}")
+            # Cache the result for future use (1 hour)
+            cache.set(cache_key, cmu_data, 3600)
+            return cmu_data
+    
+    logger.warning(f"No matching CMU data found for {cmu_id}")
+    return None
