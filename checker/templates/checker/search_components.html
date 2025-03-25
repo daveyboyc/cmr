@@ -173,19 +173,6 @@
             <div class="input-group">
                 <input type="text" name="q" class="form-control" placeholder="Search company name, postcode, or CMU ID" value="{{ request.GET.q }}">
                 <button type="submit" class="btn btn-primary">Search</button>
-
-                <!-- Add sort toggle button - only show when there's a search query -->
-                {% if request.GET.q %}
-                    {% if sort_order == "desc" %}
-                        <a href="?q={{ request.GET.q }}&sort=asc" class="sort-toggle">
-                            <span>↑</span> Sort: Newest First
-                        </a>
-                    {% else %}
-                        <a href="?q={{ request.GET.q }}&sort=desc" class="sort-toggle">
-                            <span>↓</span> Sort: Oldest First
-                        </a>
-                    {% endif %}
-                {% endif %}
             </div>
         </form>
 
