@@ -795,3 +795,52 @@ def get_cmu_data_by_id(cmu_id):
     
     logger.warning(f"No matching CMU data found for {cmu_id}")
     return None
+
+
+def analyze_component_duplicates(components):
+    """
+    Analyze a list of components to identify duplicates.
+    
+    Args:
+        components: List of component dictionaries
+        
+    Returns:
+        Dictionary with analysis results:
+        - total_components: Total number of components
+        - unique_locations: Number of unique locations
+        - location_counts: Dictionary of location counts
+        - duplicate_locations: List of locations that appear more than once
+    """
+    if not components:
+        return {
+            "total_components": 0,
+            "unique_locations": 0,
+            "location_counts": {},
+            "duplicate_locations": []
+        }
+    
+    # Count locations
+    location_counts = {}
+    for component in components:
+        location = component.get("Location and Post Code", "")
+        if not location:
+            location = "(No Location)"
+        
+        if location in location_counts:
+            location_counts[location] += 1
+        else:
+            location_counts[location] = 1
+    
+    # Find duplicates
+    duplicate_locations = [
+        {"location": loc, "count": count} 
+        for loc, count in location_counts.items() 
+        if count > 1
+    ]
+    
+    return {
+        "total_components": len(components),
+        "unique_locations": len(location_counts),
+        "location_counts": location_counts,
+        "duplicate_locations": duplicate_locations
+    }
