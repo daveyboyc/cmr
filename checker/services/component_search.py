@@ -14,6 +14,11 @@ logger = logging.getLogger(__name__)
 
 def search_components_service(request, return_data_only=False):
     """Service function for searching components and companies in a unified interface"""
+    # Add pagination parameters
+    page = int(request.GET.get("page", 1))
+    per_page = int(request.GET.get("per_page", 500))  # Default to 500 items per page
+    sort_order = request.GET.get("comp_sort", "desc")  # Sort for component results
+
     results = {}
     company_links = []
     error_message = None
@@ -58,10 +63,19 @@ def search_components_service(request, return_data_only=False):
                 "results": results,
                 "company_links": company_links,
                 "record_count": record_count,
+                "component_count": record_count,
+                "displayed_component_count": record_count,
                 "error": error_message,
                 "api_time": api_time,
                 "query": last_query,
-                "debug_info": debug_info
+                "sort_order": sort_order,
+                "debug_info": debug_info,
+                # Pagination context
+                "page": page,
+                "total_pages": 1 if record_count == 0 else (record_count + per_page - 1) // per_page,
+                "has_prev": False,
+                "has_next": False,
+                "page_range": range(1, 2),
             })
         elif query or debug_company:
             start_time = time.time()
@@ -145,7 +159,9 @@ def search_components_service(request, return_data_only=False):
 
             # STEP 3: Search for matching components
             components = []
+            total_component_count = 0
             components_api_time = 0
+
             try:
                 if query:  # Only search for components if there's a query
                     # First try to get components directly from JSON
@@ -157,11 +173,22 @@ def search_components_service(request, return_data_only=False):
                     # If not found, try to fetch components by CMU ID
                     if not components:
                         logger.info(f"DEBUG: No components found in JSON, trying API with CMU ID: {query}")
-                        api_components, components_api_time = fetch_components_for_cmu_id(query)
+                        api_components, components_metadata = fetch_components_for_cmu_id(query, page=page, per_page=per_page)
                         components = api_components or []
-                        api_time += components_api_time
-                        logger.info(f"DEBUG: Found {len(components)} components via API")
+                        
+                        # Get accurate total count from metadata
+                        if isinstance(components_metadata, dict):
+                            total_component_count = components_metadata.get("total_count", len(components))
+                            components_api_time = components_metadata.get("processing_time", 0)
+                            api_time += components_api_time
+                        else:
+                            total_component_count = len(components)
+                            
+                        logger.info(f"DEBUG: Found {len(components)} components via API (total: {total_component_count})")
                         debug_info["api_components_found"] = len(components)
+                    else:
+                        # If we found components in JSON, use that count
+                        total_component_count = len(components)
             except Exception as e:
                 import traceback
                 logger.error(f"DEBUG ERROR in component search: {str(e)}")
@@ -171,15 +198,30 @@ def search_components_service(request, return_data_only=False):
                 error_message = error_msg
                 debug_info["component_error"] = error_msg
                 components = []
+                total_component_count = 0
 
-            record_count = len(components) if components else 0
+            # Set the displayed count based on how many we're showing on this page
+            displayed_component_count = len(components)
+
+            # Calculate pagination values if not already provided by the API
+            if total_component_count > 0:
+                total_pages = (total_component_count + per_page - 1) // per_page
+                has_prev = page > 1
+                has_next = page < total_pages
+                page_range = range(max(1, page - 2), min(total_pages + 1, page + 3))
+            else:
+                total_pages = 1
+                has_prev = False
+                has_next = False
+                page_range = range(1, 2)
+
+            record_count = total_component_count
             logger.info(f"DEBUG: Final component count: {record_count}")
 
             # Format component results for display
             sentences = []
             
             # Sort components based on comp_sort parameter
-            sort_order = request.GET.get("comp_sort", "desc")
             if components:
                 try:
                     logger.info(f"DEBUG: Sorting components by Delivery Year, reverse={sort_order == 'desc'}")
@@ -222,11 +264,19 @@ def search_components_service(request, return_data_only=False):
                 "results": results,
                 "company_links": company_links,
                 "record_count": record_count,
+                "component_count": total_component_count,
+                "displayed_component_count": displayed_component_count,
                 "error": error_message,
                 "api_time": api_time,
                 "query": query,
                 "sort_order": sort_order,
-                "debug_info": debug_info
+                "debug_info": debug_info,
+                # Pagination context
+                "page": page,
+                "total_pages": total_pages,
+                "has_prev": has_prev,
+                "has_next": has_next,
+                "page_range": page_range,
             })
         else:
             # Clear session but keep query parameter in case it's needed

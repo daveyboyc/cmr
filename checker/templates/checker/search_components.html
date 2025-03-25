@@ -190,7 +190,12 @@
         </form>
 
         {% if record_count > 0 %}
-            <p class="text-muted mt-3">Searched {{ record_count }} records in the register</p>
+            <div class="mt-3 mb-3">
+                <p class="text-muted">
+                    Displaying <strong>{{ displayed_component_count|default:"0" }}</strong> of <strong>{{ record_count }}</strong> matching components
+                    {% if page and total_pages > 1 %}(Page {{ page }} of {{ total_pages }}){% endif %}
+                </p>
+            </div>
         {% endif %}
 
         {% if error %}

@@ -336,13 +336,16 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
     # If not in JSON cache, try API
     try:
         # Set actual limit to much higher than per_page to ensure we get all records
-        api_limit = 1000  # Try to get as many as possible from API
+        api_limit = 2000 if limit is None else limit  # High enough to get reasonably accurate counts
+        # Calculate API offset based on requested page and items per page
+        # e.g. page 2 with 100 per page means start at record 100
         api_offset = (page - 1) * per_page
         
         params = {
             "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
             "q": cmu_id,
-            "limit": api_limit  # Request a larger limit from API
+            "limit": api_limit,
+            "offset": api_offset
         }
         
         logger.info(f"Making API request for {cmu_id} with limit={api_limit}")
@@ -356,7 +359,11 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
         if response.status_code == 200:
             result = response.json().get("result", {})
             all_api_components = result.get("records", [])
-            total_count = result.get("total", len(all_api_components))
+            # IMPORTANT: Use the actual count of components we received 
+            # NOT the API's reported total which might be inaccurate
+            actual_count = len(all_api_components)
+            api_reported = result.get("total", 0)
+            total_count = actual_count  # Use actual count for pagination
             
             logger.info(f"API returned {len(all_api_components)} components (total: {total_count})")
             
@@ -366,8 +373,8 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
                 logger.info(f"Saved {len(all_api_components)} components to JSON cache")
             
             # Apply pagination on the API results ourselves
-            start_idx = (page - 1) * per_page
-            end_idx = start_idx + per_page
+            start_idx = 0  # Start from beginning since we already have the offset from API
+            end_idx = min(per_page, len(all_api_components))
             
             # Safety check
             if start_idx >= len(all_api_components):
@@ -377,10 +384,12 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
             paginated_components = all_api_components[start_idx:end_idx]
             
             # Calculate total pages
-            total_pages = (total_count + per_page - 1) // per_page
+            total_pages = (api_reported + per_page - 1) // per_page  # Use API reported for total pages
+            
             
             metadata = {
-                "total_count": total_count,
+                "total_count": api_reported,
+                "actual_returned": actual_count,
                 "page": page,
                 "per_page": per_page,
                 "total_pages": total_pages,

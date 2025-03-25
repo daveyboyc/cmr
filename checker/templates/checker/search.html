@@ -205,7 +205,18 @@
 
         <!-- Record Count -->
         {% if record_count > 0 %}
-            <p class="text-muted">Searched {{ record_count }} records in the register</p>
+        <div class="mt-3 mb-3">
+            <p class="text-muted">
+                {% if company_count %}
+                    Displaying <strong>{{ displayed_company_count|default:"0" }}</strong> of <strong>{{ company_count }}</strong> matching companies
+                {% elif component_count %}
+                    Displaying <strong>{{ displayed_component_count|default:"0" }}</strong> of <strong>{{ component_count }}</strong> matching components
+                {% else %}
+                    Displaying <strong>{{ displayed_count|default:"0" }}</strong> of <strong>{{ record_count }}</strong> matching records
+                {% endif %}
+                {% if page and total_pages > 1 %}(Page {{ page }} of {{ total_pages }}){% endif %}
+            </p>
+        </div>
         {% endif %}
 
         <!-- Error Message -->
