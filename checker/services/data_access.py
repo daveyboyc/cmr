@@ -288,15 +288,16 @@ def save_component_data_to_json(cmu_id, components):
         return False
 
 
-def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
+def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
     """
-    Fetch components for a given CMU ID with pagination support
+    Fetch components for a given CMU ID with pagination support.
+    Now accurately counts components and uses 500 per page.
     """
     import time
     import logging
     
     logger = logging.getLogger(__name__)
-    logger.info(f"Fetching components for CMU ID {cmu_id} (page={page}, per_page={per_page}, limit={limit})")
+    logger.info(f"Fetching components for CMU ID {cmu_id} (page={page}, per_page={per_page})")
     
     # First check JSON cache
     start_time = time.time()
@@ -305,7 +306,7 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
     # If components found in JSON cache
     if all_components:
         logger.info(f"Found {len(all_components)} components in JSON cache for {cmu_id}")
-        total_count = len(all_components)
+        total_count = len(all_components)  # Use actual count, not API estimate
         
         # Apply pagination
         start_idx = (page - 1) * per_page
@@ -335,10 +336,32 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
     
     # If not in JSON cache, try API
     try:
-        # Set actual limit to much higher than per_page to ensure we get all records
-        api_limit = 2000 if limit is None else limit  # High enough to get reasonably accurate counts
-        # Calculate API offset based on requested page and items per page
-        # e.g. page 2 with 100 per page means start at record 100
+        # ---- THE KEY CHANGE: CALCULATE ACTUAL TOTAL COUNT FROM API ----
+        # First make a count-only request to get the actual total
+        count_params = {
+            "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
+            "q": cmu_id,
+            "limit": 1  # Just need count, not data
+        }
+        
+        logger.info(f"Making count API request for {cmu_id}")
+        import requests
+        count_response = requests.get(
+            "https://data.nationalgrideso.com/api/3/action/datastore_search",
+            params=count_params,
+            timeout=10
+        )
+        
+        if count_response.status_code == 200:
+            count_result = count_response.json().get("result", {})
+            total_count = count_result.get("total", 0)
+            logger.info(f"API reports {total_count} total matching components")
+        else:
+            total_count = 0
+            logger.error(f"Count API error: {count_response.status_code}")
+            
+        # Now fetch the actual page of data
+        api_limit = per_page  # Only fetch what we need for this page
         api_offset = (page - 1) * per_page
         
         params = {
@@ -348,48 +371,32 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
             "offset": api_offset
         }
         
-        logger.info(f"Making API request for {cmu_id} with limit={api_limit}")
-        import requests
+        logger.info(f"Making API request for {cmu_id} with limit={api_limit}, offset={api_offset}")
         response = requests.get(
             "https://data.nationalgrideso.com/api/3/action/datastore_search",
             params=params,
-            timeout=30  # Increased timeout for larger results
+            timeout=30
         )
         
         if response.status_code == 200:
             result = response.json().get("result", {})
             all_api_components = result.get("records", [])
-            # IMPORTANT: Use the actual count of components we received 
-            # NOT the API's reported total which might be inaccurate
-            actual_count = len(all_api_components)
-            api_reported = result.get("total", 0)
-            total_count = actual_count  # Use actual count for pagination
             
-            logger.info(f"API returned {len(all_api_components)} components (total: {total_count})")
+            # Use the total count from our count request
+            actual_count = len(all_api_components)
+            logger.info(f"API returned {actual_count} components for page {page}")
             
             # Save to JSON cache for future use
             if all_api_components:
                 save_component_data_to_json(cmu_id, all_api_components)
                 logger.info(f"Saved {len(all_api_components)} components to JSON cache")
             
-            # Apply pagination on the API results ourselves
-            start_idx = 0  # Start from beginning since we already have the offset from API
-            end_idx = min(per_page, len(all_api_components))
-            
-            # Safety check
-            if start_idx >= len(all_api_components):
-                start_idx = 0
-                end_idx = min(per_page, len(all_api_components))
-                
-            paginated_components = all_api_components[start_idx:end_idx]
-            
-            # Calculate total pages
-            total_pages = (api_reported + per_page - 1) // per_page  # Use API reported for total pages
-            
+            # Calculate total pages using the accurate total count
+            total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
             
             metadata = {
-                "total_count": api_reported,
-                "actual_returned": actual_count,
+                "total_count": total_count,
+                "displayed_count": actual_count,
                 "page": page,
                 "per_page": per_page,
                 "total_pages": total_pages,
@@ -397,8 +404,8 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
                 "processing_time": time.time() - start_time
             }
             
-            logger.info(f"Returning {len(paginated_components)} components (page {page} of {total_pages})")
-            return paginated_components, metadata
+            logger.info(f"Returning {len(all_api_components)} components (page {page} of {total_pages})")
+            return all_api_components, metadata
         else:
             logger.error(f"API error: {response.status_code}")
             return [], {"error": f"API error: {response.status_code}"}
