@@ -197,20 +197,20 @@
                 
                 {% if request.GET.q and total_pages > 1 %}
                 <div>
-                    <a href="?q={{ request.GET.q }}&page=1&sort={{ sort_order }}" class="btn btn-sm btn-outline-primary me-1">
+                    <a href="?q={{ request.GET.q }}&page=1&comp_sort={{ sort_order }}" class="btn btn-sm btn-outline-primary me-1">
                         First
                     </a>
                     {% if has_prev %}
-                    <a href="?q={{ request.GET.q }}&page={{ page|add:'-1' }}&sort={{ sort_order }}" class="btn btn-sm btn-outline-primary me-1">
+                    <a href="?q={{ request.GET.q }}&page={{ page|add:'-1' }}&comp_sort={{ sort_order }}" class="btn btn-sm btn-outline-primary me-1">
                         Previous
                     </a>
                     {% endif %}
                     {% if has_next %}
-                    <a href="?q={{ request.GET.q }}&page={{ page|add:'1' }}&sort={{ sort_order }}" class="btn btn-sm btn-outline-primary me-1">
+                    <a href="?q={{ request.GET.q }}&page={{ page|add:'1' }}&comp_sort={{ sort_order }}" class="btn btn-sm btn-outline-primary me-1">
                         Next
                     </a>
                     {% endif %}
-                    <a href="?q={{ request.GET.q }}&page={{ total_pages }}&sort={{ sort_order }}" class="btn btn-sm btn-outline-primary">
+                    <a href="?q={{ request.GET.q }}&page={{ total_pages }}&comp_sort={{ sort_order }}" class="btn btn-sm btn-outline-primary">
                         Last
                     </a>
                 </div>
@@ -247,8 +247,21 @@
             </div>
 
             <!-- Add sort order explanation when results are shown -->
-            <div class="text-muted mb-2">
-                Results sorted by delivery year ({% if sort_order == "desc" %}newest first{% else %}oldest first{% endif %})
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="text-muted">
+                    Results sorted by delivery year ({% if sort_order == "desc" %}newest first{% else %}oldest first{% endif %})
+                </div>
+                
+                <!-- Add clickable sort toggle button -->
+                {% if sort_order == "desc" %}
+                    <a href="?q={{ request.GET.q }}&page={{ page }}&comp_sort=asc" class="sort-toggle">
+                        <span>↑</span> Sort Components: Oldest First
+                    </a>
+                {% else %}
+                    <a href="?q={{ request.GET.q }}&page={{ page }}&comp_sort=desc" class="sort-toggle">
+                        <span>↓</span> Sort Components: Newest First
+                    </a>
+                {% endif %}
             </div>
         {% endif %}
 
@@ -271,29 +284,29 @@
           <nav aria-label="Page navigation">
             <ul class="pagination justify-content-center">
               <li class="page-item {% if not has_prev %}disabled{% endif %}">
-                <a class="page-link" href="?q={{ query }}&page=1&sort={{ sort_order }}" aria-label="First">
+                <a class="page-link" href="?q={{ query }}&page=1&comp_sort={{ sort_order }}" aria-label="First">
                   <span aria-hidden="true">&laquo;&laquo; First</span>
                 </a>
               </li>
               <li class="page-item {% if not has_prev %}disabled{% endif %}">
-                <a class="page-link" href="?q={{ query }}&page={{ page|add:'-1' }}&sort={{ sort_order }}" aria-label="Previous">
+                <a class="page-link" href="?q={{ query }}&page={{ page|add:'-1' }}&comp_sort={{ sort_order }}" aria-label="Previous">
                   <span aria-hidden="true">&laquo; Previous</span>
                 </a>
               </li>
               
               {% for p in page_range %}
                 <li class="page-item {% if p == page %}active{% endif %}">
-                  <a class="page-link" href="?q={{ query }}&page={{ p }}&sort={{ sort_order }}">{{ p }}</a>
+                  <a class="page-link" href="?q={{ query }}&page={{ p }}&comp_sort={{ sort_order }}">{{ p }}</a>
                 </li>
               {% endfor %}
               
               <li class="page-item {% if not has_next %}disabled{% endif %}">
-                <a class="page-link" href="?q={{ query }}&page={{ page|add:'1' }}&sort={{ sort_order }}" aria-label="Next">
+                <a class="page-link" href="?q={{ query }}&page={{ page|add:'1' }}&comp_sort={{ sort_order }}" aria-label="Next">
                   <span aria-hidden="true">Next &raquo;</span>
                 </a>
               </li>
               <li class="page-item {% if not has_next %}disabled{% endif %}">
-                <a class="page-link" href="?q={{ query }}&page={{ total_pages }}&sort={{ sort_order }}" aria-label="Last">
+                <a class="page-link" href="?q={{ query }}&page={{ total_pages }}&comp_sort={{ sort_order }}" aria-label="Last">
                   <span aria-hidden="true">Last &raquo;&raquo;</span>
                 </a>
               </li>
