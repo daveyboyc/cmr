@@ -1,6 +1,5 @@
 from django.urls import path
 from . import views
-from .views import search_view, components_view, component_detail_view
 from .services.component_detail import get_component_details
 from .debug_views import debug_component_duplicates
 

@@ -215,6 +215,30 @@ def get_component_data_from_json(cmu_id):
             if file_cmu_id.lower() == cmu_id.lower():
                 logger.info(f"Found case-insensitive match: {file_cmu_id} for {cmu_id} with {len(all_components[file_cmu_id])} components")
                 return all_components[file_cmu_id]
+                
+        # If still not found, try prefix match (e.g., "TS17" matching "TS17_1", "TS17_2", etc.)
+        matching_components = []
+        matching_cmu_ids = []
+        for file_cmu_id, components in all_components.items():
+            if file_cmu_id.startswith(cmu_id + "_") or file_cmu_id == cmu_id:
+                logger.info(f"Found prefix match: {file_cmu_id} for {cmu_id} with {len(components)} components")
+                matching_components.extend(components)
+                matching_cmu_ids.append(file_cmu_id)
+                
+        if matching_components:
+            logger.info(f"Combining {len(matching_components)} components from {len(matching_cmu_ids)} CMU IDs that match prefix '{cmu_id}'")
+            # Use a set to deduplicate components by location
+            unique_components = []
+            seen_locations = set()
+            
+            for component in matching_components:
+                location = component.get("Location and Post Code", "")
+                if location and location not in seen_locations:
+                    seen_locations.add(location)
+                    unique_components.append(component)
+                    
+            logger.info(f"Returning {len(unique_components)} unique components after deduplication")
+            return unique_components
 
         # If still not found, return None
         logger.warning(f"No match found for CMU ID {cmu_id} in JSON")
