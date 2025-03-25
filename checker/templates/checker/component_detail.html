@@ -121,8 +121,8 @@
                     <ul>
                     {% for comp in all_components %}
                         <li>
-                            <a href="/component/{{ cmu_id }}_{{ comp|get_item:'Location and Post Code'|default:'unknown'|slugify }}/">
-                                {{ comp|get_item:'Location and Post Code'|default:'unknown' }}
+                            <a href="/component/{{ cmu_id }}_{{ comp|get_item:'Location and Post Code'|slugify }}/">
+                                {{ comp|get_item:'Location and Post Code' }}
                             </a>
                         </li>
                     {% endfor %}

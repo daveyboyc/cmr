@@ -27,6 +27,11 @@ def get_component_details(request, component_id):
             })
 
         cmu_id, normalized_location = parts
+        
+        # Clean up the normalized location if it starts with a number_
+        if normalized_location and normalized_location.split('_', 1)[0].isdigit():
+            normalized_location = normalized_location.split('_', 1)[1] if '_' in normalized_location else normalized_location
+            
         logger.info(f"Looking up component with CMU ID: {cmu_id}, normalized location: {normalized_location}")
 
         # Fetch components for this CMU
@@ -49,19 +54,42 @@ def get_component_details(request, component_id):
         target_component = None
         for component in components:
             location = component.get("Location and Post Code", "")
-            if normalize(location) == normalized_location:
+            normalized_component_location = normalize(location)
+            
+            # Try exact match first
+            if normalized_component_location == normalized_location:
                 target_component = component
-                logger.info(f"Found matching component with location: {location}")
+                logger.info(f"Found exact matching component with location: {location}")
+                break
+                
+            # If not found, try relaxed matching where one contains the other
+            if (normalized_component_location and normalized_location and 
+                (normalized_component_location in normalized_location or 
+                 normalized_location in normalized_component_location)):
+                target_component = component
+                logger.info(f"Found partial matching component with location: {location}")
                 break
 
         if not target_component:
             logger.warning(f"Component with location {normalized_location} not found for CMU ID {cmu_id}")
+            
+            # Filter and deduplicate components to avoid showing duplicates and entries without locations
+            filtered_components = []
+            seen_locations = set()
+            
+            if components:
+                for comp in components:
+                    location = comp.get("Location and Post Code", "")
+                    if location and location not in seen_locations:
+                        seen_locations.add(location)
+                        filtered_components.append(comp)
+            
             return render(request, "checker/component_detail.html", {
                 "error": f"Component with location '{normalized_location}' not found for CMU ID '{cmu_id}'",
                 "component": None,
                 "api_time": api_time,
                 "cmu_id": cmu_id,
-                "all_components": components,  # Provide all components in case they want to browse
+                "all_components": filtered_components,  # Provide filtered components in case they want to browse
                 "additional_cmu_data": additional_cmu_data
             })
 
