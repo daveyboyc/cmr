@@ -1,53 +1,124 @@
 import time
 import requests
 import traceback
+import json
+import os
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.conf import settings
 from ...models import Component
 
 class Command(BaseCommand):
-    help = 'Crawl component data directly into the database'
+    help = 'Crawl component data directly into the database with resume capabilities'
 
     def add_arguments(self, parser):
         parser.add_argument('--batch-size', type=int, default=100, help='How many CMUs to process per batch')
         parser.add_argument('--limit', type=int, default=0, help='Max CMUs to process (0 = unlimited)')
         parser.add_argument('--offset', type=int, default=0, help='Starting offset for CMU IDs')
         parser.add_argument('--cmu', type=str, help='Process specific CMU ID')
+        parser.add_argument('--resume', action='store_true', help='Resume from last saved checkpoint')
+        parser.add_argument('--force', action='store_true', help='Process all CMUs even if they already have components')
+        parser.add_argument('--company', type=str, help='Process only CMUs for this company')
+        parser.add_argument('--sleep', type=float, default=1.0, help='Sleep time between batches to avoid rate limiting')
 
     def handle(self, *args, **options):
         # Start the crawl
         self.stdout.write(self.style.SUCCESS("Starting component crawl to database"))
         start_time = time.time()
         
+        # Extract options
+        self.batch_size = options['batch_size']
+        self.limit = options['limit']
+        self.offset = options['offset']
+        self.specific_cmu = options['cmu']
+        self.resume = options['resume']
+        self.force_update = options['force']
+        self.company_filter = options['company']
+        self.sleep_time = options['sleep']
+        
+        # Setup checkpoint directory
+        self.checkpoint_dir = os.path.join(settings.BASE_DIR, 'checkpoints')
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
+        self.checkpoint_file = os.path.join(self.checkpoint_dir, 'crawler_checkpoint.json')
+        
         # Get total number of CMUs first
         total_cmus = self.get_total_cmus()
-        self.stdout.write(f"Total CMUs to process: {total_cmus}")
         
         # Track statistics
-        stats = {
+        self.stats = {
             'cmu_ids_processed': 0,
             'cmu_ids_with_components': 0,
             'components_found': 0,
             'components_added': 0,
+            'components_skipped': 0,
             'errors': 0,
-            'total_cmus': total_cmus
+            'total_cmus': total_cmus,
+            'start_time': time.time(),
+            'last_offset': self.offset,
+            'last_cmu_id': None
         }
         
+        # Load checkpoint if resuming
+        if self.resume:
+            self.load_checkpoint()
+            
         # Process specific CMU if requested
-        if options['cmu']:
-            self.crawl_single_cmu(options['cmu'], stats)
+        if self.specific_cmu:
+            self.crawl_single_cmu(self.specific_cmu, self.stats)
         else:
             # Process all CMUs in batches
-            self.crawl_all_cmus(options['batch_size'], options['limit'], options['offset'], stats)
+            self.crawl_all_cmus(self.stats)
         
         # Print final statistics
         elapsed_time = time.time() - start_time
         self.stdout.write(self.style.SUCCESS("\nCrawl completed in {:.2f} seconds".format(elapsed_time)))
-        self.stdout.write(f"  CMU IDs processed: {stats['cmu_ids_processed']} of {stats['total_cmus']}")
-        self.stdout.write(f"  CMU IDs with components: {stats['cmu_ids_with_components']}")
-        self.stdout.write(f"  Components found: {stats['components_found']}")
-        self.stdout.write(f"  Components added to database: {stats['components_added']}")
-        self.stdout.write(f"  Errors encountered: {stats['errors']}")
+        self.stdout.write(f"  CMU IDs processed: {self.stats['cmu_ids_processed']} of {self.stats['total_cmus']}")
+        self.stdout.write(f"  CMU IDs with components: {self.stats['cmu_ids_with_components']}")
+        self.stdout.write(f"  Components found: {self.stats['components_found']}")
+        self.stdout.write(f"  Components added to database: {self.stats['components_added']}")
+        self.stdout.write(f"  Components skipped: {self.stats.get('components_skipped', 0)}")
+        self.stdout.write(f"  Errors encountered: {self.stats['errors']}")
+    
+    def load_checkpoint(self):
+        """Load the most recent checkpoint if available."""
+        if os.path.exists(self.checkpoint_file):
+            try:
+                with open(self.checkpoint_file, 'r') as f:
+                    checkpoint = json.load(f)
+                
+                # Restore state from checkpoint
+                self.stats = checkpoint.get('stats', self.stats)
+                self.offset = checkpoint.get('offset', self.offset)
+                
+                # Mark as resumed for ETA calculation
+                self.stats['resumed_at'] = time.time()
+                
+                self.stdout.write(self.style.SUCCESS(
+                    f"Resuming crawl from offset {self.offset}, "
+                    f"already processed {self.stats['cmu_ids_processed']} CMUs"
+                ))
+            except Exception as e:
+                self.stdout.write(self.style.ERROR(f"Error loading checkpoint: {e}"))
+                self.stdout.write("Starting fresh crawl")
+        else:
+            self.stdout.write("No checkpoint found. Starting fresh crawl.")
+    
+    def save_checkpoint(self):
+        """Save current crawl progress to checkpoint file."""
+        try:
+            # Prepare checkpoint data
+            checkpoint = {
+                'stats': self.stats,
+                'offset': self.stats['last_offset'],
+                'timestamp': time.time()
+            }
+            
+            with open(self.checkpoint_file, 'w') as f:
+                json.dump(checkpoint, f, indent=2)
+                
+            self.stdout.write(f"Saved checkpoint at offset {self.stats['last_offset']}")
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f"Error saving checkpoint: {e}"))
     
     def get_total_cmus(self):
         """Get total number of CMUs available."""
@@ -60,6 +131,11 @@ class Command(BaseCommand):
                 "resource_id": cmu_resource_id,
                 "limit": 0
             }
+            
+            # Add company filter if specified
+            if self.company_filter:
+                params["q"] = self.company_filter
+                
             response = requests.get(cmu_api_url, params=params, timeout=30)
             response.raise_for_status()
             data = response.json()
@@ -72,42 +148,67 @@ class Command(BaseCommand):
             self.stderr.write(f"Error getting total CMUs: {str(e)}")
             return 0
 
-    def crawl_all_cmus(self, batch_size, limit, offset, stats):
+    def crawl_all_cmus(self, stats):
         """Crawl all CMU IDs from the API."""
         # CMU API endpoint
         cmu_api_url = "https://api.neso.energy/api/3/action/datastore_search"
         cmu_resource_id = "25a5fa2e-873d-41c5-8aaf-fbc2b06d79e6"
         
-        # Get total CMUs first
-        try:
-            total_response = requests.get(cmu_api_url, params={"resource_id": cmu_resource_id, "limit": 0}, timeout=30)
-            total_cmus = total_response.json().get("result", {}).get("total", 0)
-            self.stdout.write(f"Total CMUs to process: {total_cmus}")
-        except:
-            total_cmus = 0
-        
         # Process CMUs in batches
         continue_crawl = True
-        current_offset = offset
-        start_time = time.time()
+        current_offset = self.offset
+        start_time = self.stats.get('start_time', time.time())
         
         while continue_crawl:
-            # Calculate progress
-            progress = (current_offset / total_cmus * 100) if total_cmus > 0 else 0
-            elapsed_time = time.time() - start_time
-            rate = current_offset / elapsed_time if elapsed_time > 0 else 0
+            # Save checkpoint before processing batch
+            self.stats['last_offset'] = current_offset
+            self.save_checkpoint()
             
-            self.stdout.write(f"\nProgress: {progress:.1f}% ({current_offset}/{total_cmus})")
-            self.stdout.write(f"Components found so far: {stats['components_found']}")
-            self.stdout.write(f"Processing rate: {rate:.1f} CMUs/second")
+            # Calculate progress
+            progress = (current_offset / stats['total_cmus'] * 100) if stats['total_cmus'] > 0 else 0
+            
+            # Calculate elapsed time accounting for resume
+            if 'resumed_at' in self.stats:
+                prev_duration = self.stats.get('resumed_at', time.time()) - start_time
+                current_duration = time.time() - self.stats.get('resumed_at', time.time())
+                elapsed_time = prev_duration + current_duration
+            else:
+                elapsed_time = time.time() - start_time
+                
+            # Calculate processing rates
+            if elapsed_time > 0 and stats['cmu_ids_processed'] > 0:
+                rate = stats['cmu_ids_processed'] / elapsed_time
+                remaining = stats['total_cmus'] - current_offset
+                eta_seconds = remaining / rate if rate > 0 else 0
+                
+                # Format as hours:minutes:seconds
+                eta_hours = int(eta_seconds // 3600)
+                eta_minutes = int((eta_seconds % 3600) // 60)
+                eta_seconds = int(eta_seconds % 60)
+                
+                eta_str = f"{eta_hours:02d}:{eta_minutes:02d}:{eta_seconds:02d}"
+            else:
+                rate = 0
+                eta_str = "calculating..."
+            
+            # Show detailed progress
+            self.stdout.write("\n" + "=" * 50)
+            self.stdout.write(self.style.SUCCESS(f"Progress: {progress:.1f}% ({current_offset}/{stats['total_cmus']})"))
+            self.stdout.write(f"Components found: {stats['components_found']} | Added: {stats['components_added']}")
+            self.stdout.write(f"Processing rate: {rate:.1f} CMUs/second | ETA: {eta_str}")
             self.stdout.write(f"Fetching CMU batch at offset {current_offset}")
+            self.stdout.write("=" * 50)
             
             # Fetch batch of CMU IDs
             cmu_params = {
                 "resource_id": cmu_resource_id,
-                "limit": batch_size,
+                "limit": self.batch_size,
                 "offset": current_offset
             }
+            
+            # Add company filter if specified
+            if self.company_filter:
+                cmu_params["q"] = self.company_filter
             
             try:
                 cmu_response = requests.get(cmu_api_url, params=cmu_params, timeout=30)
@@ -125,11 +226,12 @@ class Command(BaseCommand):
                     for record in cmu_records:
                         cmu_id = record.get("CMU ID")
                         if cmu_id:
+                            self.stats['last_cmu_id'] = cmu_id
                             self.crawl_single_cmu(cmu_id, stats, record)
                         
                         # Check if we've reached the limit
-                        if limit > 0 and stats['cmu_ids_processed'] >= limit:
-                            self.stdout.write(f"Reached limit of {limit} CMU IDs. Stopping crawl.")
+                        if self.limit > 0 and stats['cmu_ids_processed'] >= self.limit:
+                            self.stdout.write(f"Reached limit of {self.limit} CMU IDs. Stopping crawl.")
                             continue_crawl = False
                             break
                     
@@ -147,7 +249,11 @@ class Command(BaseCommand):
                 break
                 
             # Prevent rate limiting
-            time.sleep(1)
+            time.sleep(self.sleep_time)
+        
+        # Save final checkpoint
+        self.stats['last_offset'] = current_offset
+        self.save_checkpoint()
     
     def crawl_single_cmu(self, cmu_id, stats, cmu_record=None):
         """Crawl components for a single CMU ID."""
@@ -157,6 +263,14 @@ class Command(BaseCommand):
         
         self.stdout.write(f"Processing CMU ID: {cmu_id}")
         stats['cmu_ids_processed'] += 1
+        
+        # Skip if we already have components for this CMU and not forcing update
+        if not self.force_update and not self.specific_cmu:
+            db_count = Component.objects.filter(cmu_id=cmu_id).count()
+            if db_count > 0:
+                self.stdout.write(f"  CMU ID {cmu_id} already has {db_count} components in database. Skipping.")
+                stats['components_skipped'] = stats.get('components_skipped', 0) + db_count
+                return
         
         # Fetch components for this CMU ID
         component_params = {
@@ -200,12 +314,16 @@ class Command(BaseCommand):
         """Save component records to the database."""
         # Use a transaction for better performance and atomicity
         with transaction.atomic():
+            components_added = 0
+            components_skipped = 0
+            
             for component in component_records:
                 # Get component ID if available
                 component_id = component.get("_id", "")
                 
                 # Skip if we already have this component in the database
                 if component_id and Component.objects.filter(component_id=component_id).exists():
+                    components_skipped += 1
                     continue
                 
                 try:
@@ -237,8 +355,13 @@ class Command(BaseCommand):
                         type=type_value,
                         additional_data=component  # Store all data as JSON
                     )
-                    stats['components_added'] += 1
+                    components_added += 1
                     
                 except Exception as e:
                     self.stderr.write(f"  Error saving component {component_id}: {str(e)}")
                     stats['errors'] += 1
+            
+            stats['components_added'] += components_added
+            stats['components_skipped'] = stats.get('components_skipped', 0) + components_skipped
+            
+            self.stdout.write(f"  Added {components_added} components to database (skipped {components_skipped})")
