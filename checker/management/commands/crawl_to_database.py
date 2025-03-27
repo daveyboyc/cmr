@@ -53,9 +53,10 @@ class Command(BaseCommand):
             'components_skipped': 0,
             'errors': 0,
             'total_cmus': total_cmus,
-            'start_time': time.time(),
+            'start_time': start_time,
             'last_offset': self.offset,
-            'last_cmu_id': None
+            'last_cmu_id': None,
+            'batches_processed': 0
         }
         
         # Load checkpoint if resuming
