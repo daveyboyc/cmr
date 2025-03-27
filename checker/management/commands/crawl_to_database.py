@@ -67,7 +67,7 @@ class Command(BaseCommand):
             self.crawl_single_cmu(self.specific_cmu, self.stats)
         else:
             # Process all CMUs in batches
-            self.crawl_all_cmus(self.stats)
+            self.crawl_all_cmus()
         
         # Print final statistics
         elapsed_time = time.time() - start_time
@@ -103,7 +103,7 @@ class Command(BaseCommand):
         else:
             self.stdout.write("No checkpoint found. Starting fresh crawl.")
     
-    def save_checkpoint(self):
+    def save_checkpoint(self, forced=False):
         """Save current crawl progress to checkpoint file."""
         try:
             # Prepare checkpoint data
@@ -148,16 +148,31 @@ class Command(BaseCommand):
             self.stderr.write(f"Error getting total CMUs: {str(e)}")
             return 0
 
-    def crawl_all_cmus(self, stats):
-        """Crawl all CMU IDs from the API."""
+    def crawl_all_cmus(self):
+        """Crawl all CMU IDs from the API with static progress display."""
         # CMU API endpoint
         cmu_api_url = "https://api.neso.energy/api/3/action/datastore_search"
         cmu_resource_id = "25a5fa2e-873d-41c5-8aaf-fbc2b06d79e6"
+        
+        # Get total CMUs first if not already set
+        if not self.stats['total_cmus']:
+            self.stats['total_cmus'] = self.get_total_cmus()
         
         # Process CMUs in batches
         continue_crawl = True
         current_offset = self.offset
         start_time = self.stats.get('start_time', time.time())
+        last_update_time = 0
+        
+        # Initial progress display
+        self.stdout.write("\n" + "=" * 50)
+        self.stdout.write("\033[s")  # Save cursor position
+        self.stdout.write("Progress: 0.0% (0/{})".format(self.stats['total_cmus']))
+        self.stdout.write("\nComponents found: 0 | Added: 0 | Skipped: 0")
+        self.stdout.write("\nProcessing rate: 0.0 CMUs/second | ETA: calculating...")
+        self.stdout.write("\nCurrent CMU ID: ---")
+        self.stdout.write("\nBatch offset: 0")
+        self.stdout.write("\n" + "=" * 50)
         
         while continue_crawl:
             # Save checkpoint before processing batch
@@ -165,7 +180,7 @@ class Command(BaseCommand):
             self.save_checkpoint()
             
             # Calculate progress
-            progress = (current_offset / stats['total_cmus'] * 100) if stats['total_cmus'] > 0 else 0
+            progress = (current_offset / self.stats['total_cmus'] * 100) if self.stats['total_cmus'] > 0 else 0
             
             # Calculate elapsed time accounting for resume
             if 'resumed_at' in self.stats:
@@ -174,11 +189,11 @@ class Command(BaseCommand):
                 elapsed_time = prev_duration + current_duration
             else:
                 elapsed_time = time.time() - start_time
-                
+            
             # Calculate processing rates
-            if elapsed_time > 0 and stats['cmu_ids_processed'] > 0:
-                rate = stats['cmu_ids_processed'] / elapsed_time
-                remaining = stats['total_cmus'] - current_offset
+            if elapsed_time > 0 and self.stats['cmu_ids_processed'] > 0:
+                rate = self.stats['cmu_ids_processed'] / elapsed_time
+                remaining = self.stats['total_cmus'] - current_offset
                 eta_seconds = remaining / rate if rate > 0 else 0
                 
                 # Format as hours:minutes:seconds
@@ -191,13 +206,22 @@ class Command(BaseCommand):
                 rate = 0
                 eta_str = "calculating..."
             
-            # Show detailed progress
-            self.stdout.write("\n" + "=" * 50)
-            self.stdout.write(self.style.SUCCESS(f"Progress: {progress:.1f}% ({current_offset}/{stats['total_cmus']})"))
-            self.stdout.write(f"Components found: {stats['components_found']} | Added: {stats['components_added']}")
-            self.stdout.write(f"Processing rate: {rate:.1f} CMUs/second | ETA: {eta_str}")
-            self.stdout.write(f"Fetching CMU batch at offset {current_offset}")
-            self.stdout.write("=" * 50)
+            # Update progress display (only every 0.5 seconds to reduce flicker)
+            current_time = time.time()
+            if current_time - last_update_time >= 0.5:
+                self.stdout.write("\033[u")  # Restore cursor position
+                self.stdout.write("\033[K")  # Clear line
+                self.stdout.write(f"Progress: {progress:.1f}% ({current_offset}/{self.stats['total_cmus']})")
+                self.stdout.write("\033[K")  # Clear line
+                self.stdout.write(f"\nComponents found: {self.stats['components_found']} | Added: {self.stats['components_added']} | Skipped: {self.stats.get('components_skipped', 0)}")
+                self.stdout.write("\033[K")  # Clear line
+                self.stdout.write(f"\nProcessing rate: {rate:.1f} CMUs/second | ETA: {eta_str}")
+                self.stdout.write("\033[K")  # Clear line
+                self.stdout.write(f"\nCurrent CMU ID: {self.stats.get('last_cmu_id', '---')}")
+                self.stdout.write("\033[K")  # Clear line
+                self.stdout.write(f"\nBatch offset: {current_offset}")
+                
+                last_update_time = current_time
             
             # Fetch batch of CMU IDs
             cmu_params = {
@@ -206,9 +230,10 @@ class Command(BaseCommand):
                 "offset": current_offset
             }
             
-            # Add company filter if specified
-            if self.company_filter:
-                cmu_params["q"] = self.company_filter
+            # Add company filter if specified (fallback to None if not defined)
+            company_filter = getattr(self, 'company_filter', None)
+            if company_filter:
+                cmu_params["q"] = company_filter
             
             try:
                 cmu_response = requests.get(cmu_api_url, params=cmu_params, timeout=30)
@@ -219,7 +244,7 @@ class Command(BaseCommand):
                     cmu_records = cmu_data.get("result", {}).get("records", [])
                     
                     if not cmu_records:
-                        self.stdout.write("No more CMU records found. Crawl complete.")
+                        self.stdout.write("\n\nNo more CMU records found. Crawl complete.")
                         break
                     
                     # Process each CMU ID in this batch
@@ -227,49 +252,72 @@ class Command(BaseCommand):
                         cmu_id = record.get("CMU ID")
                         if cmu_id:
                             self.stats['last_cmu_id'] = cmu_id
-                            self.crawl_single_cmu(cmu_id, stats, record)
+                            
+                            # Update current CMU in progress display
+                            if current_time - last_update_time >= 0.5:
+                                self.stdout.write("\033[u")  # Restore cursor position
+                                self.stdout.write("\033[3B")  # Move down 3 lines
+                                self.stdout.write("\033[K")  # Clear line
+                                self.stdout.write(f"\nCurrent CMU ID: {cmu_id}")
+                                self.stdout.write("\033[2A")  # Move back up 2 lines
+                            
+                            self.crawl_single_cmu(cmu_id, record)
                         
                         # Check if we've reached the limit
-                        if self.limit > 0 and stats['cmu_ids_processed'] >= self.limit:
-                            self.stdout.write(f"Reached limit of {self.limit} CMU IDs. Stopping crawl.")
+                        if self.limit > 0 and self.stats['cmu_ids_processed'] >= self.limit:
+                            self.stdout.write("\n\nReached limit of {self.limit} CMU IDs. Stopping crawl.")
                             continue_crawl = False
                             break
                     
                     # Update offset for next batch
                     current_offset += len(cmu_records)
+                    self.stats['batches_processed'] += 1
                 else:
-                    self.stderr.write(f"CMU API request unsuccessful: {cmu_data.get('error', 'Unknown error')}")
-                    stats['errors'] += 1
+                    self.stderr.write(f"\n\nCMU API request unsuccessful: {cmu_data.get('error', 'Unknown error')}")
+                    self.stats['errors'] += 1
                     break
                     
             except Exception as e:
-                self.stderr.write(f"Error fetching CMU IDs: {str(e)}")
+                self.stderr.write(f"\n\nError fetching CMU IDs: {str(e)}")
                 traceback.print_exc()
-                stats['errors'] += 1
+                self.stats['errors'] += 1
                 break
                 
             # Prevent rate limiting
             time.sleep(self.sleep_time)
         
+        # Final progress update
+        self.stdout.write("\033[u")  # Restore cursor position
+        self.stdout.write("\033[K")  # Clear line
+        self.stdout.write(f"Progress: {progress:.1f}% ({current_offset}/{self.stats['total_cmus']}) - COMPLETED")
+        self.stdout.write("\033[K")  # Clear line
+        self.stdout.write(f"\nComponents found: {self.stats['components_found']} | Added: {self.stats['components_added']} | Skipped: {self.stats.get('components_skipped', 0)}")
+        self.stdout.write("\033[K")  # Clear line
+        self.stdout.write(f"\nProcessing rate: {rate:.1f} CMUs/second | Total time: {elapsed_time:.1f} seconds")
+        self.stdout.write("\033[K")  # Clear line
+        self.stdout.write(f"\nLast CMU ID: {self.stats.get('last_cmu_id', '---')}")
+        self.stdout.write("\033[K")  # Clear line
+        self.stdout.write(f"\nFinal offset: {current_offset}")
+        self.stdout.write("\n" + "=" * 50)
+        
         # Save final checkpoint
         self.stats['last_offset'] = current_offset
-        self.save_checkpoint()
+        self.save_checkpoint(forced=True)
     
-    def crawl_single_cmu(self, cmu_id, stats, cmu_record=None):
-        """Crawl components for a single CMU ID."""
+    def crawl_single_cmu(self, cmu_id, cmu_record=None):
+        """Crawl components for a single CMU ID (silent version)."""
         # Components API endpoint
         component_api_url = "https://api.neso.energy/api/3/action/datastore_search"
         component_resource_id = "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8"
         
-        self.stdout.write(f"Processing CMU ID: {cmu_id}")
-        stats['cmu_ids_processed'] += 1
+        self.stats['cmu_ids_processed'] += 1
         
         # Skip if we already have components for this CMU and not forcing update
         if not self.force_update and not self.specific_cmu:
             db_count = Component.objects.filter(cmu_id=cmu_id).count()
             if db_count > 0:
-                self.stdout.write(f"  CMU ID {cmu_id} already has {db_count} components in database. Skipping.")
-                stats['components_skipped'] = stats.get('components_skipped', 0) + db_count
+                # Don't output anything for skipping
+                self.stats['components_skipped'] = self.stats.get('components_skipped', 0) + db_count
                 return
         
         # Fetch components for this CMU ID
@@ -286,11 +334,10 @@ class Command(BaseCommand):
             
             if component_data.get("success"):
                 component_records = component_data.get("result", {}).get("records", [])
-                stats['components_found'] += len(component_records)
+                self.stats['components_found'] += len(component_records)
                 
                 if component_records:
-                    stats['cmu_ids_with_components'] += 1
-                    self.stdout.write(f"  Found {len(component_records)} components")
+                    self.stats['cmu_ids_with_components'] += 1
                     
                     # Get company name from CMU record if available
                     company_name = None
@@ -298,20 +345,15 @@ class Command(BaseCommand):
                         company_name = cmu_record.get("Name of Applicant") or cmu_record.get("Parent Company")
                     
                     # Save components to database
-                    self.save_components_to_db(cmu_id, component_records, company_name, stats)
-                else:
-                    self.stdout.write("  No components found")
+                    self.save_components_to_db(cmu_id, component_records, company_name)
             else:
-                self.stderr.write(f"  Component API request unsuccessful: {component_data.get('error', 'Unknown error')}")
-                stats['errors'] += 1
+                self.stats['errors'] += 1
                 
         except Exception as e:
-            self.stderr.write(f"  Error fetching components for {cmu_id}: {str(e)}")
-            traceback.print_exc()
-            stats['errors'] += 1
+            self.stats['errors'] += 1
             
-    def save_components_to_db(self, cmu_id, component_records, company_name, stats):
-        """Save component records to the database."""
+    def save_components_to_db(self, cmu_id, component_records, company_name):
+        """Save component records to the database (silent version)."""
         # Use a transaction for better performance and atomicity
         with transaction.atomic():
             components_added = 0
@@ -358,10 +400,8 @@ class Command(BaseCommand):
                     components_added += 1
                     
                 except Exception as e:
-                    self.stderr.write(f"  Error saving component {component_id}: {str(e)}")
-                    stats['errors'] += 1
+                    self.stats['errors'] += 1
             
-            stats['components_added'] += components_added
-            stats['components_skipped'] = stats.get('components_skipped', 0) + components_skipped
-            
-            self.stdout.write(f"  Added {components_added} components to database (skipped {components_skipped})")
+            # Update global statistics
+            self.stats['components_added'] += components_added
+            self.stats['components_skipped'] = self.stats.get('components_skipped', 0) + components_skipped
