@@ -150,30 +150,22 @@ class Command(BaseCommand):
             return 0
 
     def crawl_all_cmus(self):
-        """Crawl all CMU IDs from the API with static progress display."""
+        """Crawl all CMU IDs from the API with a simple spinner animation."""
         # CMU API endpoint
         cmu_api_url = "https://api.neso.energy/api/3/action/datastore_search"
         cmu_resource_id = "25a5fa2e-873d-41c5-8aaf-fbc2b06d79e6"
-        
-        # Get total CMUs first if not already set
-        if not self.stats['total_cmus']:
-            self.stats['total_cmus'] = self.get_total_cmus()
         
         # Process CMUs in batches
         continue_crawl = True
         current_offset = self.offset
         start_time = self.stats.get('start_time', time.time())
-        last_update_time = 0
         
-        # Initial progress display
-        self.stdout.write("\n" + "=" * 50)
-        self.stdout.write("\033[s")  # Save cursor position
-        self.stdout.write("Progress: 0.0% (0/{})".format(self.stats['total_cmus']))
-        self.stdout.write("\nComponents found: 0 | Added: 0 | Skipped: 0")
-        self.stdout.write("\nProcessing rate: 0.0 CMUs/second | ETA: calculating...")
-        self.stdout.write("\nCurrent CMU ID: ---")
-        self.stdout.write("\nBatch offset: 0")
-        self.stdout.write("\n" + "=" * 50)
+        # Spinner characters for animation
+        spinner_chars = ['-', '\\', '|', '/']
+        spinner_idx = 0
+        
+        # Initial progress message
+        self.stdout.write("\nStarting crawl from offset {}".format(current_offset))
         
         while continue_crawl:
             # Save checkpoint before processing batch
@@ -182,47 +174,28 @@ class Command(BaseCommand):
             
             # Calculate progress
             progress = (current_offset / self.stats['total_cmus'] * 100) if self.stats['total_cmus'] > 0 else 0
+            elapsed_time = time.time() - start_time
             
-            # Calculate elapsed time accounting for resume
-            if 'resumed_at' in self.stats:
-                prev_duration = self.stats.get('resumed_at', time.time()) - start_time
-                current_duration = time.time() - self.stats.get('resumed_at', time.time())
-                elapsed_time = prev_duration + current_duration
-            else:
-                elapsed_time = time.time() - start_time
-            
-            # Calculate processing rates
             if elapsed_time > 0 and self.stats['cmu_ids_processed'] > 0:
                 rate = self.stats['cmu_ids_processed'] / elapsed_time
-                remaining = self.stats['total_cmus'] - current_offset
-                eta_seconds = remaining / rate if rate > 0 else 0
-                
-                # Format as hours:minutes:seconds
-                eta_hours = int(eta_seconds // 3600)
-                eta_minutes = int((eta_seconds % 3600) // 60)
-                eta_seconds = int(eta_seconds % 60)
-                
-                eta_str = f"{eta_hours:02d}:{eta_minutes:02d}:{eta_seconds:02d}"
+                eta_seconds = (self.stats['total_cmus'] - current_offset) / rate if rate > 0 else 0
+                eta_str = f"{int(eta_seconds // 60)}m {int(eta_seconds % 60)}s"
             else:
                 rate = 0
                 eta_str = "calculating..."
             
-            # Update progress display (only every 0.1 seconds to reduce flicker)
-            current_time = time.time()
-            if current_time - last_update_time >= 0.1:
-                self.stdout.write("\033[u")  # Restore cursor position
-                self.stdout.write("\033[K")  # Clear line
-                self.stdout.write(f"Progress: {progress:.1f}% ({current_offset}/{self.stats['total_cmus']})")
-                self.stdout.write("\033[K")  # Clear line
-                self.stdout.write(f"\nComponents found: {self.stats['components_found']} | Added: {self.stats['components_added']} | Skipped: {self.stats.get('components_skipped', 0)}")
-                self.stdout.write("\033[K")  # Clear line
-                self.stdout.write(f"\nProcessing rate: {rate:.1f} CMUs/second | ETA: {eta_str}")
-                self.stdout.write("\033[K")  # Clear line
-                self.stdout.write(f"\nCurrent CMU ID: {self.stats.get('last_cmu_id', '---')}")
-                self.stdout.write("\033[K")  # Clear line
-                self.stdout.write(f"\nBatch offset: {current_offset}")
-                
-                last_update_time = current_time
+            # Update spinner character
+            spinner = spinner_chars[spinner_idx]
+            spinner_idx = (spinner_idx + 1) % len(spinner_chars)
+            
+            # Simple progress line with spinner
+            self.stdout.write(
+                f"\r{spinner} Progress: {progress:.1f}% | Offset: {current_offset}/{self.stats['total_cmus']} | "
+                f"Components: {self.stats['components_found']} found, {self.stats['components_added']} added, "
+                f"{self.stats.get('components_skipped', 0)} skipped | ETA: {eta_str}", 
+                ending=''
+            )
+            self.stdout.flush()  # Make sure it updates immediately
             
             # Fetch batch of CMU IDs
             cmu_params = {
@@ -230,11 +203,6 @@ class Command(BaseCommand):
                 "limit": self.batch_size,
                 "offset": current_offset
             }
-            
-            # Add company filter if specified (fallback to None if not defined)
-            company_filter = getattr(self, 'company_filter', None)
-            if company_filter:
-                cmu_params["q"] = company_filter
             
             try:
                 cmu_response = requests.get(cmu_api_url, params=cmu_params, timeout=30)
@@ -245,7 +213,7 @@ class Command(BaseCommand):
                     cmu_records = cmu_data.get("result", {}).get("records", [])
                     
                     if not cmu_records:
-                        self.stdout.write("\n\nNo more CMU records found. Crawl complete.")
+                        self.stdout.write("\nNo more CMU records found. Crawl complete.")
                         break
                     
                     # Process each CMU ID in this batch
@@ -253,20 +221,11 @@ class Command(BaseCommand):
                         cmu_id = record.get("CMU ID")
                         if cmu_id:
                             self.stats['last_cmu_id'] = cmu_id
-                            
-                            # Update current CMU in progress display
-                            if current_time - last_update_time >= 0.1:
-                                self.stdout.write("\033[u")  # Restore cursor position
-                                self.stdout.write("\033[3B")  # Move down 3 lines
-                                self.stdout.write("\033[K")  # Clear line
-                                self.stdout.write(f"\nCurrent CMU ID: {cmu_id}")
-                                self.stdout.write("\033[2A")  # Move back up 2 lines
-                            
                             self.crawl_single_cmu(cmu_id, record)
                         
                         # Check if we've reached the limit
                         if self.limit > 0 and self.stats['cmu_ids_processed'] >= self.limit:
-                            self.stdout.write("\n\nReached limit of {self.limit} CMU IDs. Stopping crawl.")
+                            self.stdout.write(f"\nReached limit of {self.limit} CMU IDs. Stopping crawl.")
                             continue_crawl = False
                             break
                     
@@ -274,12 +233,12 @@ class Command(BaseCommand):
                     current_offset += len(cmu_records)
                     self.stats['batches_processed'] = self.stats.get('batches_processed', 0) + 1
                 else:
-                    self.stderr.write(f"\n\nCMU API request unsuccessful: {cmu_data.get('error', 'Unknown error')}")
+                    self.stderr.write(f"\nCMU API request unsuccessful: {cmu_data.get('error', 'Unknown error')}")
                     self.stats['errors'] = self.stats.get('errors', 0) + 1
                     break
                     
             except Exception as e:
-                self.stderr.write(f"\n\nError fetching CMU IDs: {str(e)}")
+                self.stderr.write(f"\nError fetching CMU IDs: {str(e)}")
                 traceback.print_exc()
                 self.stats['errors'] = self.stats.get('errors', 0) + 1
                 break
@@ -287,19 +246,14 @@ class Command(BaseCommand):
             # Prevent rate limiting
             time.sleep(self.sleep_time)
         
-        # Final progress update
-        self.stdout.write("\033[u")  # Restore cursor position
-        self.stdout.write("\033[K")  # Clear line
-        self.stdout.write(f"Progress: {progress:.1f}% ({current_offset}/{self.stats['total_cmus']}) - COMPLETED")
-        self.stdout.write("\033[K")  # Clear line
-        self.stdout.write(f"\nComponents found: {self.stats['components_found']} | Added: {self.stats['components_added']} | Skipped: {self.stats.get('components_skipped', 0)}")
-        self.stdout.write("\033[K")  # Clear line
-        self.stdout.write(f"\nProcessing rate: {rate:.1f} CMUs/second | Total time: {elapsed_time:.1f} seconds")
-        self.stdout.write("\033[K")  # Clear line
-        self.stdout.write(f"\nLast CMU ID: {self.stats.get('last_cmu_id', '---')}")
-        self.stdout.write("\033[K")  # Clear line
-        self.stdout.write(f"\nFinal offset: {current_offset}")
-        self.stdout.write("\n" + "=" * 50)
+        # Final progress update with newline
+        self.stdout.write("\nCrawl completed!")
+        self.stdout.write(
+            f"Final stats: {self.stats['components_found']} components found, "
+            f"{self.stats['components_added']} added, "
+            f"{self.stats.get('components_skipped', 0)} skipped, "
+            f"{self.stats.get('errors', 0)} errors"
+        )
         
         # Save final checkpoint
         self.stats['last_offset'] = current_offset
