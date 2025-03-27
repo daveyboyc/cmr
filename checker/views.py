@@ -6,6 +6,8 @@ from django.conf import settings
 import os
 import json
 import glob
+from django.db.models import Count
+from .models import Component
 
 # Import service functions
 from .services.company_search import search_companies_service, get_company_years, get_cmu_details, \
@@ -661,3 +663,48 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
     # If the data_access function doesn't support these parameters yet, 
     # you'll need to update it separately
     return fetch_components(cmu_id, limit=limit, page=page, per_page=per_page)
+
+
+def statistics_view(request):
+    """View function for displaying database statistics"""
+    
+    # Get top companies by component count
+    top_companies = Component.objects.values('company_name') \
+                             .annotate(count=Count('id')) \
+                             .order_by('-count')[:20]  # Top 20 companies
+    
+    # Get technology distribution
+    tech_distribution = Component.objects.values('technology') \
+                                 .annotate(count=Count('id')) \
+                                 .order_by('-count')[:10]  # Top 10 technologies
+    
+    # Get delivery year distribution
+    year_distribution = Component.objects.values('delivery_year') \
+                                 .annotate(count=Count('id')) \
+                                 .order_by('-count')[:10]
+    
+    # Get total counts
+    total_components = Component.objects.count()
+    total_cmus = Component.objects.values('cmu_id').distinct().count()
+    total_companies = Component.objects.values('company_name').distinct().count()
+    
+    # Calculate percentages for visual representation
+    for company in top_companies:
+        company['percentage'] = (company['count'] / total_components) * 100
+        
+    for tech in tech_distribution:
+        tech['percentage'] = (tech['count'] / total_components) * 100
+        
+    for year in year_distribution:
+        year['percentage'] = (year['count'] / total_components) * 100
+    
+    context = {
+        'top_companies': top_companies,
+        'tech_distribution': tech_distribution,
+        'year_distribution': year_distribution,
+        'total_components': total_components,
+        'total_cmus': total_cmus,
+        'total_companies': total_companies,
+    }
+    
+    return render(request, "checker/statistics.html", context)
