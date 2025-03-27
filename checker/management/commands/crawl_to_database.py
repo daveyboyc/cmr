@@ -78,15 +78,28 @@ class Command(BaseCommand):
         cmu_api_url = "https://api.neso.energy/api/3/action/datastore_search"
         cmu_resource_id = "25a5fa2e-873d-41c5-8aaf-fbc2b06d79e6"
         
+        # Get total CMUs first
+        try:
+            total_response = requests.get(cmu_api_url, params={"resource_id": cmu_resource_id, "limit": 0}, timeout=30)
+            total_cmus = total_response.json().get("result", {}).get("total", 0)
+            self.stdout.write(f"Total CMUs to process: {total_cmus}")
+        except:
+            total_cmus = 0
+        
         # Process CMUs in batches
         continue_crawl = True
         current_offset = offset
+        start_time = time.time()
         
         while continue_crawl:
-            progress_percent = (stats['cmu_ids_processed'] / stats['total_cmus']) * 100 if stats['total_cmus'] > 0 else 0
-            remaining = stats['total_cmus'] - stats['cmu_ids_processed']
+            # Calculate progress
+            progress = (current_offset / total_cmus * 100) if total_cmus > 0 else 0
+            elapsed_time = time.time() - start_time
+            rate = current_offset / elapsed_time if elapsed_time > 0 else 0
             
-            self.stdout.write(f"Progress: {progress_percent:.1f}% ({stats['cmu_ids_processed']}/{stats['total_cmus']}, {remaining} remaining)")
+            self.stdout.write(f"\nProgress: {progress:.1f}% ({current_offset}/{total_cmus})")
+            self.stdout.write(f"Components found so far: {stats['components_found']}")
+            self.stdout.write(f"Processing rate: {rate:.1f} CMUs/second")
             self.stdout.write(f"Fetching CMU batch at offset {current_offset}")
             
             # Fetch batch of CMU IDs
