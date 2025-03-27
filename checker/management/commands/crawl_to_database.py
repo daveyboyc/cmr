@@ -272,16 +272,16 @@ class Command(BaseCommand):
                     
                     # Update offset for next batch
                     current_offset += len(cmu_records)
-                    self.stats['batches_processed'] += 1
+                    self.stats['batches_processed'] = self.stats.get('batches_processed', 0) + 1
                 else:
                     self.stderr.write(f"\n\nCMU API request unsuccessful: {cmu_data.get('error', 'Unknown error')}")
-                    self.stats['errors'] += 1
+                    self.stats['errors'] = self.stats.get('errors', 0) + 1
                     break
                     
             except Exception as e:
                 self.stderr.write(f"\n\nError fetching CMU IDs: {str(e)}")
                 traceback.print_exc()
-                self.stats['errors'] += 1
+                self.stats['errors'] = self.stats.get('errors', 0) + 1
                 break
                 
             # Prevent rate limiting
@@ -311,13 +311,12 @@ class Command(BaseCommand):
         component_api_url = "https://api.neso.energy/api/3/action/datastore_search"
         component_resource_id = "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8"
         
-        self.stats['cmu_ids_processed'] += 1
+        self.stats['cmu_ids_processed'] = self.stats.get('cmu_ids_processed', 0) + 1
         
-        # Skip if we already have components for this CMU and not forcing update
+        # Update skipped components safely
         if not self.force_update and not self.specific_cmu:
             db_count = Component.objects.filter(cmu_id=cmu_id).count()
             if db_count > 0:
-                # Don't output anything for skipping
                 self.stats['components_skipped'] = self.stats.get('components_skipped', 0) + db_count
                 return
         
@@ -335,10 +334,10 @@ class Command(BaseCommand):
             
             if component_data.get("success"):
                 component_records = component_data.get("result", {}).get("records", [])
-                self.stats['components_found'] += len(component_records)
+                self.stats['components_found'] = self.stats.get('components_found', 0) + len(component_records)
                 
                 if component_records:
-                    self.stats['cmu_ids_with_components'] += 1
+                    self.stats['cmu_ids_with_components'] = self.stats.get('cmu_ids_with_components', 0) + 1
                     
                     # Get company name from CMU record if available
                     company_name = None
@@ -348,10 +347,10 @@ class Command(BaseCommand):
                     # Save components to database
                     self.save_components_to_db(cmu_id, component_records, company_name)
             else:
-                self.stats['errors'] += 1
+                self.stats['errors'] = self.stats.get('errors', 0) + 1
                 
         except Exception as e:
-            self.stats['errors'] += 1
+            self.stats['errors'] = self.stats.get('errors', 0) + 1
             
     def save_components_to_db(self, cmu_id, component_records, company_name):
         """Save component records to the database (silent version)."""
@@ -401,8 +400,8 @@ class Command(BaseCommand):
                     components_added += 1
                     
                 except Exception as e:
-                    self.stats['errors'] += 1
+                    self.stats['errors'] = self.stats.get('errors', 0) + 1
             
-            # Update global statistics
-            self.stats['components_added'] += components_added
+            # Update global statistics safely
+            self.stats['components_added'] = self.stats.get('components_added', 0) + components_added
             self.stats['components_skipped'] = self.stats.get('components_skipped', 0) + components_skipped
