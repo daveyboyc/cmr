@@ -207,9 +207,9 @@ class Command(BaseCommand):
                 rate = 0
                 eta_str = "calculating..."
             
-            # Update progress display (only every 0.5 seconds to reduce flicker)
+            # Update progress display (only every 0.1 seconds to reduce flicker)
             current_time = time.time()
-            if current_time - last_update_time >= 0.5:
+            if current_time - last_update_time >= 0.1:
                 self.stdout.write("\033[u")  # Restore cursor position
                 self.stdout.write("\033[K")  # Clear line
                 self.stdout.write(f"Progress: {progress:.1f}% ({current_offset}/{self.stats['total_cmus']})")
@@ -255,7 +255,7 @@ class Command(BaseCommand):
                             self.stats['last_cmu_id'] = cmu_id
                             
                             # Update current CMU in progress display
-                            if current_time - last_update_time >= 0.5:
+                            if current_time - last_update_time >= 0.1:
                                 self.stdout.write("\033[u")  # Restore cursor position
                                 self.stdout.write("\033[3B")  # Move down 3 lines
                                 self.stdout.write("\033[K")  # Clear line
