@@ -165,87 +165,17 @@ def get_json_path(cmu_id):
 
 def get_component_data_from_json(cmu_id):
     """
-    Get component data from JSON for a specific CMU ID.
-    Returns the components as a list or None if not found.
+    DEPRECATED: This function now redirects to the database version.
+    Get component data for a specific CMU ID from the database.
     """
+    import logging
     logger = logging.getLogger(__name__)
     
-    if not cmu_id:
-        logger.warning("No CMU ID provided to get_component_data_from_json")
-        return None
-
-    # Special handling for LIMEJUMP LTD CMU IDs
-    is_limejump_cmu = cmu_id.startswith("CM_LJ")
-
-    logger.info(f"Getting component data from JSON for CMU ID: {cmu_id}")
-    json_path = get_json_path(cmu_id)
-    logger.info(f"JSON path for {cmu_id}: {json_path}")
-
-    # Check if the file exists
-    if not os.path.exists(json_path):
-        logger.warning(f"JSON file does not exist: {json_path}")
-        # Try the old path as fallback
-        old_json_path = os.path.join(settings.BASE_DIR, 'component_data.json')
-        logger.info(f"Trying old JSON path: {old_json_path}")
-        if os.path.exists(old_json_path):
-            try:
-                logger.info(f"Old JSON file exists, trying to load it")
-                with open(old_json_path, 'r') as f:
-                    all_components = json.load(f)
-                if cmu_id in all_components:
-                    logger.info(f"Found {len(all_components[cmu_id])} components for {cmu_id} in old JSON")
-                    return all_components.get(cmu_id)
-                logger.warning(f"CMU ID {cmu_id} not found in old JSON")
-            except Exception as e:
-                logger.error(f"Error reading component data from old JSON: {e}")
-        return None
-
-    try:
-        logger.info(f"Loading JSON file: {json_path}")
-        with open(json_path, 'r') as f:
-            all_components = json.load(f)
-
-        # Try exact match first
-        if cmu_id in all_components:
-            logger.info(f"Found exact match for {cmu_id} with {len(all_components[cmu_id])} components")
-            return all_components[cmu_id]
-
-        # If not found, try case-insensitive match
-        for file_cmu_id in all_components.keys():
-            if file_cmu_id.lower() == cmu_id.lower():
-                logger.info(f"Found case-insensitive match: {file_cmu_id} for {cmu_id} with {len(all_components[file_cmu_id])} components")
-                return all_components[file_cmu_id]
-                
-        # If still not found, try prefix match (e.g., "TS17" matching "TS17_1", "TS17_2", etc.)
-        matching_components = []
-        matching_cmu_ids = []
-        for file_cmu_id, components in all_components.items():
-            if file_cmu_id.startswith(cmu_id + "_") or file_cmu_id == cmu_id:
-                logger.info(f"Found prefix match: {file_cmu_id} for {cmu_id} with {len(components)} components")
-                matching_components.extend(components)
-                matching_cmu_ids.append(file_cmu_id)
-                
-        if matching_components:
-            logger.info(f"Combining {len(matching_components)} components from {len(matching_cmu_ids)} CMU IDs that match prefix '{cmu_id}'")
-            # Use a set to deduplicate components by location
-            unique_components = []
-            seen_locations = set()
-            
-            for component in matching_components:
-                location = component.get("Location and Post Code", "")
-                if location and location not in seen_locations:
-                    seen_locations.add(location)
-                    unique_components.append(component)
-                    
-            logger.info(f"Returning {len(unique_components)} unique components after deduplication")
-            return unique_components
-
-        # If still not found, return None
-        logger.warning(f"No match found for CMU ID {cmu_id} in JSON")
-        return None
-    except Exception as e:
-        logger.error(f"Error reading component data from JSON: {e}")
-        return None
+    logger.warning(f"get_component_data_from_json is deprecated, redirecting to database lookup for {cmu_id}")
+    
+    # Call the new database-first function but force page 1 with a large limit
+    components, _ = fetch_components_for_cmu_id(cmu_id, page=1, per_page=1000)
+    return components if components else None
 
 
 def save_component_data_to_json(cmu_id, components):
@@ -315,55 +245,114 @@ def save_component_data_to_json(cmu_id, components):
 
 def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
     """
-    Fetch components for a given CMU ID with pagination support.
-    Now accurately counts components for all searches and uses 500 per page.
+    Fetch components for a given CMU ID with database-first approach.
+    Checks database first, then falls back to API if needed.
+    Supports pagination.
     """
     import time
     import logging
+    from django.core.cache import cache
+    from ..models import Component
     
     logger = logging.getLogger(__name__)
     logger.info(f"Fetching components for query '{cmu_id}' (page={page}, per_page={per_page})")
     
-    # First check JSON cache
+    # First check cache for performance
     start_time = time.time()
-    all_components = get_component_data_from_json(cmu_id)
+    components_cache_key = get_cache_key("components_for_cmu", cmu_id)
+    cached_components = cache.get(components_cache_key)
     
-    # If components found in JSON cache
-    if all_components:
-        logger.info(f"Found {len(all_components)} components in JSON cache for '{cmu_id}'")
-        total_count = len(all_components)  # Use actual count, not API estimate
+    # If found in cache, apply pagination and return
+    if cached_components:
+        logger.info(f"Found {len(cached_components)} components in cache for '{cmu_id}'")
+        total_count = len(cached_components)
         
         # Apply pagination
         start_idx = (page - 1) * per_page
         end_idx = start_idx + per_page
-        
-        # Safety check for valid indices
-        if start_idx >= len(all_components):
-            start_idx = 0
-            end_idx = min(per_page, len(all_components))
-        
-        paginated_components = all_components[start_idx:end_idx]
-        
-        # Calculate total pages
-        total_pages = (total_count + per_page - 1) // per_page
+        paginated_components = cached_components[start_idx:end_idx]
         
         metadata = {
             "total_count": total_count,
             "page": page,
             "per_page": per_page,
-            "total_pages": total_pages,
-            "source": "json_cache",
+            "total_pages": (total_count + per_page - 1) // per_page,
+            "source": "cache",
             "processing_time": time.time() - start_time
         }
         
-        logger.info(f"Returning {len(paginated_components)} components (page {page} of {total_pages})")
         return paginated_components, metadata
     
-    # If not in JSON cache, try API
+    # DATABASE FIRST: Try to get from database
     try:
+        # Query the database for components with this CMU ID
+        query_time = time.time()
+        db_components = Component.objects.filter(cmu_id=cmu_id)
+        
+        # Get total count for pagination
+        total_count = db_components.count()
+        
+        if total_count > 0:
+            logger.info(f"Found {total_count} components in database for '{cmu_id}'")
+            
+            # Apply pagination to the database query
+            paginated_db_components = db_components.order_by('-delivery_year')[
+                (page-1)*per_page:page*per_page
+            ]
+            
+            # Convert database objects to dictionaries
+            components = []
+            for comp in paginated_db_components:
+                # Create a dictionary representation of the component
+                comp_dict = {
+                    "CMU ID": comp.cmu_id,
+                    "Location and Post Code": comp.location,
+                    "Description of CMU Components": comp.description,
+                    "Generating Technology Class": comp.technology,
+                    "Company Name": comp.company_name,
+                    "Auction Name": comp.auction_name,
+                    "Delivery Year": comp.delivery_year,
+                    "Status": comp.status,
+                    "Type": comp.type,
+                    "_id": comp.component_id
+                }
+                
+                # Add any additional data if available
+                if comp.additional_data:
+                    for key, value in comp.additional_data.items():
+                        if key not in comp_dict:
+                            comp_dict[key] = value
+                            
+                components.append(comp_dict)
+            
+            # Cache the results for future use
+            if total_count <= 1000:  # Only cache reasonably sized results
+                cache.set(components_cache_key, components, 3600)
+            
+            metadata = {
+                "total_count": total_count,
+                "page": page,
+                "per_page": per_page,
+                "total_pages": (total_count + per_page - 1) // per_page,
+                "source": "database",
+                "processing_time": time.time() - start_time,
+                "query_time": time.time() - query_time
+            }
+            
+            logger.info(f"Returning {len(components)} components from database (page {page})")
+            return components, metadata
+    
+    except Exception as e:
+        logger.exception(f"Error querying database for CMU ID {cmu_id}: {str(e)}")
+        # Fall through to API fetching if database query fails
+    
+    # API FALLBACK: If not in database, try API
+    try:
+        api_start_time = time.time()
+        
         # Get an accurate total count for this query
         total_count = get_accurate_total_count(cmu_id)
-        logger.info(f"Accurate count for '{cmu_id}': {total_count}")
+        logger.info(f"Accurate count from API for '{cmu_id}': {total_count}")
         
         # Now fetch the actual page of data
         api_limit = per_page  # Only fetch what we need for this page
@@ -392,35 +381,25 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
             actual_count = len(all_api_components)
             logger.info(f"API returned {actual_count} components for page {page}")
             
-            # IMPORTANT CHECK: If we got 0 components but our page number is reasonable,
-            # there might be an API limitation. Set a minimum count.
+            # Handle API limitations for paging
             if actual_count == 0 and page > 1 and page < 100 and total_count > 0:
-                logger.warning(f"No components returned for page {page} despite positive total count. API limitation detected.")
-                
-                # Try to deduce the actual per-page limit the API is using
+                logger.warning(f"No components returned for page {page} despite positive total count")
                 detected_limit = (page - 1) * per_page
-                logger.info(f"Detected API limit around {detected_limit}")
-                
-                # Adjust the total count if needed to avoid confusion with pagination
                 if detected_limit < total_count:
-                    logger.info(f"Adjusting total count from {total_count} to match detected limit of {detected_limit}")
                     total_count = detected_limit
             
-            # If this is page 1 and we got fewer results than expected but more than 0,
-            # check if we need to adjust our total count
+            # If this is page 1 and we got fewer results than expected but more than 0
             if page == 1 and actual_count < total_count and actual_count > 0:
-                # Try to verify if there are more pages by checking page 2
-                page2_params = {
-                    "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
-                    "q": cmu_id,
-                    "limit": 1,
-                    "offset": per_page
-                }
-                
+                # Try to verify if there are more pages
                 try:
                     page2_response = requests.get(
                         "https://data.nationalgrideso.com/api/3/action/datastore_search",
-                        params=page2_params,
+                        params={
+                            "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
+                            "q": cmu_id,
+                            "limit": 1,
+                            "offset": per_page
+                        },
                         timeout=10
                     )
                     
@@ -429,18 +408,20 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
                         page2_records = page2_result.get("records", [])
                         
                         if not page2_records:
-                            # No results on page 2, adjust total count
-                            logger.info(f"No results found on page 2, adjusting count from {total_count} to {actual_count}")
                             total_count = actual_count
                 except Exception as e:
                     logger.warning(f"Error checking page 2: {str(e)}")
             
-            # Save to JSON cache for future use
+            # Save to database for future use!
             if all_api_components:
-                save_component_data_to_json(cmu_id, all_api_components)
-                logger.info(f"Saved {len(all_api_components)} components to JSON cache")
+                try:
+                    # Save all components to the database 
+                    save_components_to_database(cmu_id, all_api_components)
+                    logger.info(f"Saved {len(all_api_components)} components to database")
+                except Exception as db_error:
+                    logger.error(f"Error saving to database: {str(db_error)}")
             
-            # Calculate total pages using the accurate total count
+            # Calculate total pages
             total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
             
             # Ensure reasonable output
@@ -455,10 +436,15 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
                 "per_page": per_page,
                 "total_pages": total_pages,
                 "source": "api",
-                "processing_time": time.time() - start_time
+                "processing_time": time.time() - start_time,
+                "api_time": time.time() - api_start_time
             }
             
-            logger.info(f"Returning {len(all_api_components)} components (page {page} of {total_pages})")
+            # Cache the results for future use
+            if actual_count <= 1000:  # Only cache reasonably sized results
+                cache.set(components_cache_key, all_api_components, 3600)
+            
+            logger.info(f"Returning {len(all_api_components)} components from API (page {page} of {total_pages})")
             return all_api_components, metadata
         else:
             logger.error(f"API error: {response.status_code}")
@@ -466,6 +452,55 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
     except Exception as e:
         logger.exception(f"Exception in fetch_components_for_cmu_id: {str(e)}")
         return [], {"error": str(e)}
+
+
+def save_components_to_database(cmu_id, components):
+    """
+    Save components to the database.
+    This is called whenever we fetch components from the API.
+    """
+    from django.db import transaction
+    from ..models import Component
+    
+    # Use a transaction for better performance and atomicity
+    with transaction.atomic():
+        for component in components:
+            # Get component ID if available
+            component_id = component.get("_id", "")
+            
+            # Skip if we already have this component in the database
+            if component_id and Component.objects.filter(component_id=component_id).exists():
+                continue
+            
+            try:
+                # Extract standard fields
+                location = component.get("Location and Post Code", "")
+                description = component.get("Description of CMU Components", "")
+                technology = component.get("Generating Technology Class", "")
+                company_name = component.get("Company Name", "")
+                auction_name = component.get("Auction Name", "")
+                delivery_year = component.get("Delivery Year", "")
+                status = component.get("Status", "")
+                type_value = component.get("Type", "")
+                
+                # Create new component in database
+                Component.objects.create(
+                    component_id=component_id,
+                    cmu_id=cmu_id,
+                    location=location,
+                    description=description,
+                    technology=technology,
+                    company_name=company_name,
+                    auction_name=auction_name,
+                    delivery_year=delivery_year,
+                    status=status,
+                    type=type_value,
+                    additional_data=component  # Store all data as JSON
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error saving component {component_id} to database: {str(e)}")
 
 
 def fetch_component_search_results(query, limit=1000, sort_order="desc"):

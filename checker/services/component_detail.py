@@ -3,6 +3,7 @@ import traceback
 from django.shortcuts import render
 from django.core.cache import cache
 from ..utils import normalize
+from ..models import Component
 from .data_access import fetch_components_for_cmu_id, get_cmu_data_by_id
 
 logger = logging.getLogger(__name__)
@@ -12,6 +13,7 @@ def get_component_details(request, component_id):
     """
     View function for component details page.
     Displays all available information about a specific component.
+    Now uses the database as primary data source.
 
     Args:
         request: The HTTP request
@@ -34,63 +36,154 @@ def get_component_details(request, component_id):
             
         logger.info(f"Looking up component with CMU ID: {cmu_id}, normalized location: {normalized_location}")
 
-        # Fetch components for this CMU
-        components, api_time = fetch_components_for_cmu_id(cmu_id)
-        
-        # Fetch additional CMU data from cmu_data.json
-        additional_cmu_data = get_cmu_data_by_id(cmu_id)
-        logger.info(f"Additional CMU data found: {additional_cmu_data is not None}")
-
-        if not components:
-            logger.warning(f"No components found for CMU ID: {cmu_id}")
-            return render(request, "checker/component_detail.html", {
-                "error": f"No components found for CMU ID: {cmu_id}",
-                "component": None,
-                "api_time": api_time,
-                "additional_cmu_data": additional_cmu_data
-            })
-
-        # Find the specific component that matches the normalized location
+        # DATABASE FIRST: Try to get components from the database
+        api_time = 0
         target_component = None
-        for component in components:
-            location = component.get("Location and Post Code", "")
-            normalized_component_location = normalize(location)
+        
+        try:
+            # Query for components with this CMU ID
+            db_components = Component.objects.filter(cmu_id=cmu_id)
             
-            # Try exact match first
-            if normalized_component_location == normalized_location:
-                target_component = component
-                logger.info(f"Found exact matching component with location: {location}")
-                break
+            if db_components.exists():
+                logger.info(f"Found {db_components.count()} components in database for CMU ID: {cmu_id}")
                 
-            # If not found, try relaxed matching where one contains the other
-            if (normalized_component_location and normalized_location and 
-                (normalized_component_location in normalized_location or 
-                 normalized_location in normalized_component_location)):
-                target_component = component
-                logger.info(f"Found partial matching component with location: {location}")
-                break
+                # Look for a matching location
+                for component in db_components:
+                    location = component.location
+                    normalized_component_location = normalize(location)
+                    
+                    # Try exact match first
+                    if normalized_component_location == normalized_location:
+                        # Convert database object to dictionary for template
+                        target_component = {
+                            "CMU ID": component.cmu_id,
+                            "Location and Post Code": component.location,
+                            "Description of CMU Components": component.description,
+                            "Generating Technology Class": component.technology,
+                            "Company Name": component.company_name,
+                            "Auction Name": component.auction_name,
+                            "Delivery Year": component.delivery_year,
+                            "Status": component.status,
+                            "Type": component.type
+                        }
+                        
+                        # Add all additional data if available
+                        if component.additional_data:
+                            for key, value in component.additional_data.items():
+                                if key not in target_component:
+                                    target_component[key] = value
+                        
+                        logger.info(f"Found exact matching component in database with location: {location}")
+                        break
+                        
+                    # If not found, try relaxed matching where one contains the other
+                    if (normalized_component_location and normalized_location and 
+                        (normalized_component_location in normalized_location or 
+                         normalized_location in normalized_component_location)):
+                        # Convert database object to dictionary for template
+                        target_component = {
+                            "CMU ID": component.cmu_id,
+                            "Location and Post Code": component.location,
+                            "Description of CMU Components": component.description,
+                            "Generating Technology Class": component.technology,
+                            "Company Name": component.company_name,
+                            "Auction Name": component.auction_name,
+                            "Delivery Year": component.delivery_year,
+                            "Status": component.status,
+                            "Type": component.type
+                        }
+                        
+                        # Add all additional data if available
+                        if component.additional_data:
+                            for key, value in component.additional_data.items():
+                                if key not in target_component:
+                                    target_component[key] = value
+                        
+                        logger.info(f"Found partial matching component in database with location: {location}")
+                        break
+                
+                # If no matching component found in database, prepare filtered components list
+                if not target_component:
+                    filtered_components = []
+                    seen_locations = set()
+                    
+                    for component in db_components:
+                        location = component.location
+                        if location and location not in seen_locations:
+                            seen_locations.add(location)
+                            # Convert database object to dictionary for template
+                            comp_dict = {
+                                "CMU ID": component.cmu_id,
+                                "Location and Post Code": component.location,
+                                "Description of CMU Components": component.description,
+                                "Generating Technology Class": component.technology,
+                                "Company Name": component.company_name,
+                                "Auction Name": component.auction_name,
+                                "Delivery Year": component.delivery_year,
+                                "Status": component.status,
+                                "Type": component.type
+                            }
+                            filtered_components.append(comp_dict)
+            
+        except Exception as db_error:
+            logger.error(f"Error querying database: {str(db_error)}")
+            logger.error(traceback.format_exc())
+            # Fall through to API fetching
 
+        # If not found in database, try the API fetch method as fallback
         if not target_component:
-            logger.warning(f"Component with location {normalized_location} not found for CMU ID {cmu_id}")
+            logger.info(f"Component not found in database, trying API fallback")
+            components, api_time = fetch_components_for_cmu_id(cmu_id)
             
-            # Filter and deduplicate components to avoid showing duplicates and entries without locations
-            filtered_components = []
-            seen_locations = set()
+            if not components:
+                logger.warning(f"No components found for CMU ID: {cmu_id}")
+                return render(request, "checker/component_detail.html", {
+                    "error": f"No components found for CMU ID: {cmu_id}",
+                    "component": None,
+                    "api_time": api_time,
+                    "additional_cmu_data": None
+                })
             
-            if components:
+            # Find the specific component that matches the normalized location
+            for component in components:
+                location = component.get("Location and Post Code", "")
+                normalized_component_location = normalize(location)
+                
+                # Try exact match first
+                if normalized_component_location == normalized_location:
+                    target_component = component
+                    logger.info(f"Found exact matching component from API with location: {location}")
+                    break
+                    
+                # If not found, try relaxed matching where one contains the other
+                if (normalized_component_location and normalized_location and 
+                    (normalized_component_location in normalized_location or 
+                     normalized_location in normalized_component_location)):
+                    target_component = component
+                    logger.info(f"Found partial matching component from API with location: {location}")
+                    break
+
+            # If component still not found, prepare filtered components list
+            if not target_component:
+                filtered_components = []
+                seen_locations = set()
+                
                 for comp in components:
                     location = comp.get("Location and Post Code", "")
                     if location and location not in seen_locations:
                         seen_locations.add(location)
                         filtered_components.append(comp)
+
+        # If still no target component found, show error with available components
+        if not target_component:
+            logger.warning(f"Component with location {normalized_location} not found for CMU ID {cmu_id}")
             
             return render(request, "checker/component_detail.html", {
                 "error": f"Component with location '{normalized_location}' not found for CMU ID '{cmu_id}'",
                 "component": None,
                 "api_time": api_time,
                 "cmu_id": cmu_id,
-                "all_components": filtered_components,  # Provide filtered components in case they want to browse
-                "additional_cmu_data": additional_cmu_data
+                "all_components": filtered_components if 'filtered_components' in locals() else []
             })
 
         # Add CMU ID to the component data if not already present
@@ -114,6 +207,10 @@ def get_component_details(request, component_id):
                 "Generating Technology Class", "Auction Name", "Delivery Year", "Status", "Company Name"
             ]}
         }
+
+        # Fetch additional CMU data from cmu_data.json
+        additional_cmu_data = get_cmu_data_by_id(cmu_id)
+        logger.info(f"Additional CMU data found: {additional_cmu_data is not None}")
 
         # Organize fields into categories for better display
         organized_data = {
@@ -146,7 +243,6 @@ def get_component_details(request, component_id):
             cmu_data_section = {}
             
             # Add relevant fields from additional_cmu_data
-            # Include fields that would be useful for users
             important_fields = [
                 "Auction", "Type", "Delivery Year", "Name of Applicant", 
                 "Agent Name", "CM Unit Name", "Low Carbon Exclusion CMU",
@@ -180,7 +276,8 @@ def get_component_details(request, component_id):
             "api_time": api_time,
             "cmu_id": cmu_id,
             "location": target_component.get("Location and Post Code", "N/A"),
-            "additional_cmu_data": additional_cmu_data
+            "additional_cmu_data": additional_cmu_data,
+            "source": "database" if api_time == 0 else "api"
         })
 
     except Exception as e:
