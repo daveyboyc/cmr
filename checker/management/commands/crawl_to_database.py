@@ -19,13 +19,18 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Starting component crawl to database"))
         start_time = time.time()
         
+        # Get total number of CMUs first
+        total_cmus = self.get_total_cmus()
+        self.stdout.write(f"Total CMUs to process: {total_cmus}")
+        
         # Track statistics
         stats = {
             'cmu_ids_processed': 0,
             'cmu_ids_with_components': 0,
             'components_found': 0,
             'components_added': 0,
-            'errors': 0
+            'errors': 0,
+            'total_cmus': total_cmus
         }
         
         # Process specific CMU if requested
@@ -38,12 +43,35 @@ class Command(BaseCommand):
         # Print final statistics
         elapsed_time = time.time() - start_time
         self.stdout.write(self.style.SUCCESS("\nCrawl completed in {:.2f} seconds".format(elapsed_time)))
-        self.stdout.write(f"  CMU IDs processed: {stats['cmu_ids_processed']}")
+        self.stdout.write(f"  CMU IDs processed: {stats['cmu_ids_processed']} of {stats['total_cmus']}")
         self.stdout.write(f"  CMU IDs with components: {stats['cmu_ids_with_components']}")
         self.stdout.write(f"  Components found: {stats['components_found']}")
         self.stdout.write(f"  Components added to database: {stats['components_added']}")
         self.stdout.write(f"  Errors encountered: {stats['errors']}")
     
+    def get_total_cmus(self):
+        """Get total number of CMUs available."""
+        cmu_api_url = "https://api.neso.energy/api/3/action/datastore_search"
+        cmu_resource_id = "25a5fa2e-873d-41c5-8aaf-fbc2b06d79e6"
+        
+        try:
+            # Make a request with limit=0 to get total
+            params = {
+                "resource_id": cmu_resource_id,
+                "limit": 0
+            }
+            response = requests.get(cmu_api_url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            
+            if data.get("success"):
+                return data.get("result", {}).get("total", 0)
+            return 0
+            
+        except Exception as e:
+            self.stderr.write(f"Error getting total CMUs: {str(e)}")
+            return 0
+
     def crawl_all_cmus(self, batch_size, limit, offset, stats):
         """Crawl all CMU IDs from the API."""
         # CMU API endpoint
@@ -55,6 +83,10 @@ class Command(BaseCommand):
         current_offset = offset
         
         while continue_crawl:
+            progress_percent = (stats['cmu_ids_processed'] / stats['total_cmus']) * 100 if stats['total_cmus'] > 0 else 0
+            remaining = stats['total_cmus'] - stats['cmu_ids_processed']
+            
+            self.stdout.write(f"Progress: {progress_percent:.1f}% ({stats['cmu_ids_processed']}/{stats['total_cmus']}, {remaining} remaining)")
             self.stdout.write(f"Fetching CMU batch at offset {current_offset}")
             
             # Fetch batch of CMU IDs
