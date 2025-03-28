@@ -64,6 +64,15 @@ def search_companies(request):
         for company_html in company_results[query]:
             company_links.append(company_html)
 
+    # Prepare pagination metadata
+    total_component_count = 0
+    displayed_component_count = 0
+    if component_results and query in component_results:
+        displayed_component_count = len(component_results[query])
+        
+        # Get actual total count from metadata if available
+        total_component_count = getattr(component_results, 'total_count', displayed_component_count)        
+
     # Prepare pagination metadata for UI
     total_pages = (total_component_count + per_page - 1) // per_page if total_component_count > 0 else 1
     has_prev = page > 1

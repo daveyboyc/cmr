@@ -8,7 +8,8 @@ DATABASES = {
         'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
         'CONN_MAX_AGE': 600,  # Keep connections alive for 10 minutes
         'OPTIONS': {
-            'timeout': 20,  # SQLite timeout in seconds
+            'connect_timeout': 20,  # SQLite timeout in seconds
+            'statement_timeout': 30000,  # 30 seconds query timeout
         }
     }
 }
@@ -31,7 +32,7 @@ CACHES = {
         'LOCATION': 'unique-snowflake',
         'TIMEOUT': 3600,  # 1 hour (in seconds)
         'OPTIONS': {
-            'MAX_ENTRIES': 1000,
+            'MAX_ENTRIES': 10000,
             'CULL_FREQUENCY': 3,  # Purge 1/3 of entries when MAX_ENTRIES is reached
         }
     }

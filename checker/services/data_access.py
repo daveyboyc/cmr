@@ -243,7 +243,7 @@ def save_component_data_to_json(cmu_id, components):
         return False
 
 
-def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
+def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
     """
     Fetch components for a given CMU ID with database-first approach.
     Checks database first, then falls back to API if needed.
@@ -259,7 +259,7 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
     
     # First check cache for performance
     start_time = time.time()
-    components_cache_key = get_cache_key("components_for_cmu", cmu_id)
+    components_cache_key = get_cache_key(f"components_for_cmu_p{page}_s{per_page}", cmu_id)
     cached_components = cache.get(components_cache_key)
     
     # If found in cache, apply pagination and return
@@ -293,11 +293,12 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
             # This is likely a company name or description search
             logger.info(f"Search query contains spaces, likely a company name: '{cmu_id}'")
             
-            # First - apply the filter
-            db_components = Component.objects.filter(company_name__icontains=cmu_id)
-            
-            # Second - apply ordering
-            db_components = db_components.order_by('-delivery_year')
+            from django.db.models import Q
+            # Apply the filter with improved search
+            db_components = Component.objects.filter(
+                Q(company_name__icontains=cmu_id) | 
+                Q(location__icontains=cmu_id)
+            ).distinct().order_by('-delivery_year')
             
             # Third - get count
             total_count = db_components.count()
@@ -306,7 +307,7 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
             paginated_db_components = db_components[(page-1)*per_page:page*per_page]
         else:
             # Regular CMU ID search - simpler flow
-            db_components = Component.objects.filter(cmu_id=cmu_id).order_by('-delivery_year')
+            db_components = Component.objects.filter(cmu_id=cmu_id).select_related().order_by('-delivery_year')
             total_count = db_components.count()
             paginated_db_components = db_components[(page-1)*per_page:page*per_page]
         
@@ -341,6 +342,13 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
             # Cache the results for future use
             if total_count <= 1000:  # Only cache reasonably sized results
                 cache.set(components_cache_key, components, 3600)
+            elif total_count <= 2000:
+                cache.set(components_cache_key, components, 1800)
+            elif total_count <= 5000:
+                cache.set(components_cache_key, components, 600)
+            else:
+                logger.info(f"Result set too large to cache ({total_count} items)")
+
             
             metadata = {
                 "total_count": total_count,
@@ -390,8 +398,12 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
                 logger.error(f"Error saving to database: {str(db_error)}")
             
             # Cache the results for future use
-            if len(all_api_components) <= 1000:  # Only cache reasonably sized results
+            if len(all_api_components) <= 500:  # Only cache reasonably sized results
                 cache.set(components_cache_key, all_api_components, 3600)
+            elif len(all_api_components) <= 2000:
+                cache.set(components_cache_key, all_api_components, 1800)
+            elif len(all_api_components) <= 5000:
+                cache.set(components_cache_key, all_api_components, 600)
             
             metadata = {
                 "total_count": total_count,
