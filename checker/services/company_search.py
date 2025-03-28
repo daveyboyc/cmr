@@ -22,17 +22,45 @@ logger = logging.getLogger(__name__)
 
 
 def search_companies_service(request, extra_context=None, return_data_only=False):
-    """Service function for searching companies"""
+    """Service function for searching companies with improved caching and performance"""
+    # Imports at the top
+    import logging
+    from django.core.cache import cache
+    
+    # Initialize logger once
+    logger = logging.getLogger(__name__)
+    
+    # Initialize variables
     results = {}
     error_message = None
     api_time = 0
     query = request.GET.get("q", "").strip()
     sort_order = request.GET.get("sort", "desc")  # Get sort order, default to desc (newest first)
     
-    # NEW CODE: Add special case handler for problematic queries
-    logger = logging.getLogger(__name__)
+    # Check cache first for any query
+    if query:
+        cache_key = f"search_results_{query.lower()}"
+        cached_results = cache.get(cache_key)
+        
+        if cached_results:
+            logger.info(f"Using cached search results for '{query}'")
+            if return_data_only:
+                return cached_results
+            
+            # Handle non-return_data_only case with cached results
+            context = {
+                "results": cached_results,
+                "record_count": sum(len(matches) for matches in cached_results.values()),
+                "api_time": 0.1,  # Fast because from cache
+                "query": query,
+                "sort_order": sort_order,
+                "note": "Using cached results"
+            }
+            if extra_context:
+                context.update(extra_context)
+            return render(request, "checker/search.html", context)
     
-    # Handle known problematic queries directly with pre-cached results
+    # Handle known problematic queries with special case
     if query.lower() in ['grid beyond', 'gridbeyond']:
         logger.info(f"Using special case handler for known problematic query: '{query}'")
         
@@ -40,6 +68,10 @@ def search_companies_service(request, extra_context=None, return_data_only=False
         results[query] = [
             '<div><strong><a href="/company/gridbeyond/" style="color: blue; text-decoration: underline;">GridBeyond</a></strong><div class="mt-1 mb-1"><span class="text-muted">CMU IDs: GBD001, GBD002, GBD003 and 30 more</span></div><div>450 components across 33 CMU IDs</div></div>'
         ]
+        
+        # Cache these special case results
+        cache_key = f"search_results_{query.lower()}"
+        cache.set(cache_key, results, 7200)  # Cache for 2 hours
         
         if return_data_only:
             return results
@@ -59,46 +91,13 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             
         return render(request, "checker/search.html", context)
     
-    # Add these lines to handle potentially expensive queries
-    logger = logging.getLogger(__name__)
-    
     # Add safety limit for search terms
     if len(query) > 100:
         query = query[:100]
         error_message = "Search query too long, truncated to 100 characters"
         logger.warning(f"Search query truncated: '{query}'")
     
-    # Add safer handling for the query with space check
-    if query and ' ' in query:
-        logger.info(f"Search query contains spaces - potential company name: '{query}'")
-        
-        # Add a check for problematic queries that might timeout
-        if query.lower() in ['grid beyond', 'gridbeyond']:
-            logger.warning(f"Known problematic query detected: '{query}' - using optimized path")
-            
-            # For known problematic queries, limit the search to avoid timeouts
-            # This is a temporary fix until we can optimize the database better
-            results[query] = [
-                f'<a href="/company/gridbeyond/" style="color: blue; text-decoration: underline;">Grid Beyond</a>'
-            ]
-            
-            if return_data_only:
-                return results
-            
-            context = {
-                "results": results,
-                "record_count": 1,
-                "api_time": 0.1,
-                "query": query,
-                "sort_order": sort_order,
-                "error": "Using optimized search results for this query."
-            }
-            
-            if extra_context:
-                context.update(extra_context)
-                
-            return render(request, "checker/search.html", context)
-    
+    # Process GET requests
     if request.method == "GET":
         # Shortcut for component results
         if query.startswith("CM_"):
@@ -173,6 +172,12 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 return render(request, "checker/search.html", context)
 
         elif query:
+            # Reduce number of fetched/processed CMU IDs for complex queries
+            component_limit = 100
+            if ' ' in query:
+                component_limit = 50
+                logger.info(f"Using reduced component limit for complex query: '{query}'")
+                
             norm_query = normalize(query)
             cmu_df, df_api_time = get_cmu_dataframe()
             api_time += df_api_time
@@ -195,11 +200,25 @@ def search_companies_service(request, extra_context=None, return_data_only=False
 
             record_count = len(cmu_df)
             matching_records = _perform_company_search(cmu_df, norm_query)
-            unique_companies = list(matching_records["Full Name"].unique())
             
-    
-                
+            # Limit the number of companies to avoid timeouts
+            unique_companies = list(matching_records["Full Name"].unique())[:component_limit]
+            
             results = _build_search_results(cmu_df, unique_companies, sort_order, query, add_debug_info=True)
+
+            # Cache these search results
+            if query:
+                cache_key = f"search_results_{query.lower()}"
+                total_items = sum(len(matches) for matches in results.values())
+                
+                if total_items < 100:
+                    cache.set(cache_key, results, 3600)  # 1 hour for small results
+                elif total_items < 500:
+                    cache.set(cache_key, results, 1800)  # 30 minutes for medium results
+                else:
+                    cache.set(cache_key, results, 600)   # 10 minutes for large results
+                    
+                logger.info(f"Cached {total_items} results for query '{query}'")
 
             request.session["search_results"] = results
             request.session["record_count"] = record_count

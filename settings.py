@@ -8,8 +8,8 @@ DATABASES = {
         'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
         'CONN_MAX_AGE': 600,  # Keep connections alive for 10 minutes
         'OPTIONS': {
-            'connect_timeout': 20,  # SQLite timeout in seconds
-            'statement_timeout': 30000,  # 30 seconds query timeout
+            'connect_timeout': 10,  # SQLite timeout in seconds
+            'statement_timeout': 15000,  # 15 seconds query timeout
         }
     }
 }

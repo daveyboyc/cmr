@@ -100,11 +100,40 @@ def search_companies(request):
 
 
 def search_components(request):
-    """Redirect to the unified search"""
-    query = request.GET.get("q", "")
-    if query:
-        return redirect(f"/?q={urllib.parse.quote(query)}")
-    return redirect("/")
+    """View function for searching components with smart pagination"""
+    # Get the query parameter
+    query = request.GET.get("q", "").strip()
+    
+    # If no query, just redirect to home
+    if not query:
+        return redirect("/")
+        
+    # Smart pagination - adjust page size based on query complexity
+    page = int(request.GET.get("page", 1))
+    
+    # Base page size - standard is 100 items per page
+    base_page_size = 100
+    
+    # If query is very short or contains spaces, it's likely to match many records
+    # or be a complex query - reduce page size to prevent timeouts
+    if len(query) < 5 or ' ' in query:  
+        per_page = 50  # More restrictive for potentially expensive queries
+    else:
+        per_page = base_page_size
+        
+    # Add parameters to the redirect URL
+    redirect_url = f"/?q={urllib.parse.quote(query)}&page={page}&per_page={per_page}"
+    
+    # Add sorting parameter if present
+    if "comp_sort" in request.GET:
+        redirect_url += f"&comp_sort={request.GET.get('comp_sort')}"
+        
+    # Log the pagination settings to help with debugging
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Component search with query '{query}': page={page}, per_page={per_page}")
+    
+    return redirect(redirect_url)
 
 
 @require_http_methods(["GET"])

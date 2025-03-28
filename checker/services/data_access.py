@@ -255,6 +255,11 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
     from ..models import Component
     
     logger = logging.getLogger(__name__)
+    if ' ' in cmu_id:
+        per_page = min(per_page, 50)
+        logger.info(f"Limiting per_page to 50 for complex query: '{cmu_id}'")
+
+
     logger.info(f"Fetching components for query '{cmu_id}' (page={page}, per_page={per_page})")
     
     # First check cache for performance
@@ -432,45 +437,51 @@ def save_components_to_database(cmu_id, components):
     from django.db import transaction
     from ..models import Component
     
-    # Use a transaction for better performance and atomicity
-    with transaction.atomic():
-        for component in components:
-            # Get component ID if available
-            component_id = component.get("_id", "")
-            
-            # Skip if we already have this component in the database
-            if component_id and Component.objects.filter(component_id=component_id).exists():
-                continue
-            
-            try:
-                # Extract standard fields
-                location = component.get("Location and Post Code", "")
-                description = component.get("Description of CMU Components", "")
-                technology = component.get("Generating Technology Class", "")
-                company_name = component.get("Company Name", "")
-                auction_name = component.get("Auction Name", "")
-                delivery_year = component.get("Delivery Year", "")
-                status = component.get("Status", "")
-                type_value = component.get("Type", "")
-                
-                # Create new component in database
-                Component.objects.create(
-                    component_id=component_id,
-                    cmu_id=cmu_id,
-                    location=location,
-                    description=description,
-                    technology=technology,
-                    company_name=company_name,
-                    auction_name=auction_name,
-                    delivery_year=delivery_year,
-                    status=status,
-                    type=type_value,
-                    additional_data=component  # Store all data as JSON
-                )
-            except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error(f"Error saving component {component_id} to database: {str(e)}")
+    if not components:
+        return
+    
+    # Extract component_ids for efficient existence check
+    component_ids = [c.get("_id", "") for c in components if c.get("_id")]
+    
+    # Only do one database query to find all existing IDs
+    existing_ids = set()
+    if component_ids:
+        existing_ids = set(Component.objects.filter(
+            component_id__in=component_ids
+        ).values_list('component_id', flat=True))
+    
+    # Create list of new components only
+    new_components = []
+    for component in components:
+        component_id = component.get("_id", "")
+        
+        # Skip if we already have this component in the database
+        # FIXED THIS CONDITION - only skip if it's already in existing_ids
+        if component_id and component_id in existing_ids:
+            continue
+        
+        # Extract standard fields
+        new_components.append(Component(
+            component_id=component_id,
+            cmu_id=cmu_id,
+            location=component.get("Location and Post Code", ""),
+            description=component.get("Description of CMU Components", ""),
+            technology=component.get("Generating Technology Class", ""),
+            company_name=component.get("Company Name", ""),
+            auction_name=component.get("Auction Name", ""),
+            delivery_year=component.get("Delivery Year", ""),
+            status=component.get("Status", ""),
+            type=component.get("Type", ""),
+            additional_data=component
+        ))
+    
+    # Only do the bulk create if we have new components
+    if new_components:
+        # Use a transaction for better performance and atomicity
+        with transaction.atomic():
+            # Bulk create all components at once
+            Component.objects.bulk_create(new_components, ignore_conflicts=True)
+
 
 
 def fetch_component_search_results(query, limit=1000, sort_order="desc"):
