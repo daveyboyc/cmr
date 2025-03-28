@@ -16,25 +16,15 @@ def get_cache_key(prefix, identifier):
     """
     Generate consistent and safe cache keys with standard format.
     Ensures keys are safe for all cache backends including memcached.
-    
-    Args:
-        prefix: The prefix for the cache key
-        identifier: The identifier to use in the cache key
-        
-    Returns:
-        A cache key that is safe for all cache backends
     """
     if not isinstance(identifier, str):
         identifier = str(identifier)
     
-    # For very long or complex identifiers with spaces or special chars,
-    # use a hash to ensure the key is manageable and valid for all cache backends
-    if len(identifier) > 50 or ' ' in identifier or not identifier.isalnum():
+    # For spaces or special chars, use a hash to ensure valid cache keys
+    if ' ' in identifier or not identifier.isalnum():
         # Create a hash of the identifier
         identifier_hash = hashlib.md5(identifier.encode('utf-8')).hexdigest()
-        # Prepend the first few characters of the original for debugging
-        prefix_chars = ''.join(c for c in identifier[:10] if c.isalnum()).lower()
-        safe_identifier = f"{prefix_chars}_{identifier_hash}"
+        safe_identifier = identifier_hash
     else:
         # For simple identifiers, just use the lowercase version
         safe_identifier = identifier.lower()

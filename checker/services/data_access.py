@@ -285,48 +285,33 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
     
     # DATABASE FIRST: Try to get from database
     try:
-        # Query the database for components with this CMU ID with a timeout
+        # Query the database for components with this CMU ID
         query_time = time.time()
         
-        # Check if this is a search query with spaces (like "grid beyond")
+        # Apply different query logic for company name searches vs CMU ID searches
         if ' ' in cmu_id:
-            # This is likely a company name search, not a CMU ID
-            # Add better logging
+            # This is likely a company name or description search
             logger.info(f"Search query contains spaces, likely a company name: '{cmu_id}'")
             
-            # For company name searches, use a more targeted approach
-            # First check by exact company name match (case insensitive)
-            db_components = Component.objects.filter(company_name__iexact=cmu_id)
-            if not db_components.exists():
-                # Try contains search
-                db_components = Component.objects.filter(company_name__icontains=cmu_id)
-                # Limit to 1000 results to prevent timeout
-                db_components = db_components[:1000]
-        else:
-            # Regular CMU ID search
-            db_components = Component.objects.filter(cmu_id=cmu_id)
-        
-        # Get total count efficiently without a separate query
-        total_count = db_components.count()
-        
-        # Add reasonable timeout for Heroku
-        if total_count > 500:
-            logger.warning(f"Large result set for '{cmu_id}': {total_count} components")
-        
-        # If query is taking too long, limit results
-        query_elapsed = time.time() - query_time
-        if query_elapsed > 5.0 and total_count > 100:
-            logger.warning(f"Query taking too long ({query_elapsed:.2f}s), limiting results")
-            db_components = db_components[:100]
-            total_count = 100  # Update count to match the limitation
-
-        if total_count > 0:
-            logger.info(f"Found {total_count} components in database for '{cmu_id}'")
+            # First - apply the filter
+            db_components = Component.objects.filter(company_name__icontains=cmu_id)
             
-            # Apply pagination to the database query
-            paginated_db_components = db_components.order_by('-delivery_year')[
-                (page-1)*per_page:page*per_page
-            ]
+            # Second - apply ordering
+            db_components = db_components.order_by('-delivery_year')
+            
+            # Third - get count
+            total_count = db_components.count()
+            
+            # Fourth - apply pagination
+            paginated_db_components = db_components[(page-1)*per_page:page*per_page]
+        else:
+            # Regular CMU ID search - simpler flow
+            db_components = Component.objects.filter(cmu_id=cmu_id).order_by('-delivery_year')
+            total_count = db_components.count()
+            paginated_db_components = db_components[(page-1)*per_page:page*per_page]
+        
+        if paginated_db_components.exists():
+            logger.info(f"Found {total_count} components in database for '{cmu_id}'")
             
             # Convert database objects to dictionaries
             components = []
@@ -367,32 +352,23 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
                 "query_time": time.time() - query_time
             }
             
-            logger.info(f"Returning {len(components)} components from database (page {page})")
+            logger.info(f"Returning {len(components)} components from database")
             return components, metadata
+    
     except Exception as e:
         logger.exception(f"Error querying database for CMU ID {cmu_id}: {str(e)}")
         # Fall through to API fetching if database query fails
     
-    # API FALLBACK: If not in database, try API
+    # API FALLBACK: If not in database or error occurred, try API
     try:
         api_start_time = time.time()
-        
-        # Get an accurate total count for this query
-        total_count = get_accurate_total_count(cmu_id)
-        logger.info(f"Accurate count from API for '{cmu_id}': {total_count}")
-        
-        # Now fetch the actual page of data
-        api_limit = per_page  # Only fetch what we need for this page
-        api_offset = (page - 1) * per_page
-        
         params = {
             "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
             "q": cmu_id,
-            "limit": api_limit,
-            "offset": api_offset
+            "limit": per_page,
+            "offset": (page-1) * per_page
         }
         
-        logger.info(f"Making API request for '{cmu_id}' with limit={api_limit}, offset={api_offset}")
         import requests
         response = requests.get(
             "https://data.nationalgrideso.com/api/3/action/datastore_search",
@@ -404,74 +380,29 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
             result = response.json().get("result", {})
             all_api_components = result.get("records", [])
             
-            # Log what we received
-            actual_count = len(all_api_components)
-            logger.info(f"API returned {actual_count} components for page {page}")
+            # Try to get total count
+            total_count = result.get("total", len(all_api_components))
             
-            # Handle API limitations for paging
-            if actual_count == 0 and page > 1 and page < 100 and total_count > 0:
-                logger.warning(f"No components returned for page {page} despite positive total count")
-                detected_limit = (page - 1) * per_page
-                if detected_limit < total_count:
-                    total_count = detected_limit
+            # Try to save components to database for future use
+            try:
+                save_components_to_database(cmu_id, all_api_components)
+            except Exception as db_error:
+                logger.error(f"Error saving to database: {str(db_error)}")
             
-            # If this is page 1 and we got fewer results than expected but more than 0
-            if page == 1 and actual_count < total_count and actual_count > 0:
-                # Try to verify if there are more pages
-                try:
-                    page2_response = requests.get(
-                        "https://data.nationalgrideso.com/api/3/action/datastore_search",
-                        params={
-                            "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
-                            "q": cmu_id,
-                            "limit": 1,
-                            "offset": per_page
-                        },
-                        timeout=10
-                    )
-                    
-                    if page2_response.status_code == 200:
-                        page2_result = page2_response.json().get("result", {})
-                        page2_records = page2_result.get("records", [])
-                        
-                        if not page2_records:
-                            total_count = actual_count
-                except Exception as e:
-                    logger.warning(f"Error checking page 2: {str(e)}")
-            
-            # Save to database for future use!
-            if all_api_components:
-                try:
-                    # Save all components to the database 
-                    save_components_to_database(cmu_id, all_api_components)
-                    logger.info(f"Saved {len(all_api_components)} components to database")
-                except Exception as db_error:
-                    logger.error(f"Error saving to database: {str(db_error)}")
-            
-            # Calculate total pages
-            total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
-            
-            # Ensure reasonable output
-            if total_count == 0 and actual_count > 0:
-                total_count = actual_count
-                total_pages = 1
+            # Cache the results for future use
+            if len(all_api_components) <= 1000:  # Only cache reasonably sized results
+                cache.set(components_cache_key, all_api_components, 3600)
             
             metadata = {
                 "total_count": total_count,
-                "displayed_count": actual_count,
                 "page": page,
                 "per_page": per_page,
-                "total_pages": total_pages,
+                "total_pages": (total_count + per_page - 1) // per_page,
                 "source": "api",
                 "processing_time": time.time() - start_time,
                 "api_time": time.time() - api_start_time
             }
             
-            # Cache the results for future use
-            if actual_count <= 1000:  # Only cache reasonably sized results
-                cache.set(components_cache_key, all_api_components, 3600)
-            
-            logger.info(f"Returning {len(all_api_components)} components from API (page {page} of {total_pages})")
             return all_api_components, metadata
         else:
             logger.error(f"API error: {response.status_code}")
