@@ -1,5 +1,7 @@
 from django.urls import path
 from . import views
+from .services.component_detail import get_component_details
+from .debug_views import debug_component_duplicates
 
 urlpatterns = [
     path("", views.search_companies, name="search_companies"),
@@ -48,4 +50,7 @@ urlpatterns = [
     # Debug endpoint for company components
     path("debug/company-components/",
          views.debug_company_components, name="debug_company_components"),
+
+    # Debug URLs
+    path('debug/duplicates/<str:cmu_id>/', debug_component_duplicates, name='debug_duplicates'),
 ]

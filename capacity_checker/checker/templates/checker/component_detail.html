@@ -121,8 +121,8 @@
                     <ul>
                     {% for comp in all_components %}
                         <li>
-                            <a href="/component/{{ cmu_id }}_{{ comp|get_item:'Location and Post Code'|default:'unknown'|slugify }}/">
-                                {{ comp|get_item:'Location and Post Code'|default:'unknown' }}
+                            <a href="/component/{{ cmu_id }}_{{ comp|get_item:'Location and Post Code'|slugify }}/">
+                                {{ comp|get_item:'Location and Post Code' }}
                             </a>
                         </li>
                     {% endfor %}
@@ -171,6 +171,22 @@
                         </div>
                     </div>
                 </div>
+                
+                <!-- Additional CMU Registry Data (for developers) -->
+                {% if additional_cmu_data %}
+                <div class="detail-section">
+                    <h3 class="detail-title">
+                        <a class="text-decoration-none" data-bs-toggle="collapse" href="#rawCmuDataSection" role="button" aria-expanded="false">
+                            <span class="bi bi-code-square"></span> Raw CMU Registry Data
+                        </a>
+                    </h3>
+                    <div class="collapse" id="rawCmuDataSection">
+                        <div class="card card-body">
+                            <pre>{{ additional_cmu_data|pprint }}</pre>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
             </div>
         {% endif %}
 

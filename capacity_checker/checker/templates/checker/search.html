@@ -23,6 +23,10 @@
             background-attachment: fixed;
             background-repeat: no-repeat;
             color: #333;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         .container {
             max-width: 960px;
@@ -31,6 +35,7 @@
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+            width: 100%;
         }
         .page-header {
             display: flex;
@@ -39,7 +44,12 @@
             margin-bottom: 20px;
         }
         .search-box {
-            margin: 20px 0;
+            margin: 40px 0 20px;
+        }
+        /* If no results are present, apply more top margin to center the search box */
+        .no-results .search-box {
+            margin-top: 80px;
+            margin-bottom: 80px;
         }
         .search-input {
             border-radius: 24px;
@@ -149,10 +159,21 @@
             color: blue;
             text-decoration: underline;
         }
+        
+        /* No results header styling */
+        .no-results .page-header {
+            flex-direction: column;
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        .no-results .page-header h1 {
+            font-size: 4rem;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="container{% if not company_links and not component_results and not request.GET.q %} no-results{% endif %}">
         <!-- Header -->
         <div class="page-header">
             <h1>Capacity Market Search</h1>
@@ -166,19 +187,6 @@
                        placeholder="Search company name, component, or CMU ID"
                        value="{{ query|default:'' }}">
                 <button type="submit" class="btn btn-primary search-button">Search</button>
-                
-                <!-- Add sort toggle button - only show when there's a search query -->
-                {% if request.GET.q %}
-                    {% if sort_order == "desc" %}
-                        <a href="?q={{ request.GET.q }}&sort=asc" class="sort-toggle">
-                            <span>↑</span> Sort: Newest First
-                        </a>
-                    {% else %}
-                        <a href="?q={{ request.GET.q }}&sort=desc" class="sort-toggle">
-                            <span>↓</span> Sort: Oldest First
-                        </a>
-                    {% endif %}
-                {% endif %}
             </div>
         </form>
 
@@ -205,7 +213,18 @@
 
         <!-- Record Count -->
         {% if record_count > 0 %}
-            <p class="text-muted">Searched {{ record_count }} records in the register</p>
+        <div class="mt-3 mb-3">
+            <p class="text-muted">
+                {% if company_count %}
+                    Displaying <strong>{{ displayed_company_count|default:"0" }}</strong> of <strong>{{ company_count }}</strong> matching companies
+                {% elif component_count %}
+                    Displaying <strong>{{ displayed_component_count|default:"0" }}</strong> of <strong>{{ component_count }}</strong> matching components
+                {% else %}
+                    Displaying <strong>{{ displayed_count|default:"0" }}</strong> of <strong>{{ record_count }}</strong> matching records
+                {% endif %}
+                {% if page and total_pages > 1 %}(Page {{ page }} of {{ total_pages }}){% endif %}
+            </p>
+        </div>
         {% endif %}
 
         <!-- Error Message -->
@@ -217,16 +236,22 @@
         {% if company_links %}
             <div class="section-header">
                 <h3>Matching Companies ({{ company_links|length }})</h3>
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#companyLinksCollapse" aria-expanded="{% if company_links|length < 5 %}true{% else %}false{% endif %}" aria-controls="companyLinksCollapse">
+                    <span class="toggle-icon"></span>
+                    <span class="toggle-text">{% if company_links|length < 5 %}Hide{% else %}Show{% endif %}</span>
+                </button>
             </div>
             <div class="alert alert-info">
                 <span class="bi bi-info-circle"></span> Click on the blue company names to view company details
             </div>
-            <div class="results-list">
-                {% for link in company_links %}
-                    <div class="result-item">
-                        {{ link|safe }}
-                    </div>
-                {% endfor %}
+            <div class="collapse {% if company_links|length < 5 %}show{% endif %}" id="companyLinksCollapse">
+                <div class="results-list">
+                    {% for link in company_links %}
+                        <div class="result-item">
+                            {{ link|safe }}
+                        </div>
+                    {% endfor %}
+                </div>
             </div>
         {% endif %}
 

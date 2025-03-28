@@ -24,6 +24,10 @@ def search_companies(request):
     query = request.GET.get("q", "").strip()
     comp_sort = request.GET.get("comp_sort", "desc")  # Sort for component results
     
+    # Add pagination parameters but don't change data fetching yet
+    page = int(request.GET.get("page", 1))  # Current page, default to 1
+    per_page = int(request.GET.get("per_page", 100))  # Items per page, default to 100
+    
     # Setup logging
     import logging
     logger = logging.getLogger(__name__)
@@ -32,25 +36,53 @@ def search_companies(request):
     if not query:
         return search_companies_service(request)
 
-    # Get component results if there's a query
+    # Get component results if there's a query - use the EXACT SAME approach as before
     component_results = {}
+    total_component_count = 0
+    components = []
+    
     if query:
+        # Get components using the standard service - no changes to this part
         component_results = search_components_service(request, return_data_only=True)
+        
+        # If we have results, prepare for pagination UI
+        if component_results and query in component_results:
+            components = component_results[query]
+            total_component_count = len(components)
+            
+            # We're not actually paginating the data yet - just preparing counts for the UI
+            # This ensures we don't break the existing functionality
 
-    # Get company results
+    # Get company results - no changes here
     company_results = search_companies_service(request, return_data_only=True)
 
-    # Create company links for the unified search
+    # Create company links for the unified search - no changes
     company_links = []
     if company_results and query in company_results:
         for company_html in company_results[query]:
             company_links.append(company_html)
 
+    # Prepare pagination metadata for UI
+    total_pages = (total_component_count + per_page - 1) // per_page if total_component_count > 0 else 1
+    has_prev = page > 1
+    has_next = page < total_pages
+    
     # Pass both results to the template
     extra_context = {
         'unified_search': True,
         'company_links': company_links,
         'component_results': component_results,
+        'component_count': total_component_count,
+        'displayed_component_count': total_component_count, # For now, show all components
+        'comp_sort': comp_sort,
+        'query': query,
+        # Pagination context (for UI only at first)
+        'page': page,
+        'per_page': per_page,
+        'total_pages': total_pages,
+        'has_prev': has_prev,
+        'has_next': has_next,
+        'page_range': range(max(1, page-2), min(total_pages+1, page+3))
     }
 
     return search_companies_service(request, extra_context=extra_context)

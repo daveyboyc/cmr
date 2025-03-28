@@ -173,24 +173,50 @@
             <div class="input-group">
                 <input type="text" name="q" class="form-control" placeholder="Search company name, postcode, or CMU ID" value="{{ request.GET.q }}">
                 <button type="submit" class="btn btn-primary">Search</button>
-
-                <!-- Add sort toggle button - only show when there's a search query -->
-                {% if request.GET.q %}
-                    {% if sort_order == "desc" %}
-                        <a href="?q={{ request.GET.q }}&sort=asc" class="sort-toggle">
-                            <span>↑</span> Sort: Newest First
-                        </a>
-                    {% else %}
-                        <a href="?q={{ request.GET.q }}&sort=desc" class="sort-toggle">
-                            <span>↓</span> Sort: Oldest First
-                        </a>
-                    {% endif %}
-                {% endif %}
             </div>
         </form>
 
-        {% if record_count > 0 %}
-            <p class="text-muted mt-3">Searched {{ record_count }} records in the register</p>
+        <!-- Add this after the search form -->
+        {% if record_count > 0 or total_component_count > 0 %}
+        <div class="alert alert-info mt-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <span>
+                        Displaying <strong>{{ displayed_component_count|default:"0" }}</strong> of <strong>{{ total_component_count|default:record_count }}</strong> matching components
+                        {% if page and total_pages > 1 %}
+                            (Page {{ page }} of {{ total_pages }})
+                        {% endif %}
+                    </span>
+                    
+                    {% if total_component_count >= 5000 %}
+                    <div class="small mt-1">
+                        <em>Note: Large result set detected. Showing 500 results per page.</em>
+                    </div>
+                    {% endif %}
+                </div>
+                
+                {% if request.GET.q and total_pages > 1 %}
+                <div>
+                    <a href="?q={{ request.GET.q }}&page=1&comp_sort={{ sort_order }}" class="btn btn-sm btn-outline-primary me-1">
+                        First
+                    </a>
+                    {% if has_prev %}
+                    <a href="?q={{ request.GET.q }}&page={{ page|add:'-1' }}&comp_sort={{ sort_order }}" class="btn btn-sm btn-outline-primary me-1">
+                        Previous
+                    </a>
+                    {% endif %}
+                    {% if has_next %}
+                    <a href="?q={{ request.GET.q }}&page={{ page|add:'1' }}&comp_sort={{ sort_order }}" class="btn btn-sm btn-outline-primary me-1">
+                        Next
+                    </a>
+                    {% endif %}
+                    <a href="?q={{ request.GET.q }}&page={{ total_pages }}&comp_sort={{ sort_order }}" class="btn btn-sm btn-outline-primary">
+                        Last
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
         {% endif %}
 
         {% if error %}
@@ -221,8 +247,21 @@
             </div>
 
             <!-- Add sort order explanation when results are shown -->
-            <div class="text-muted mb-2">
-                Results sorted by delivery year ({% if sort_order == "desc" %}newest first{% else %}oldest first{% endif %})
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="text-muted">
+                    Results sorted by delivery year ({% if sort_order == "desc" %}newest first{% else %}oldest first{% endif %})
+                </div>
+                
+                <!-- Add clickable sort toggle button -->
+                {% if sort_order == "desc" %}
+                    <a href="?q={{ request.GET.q }}&page={{ page }}&comp_sort=asc" class="sort-toggle">
+                        <span>↑</span> Sort Components: Oldest First
+                    </a>
+                {% else %}
+                    <a href="?q={{ request.GET.q }}&page={{ page }}&comp_sort=desc" class="sort-toggle">
+                        <span>↓</span> Sort Components: Newest First
+                    </a>
+                {% endif %}
             </div>
         {% endif %}
 
@@ -238,6 +277,43 @@
                 </div>
             </div>
         {% endfor %}
+
+        <!-- Add this at the bottom of the page after results -->
+        {% if total_component_count > per_page and total_pages > 1 %}
+        <div class="mt-4">
+          <nav aria-label="Page navigation">
+            <ul class="pagination justify-content-center">
+              <li class="page-item {% if not has_prev %}disabled{% endif %}">
+                <a class="page-link" href="?q={{ query }}&page=1&comp_sort={{ sort_order }}" aria-label="First">
+                  <span aria-hidden="true">&laquo;&laquo; First</span>
+                </a>
+              </li>
+              <li class="page-item {% if not has_prev %}disabled{% endif %}">
+                <a class="page-link" href="?q={{ query }}&page={{ page|add:'-1' }}&comp_sort={{ sort_order }}" aria-label="Previous">
+                  <span aria-hidden="true">&laquo; Previous</span>
+                </a>
+              </li>
+              
+              {% for p in page_range %}
+                <li class="page-item {% if p == page %}active{% endif %}">
+                  <a class="page-link" href="?q={{ query }}&page={{ p }}&comp_sort={{ sort_order }}">{{ p }}</a>
+                </li>
+              {% endfor %}
+              
+              <li class="page-item {% if not has_next %}disabled{% endif %}">
+                <a class="page-link" href="?q={{ query }}&page={{ page|add:'1' }}&comp_sort={{ sort_order }}" aria-label="Next">
+                  <span aria-hidden="true">Next &raquo;</span>
+                </a>
+              </li>
+              <li class="page-item {% if not has_next %}disabled{% endif %}">
+                <a class="page-link" href="?q={{ query }}&page={{ total_pages }}&comp_sort={{ sort_order }}" aria-label="Last">
+                  <span aria-hidden="true">Last &raquo;&raquo;</span>
+                </a>
+              </li>
+            </ul>
+          </nav>
+        </div>
+        {% endif %}
 
         {% if api_time > 0 %}
             <p class="text-muted mt-3">API request took {{ api_time|floatformat:2 }} seconds.</p>
