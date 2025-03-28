@@ -1,1 +1,1 @@
-web: gunicorn capacity_checker.wsgi --timeout 60 --keep-alive 5 --log-level debug --workers 2
+web: gunicorn capacity_checker.wsgi --timeout 60 --log-level debug --max-requests 1000 --max-requests-jitter 50 --keep-alive 5 --workers 2
