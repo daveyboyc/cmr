@@ -1,1 +1,1 @@
-web: gunicorn capacity_checker.wsgi
+web: gunicorn capacity_checker.wsgi --timeout 60 --keep-alive 5 --log-level debug --workers 2

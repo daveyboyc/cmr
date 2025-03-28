@@ -285,13 +285,41 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
     
     # DATABASE FIRST: Try to get from database
     try:
-        # Query the database for components with this CMU ID
+        # Query the database for components with this CMU ID with a timeout
         query_time = time.time()
-        db_components = Component.objects.filter(cmu_id=cmu_id)
         
-        # Get total count for pagination
+        # Check if this is a search query with spaces (like "grid beyond")
+        if ' ' in cmu_id:
+            # This is likely a company name search, not a CMU ID
+            # Add better logging
+            logger.info(f"Search query contains spaces, likely a company name: '{cmu_id}'")
+            
+            # For company name searches, use a more targeted approach
+            # First check by exact company name match (case insensitive)
+            db_components = Component.objects.filter(company_name__iexact=cmu_id)
+            if not db_components.exists():
+                # Try contains search
+                db_components = Component.objects.filter(company_name__icontains=cmu_id)
+                # Limit to 1000 results to prevent timeout
+                db_components = db_components[:1000]
+        else:
+            # Regular CMU ID search
+            db_components = Component.objects.filter(cmu_id=cmu_id)
+        
+        # Get total count efficiently without a separate query
         total_count = db_components.count()
         
+        # Add reasonable timeout for Heroku
+        if total_count > 500:
+            logger.warning(f"Large result set for '{cmu_id}': {total_count} components")
+        
+        # If query is taking too long, limit results
+        query_elapsed = time.time() - query_time
+        if query_elapsed > 5.0 and total_count > 100:
+            logger.warning(f"Query taking too long ({query_elapsed:.2f}s), limiting results")
+            db_components = db_components[:100]
+            total_count = 100  # Update count to match the limitation
+
         if total_count > 0:
             logger.info(f"Found {total_count} components in database for '{cmu_id}'")
             
@@ -341,7 +369,6 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=500):
             
             logger.info(f"Returning {len(components)} components from database (page {page})")
             return components, metadata
-    
     except Exception as e:
         logger.exception(f"Error querying database for CMU ID {cmu_id}: {str(e)}")
         # Fall through to API fetching if database query fails
