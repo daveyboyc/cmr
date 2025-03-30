@@ -345,13 +345,10 @@ def format_component_record(record, cmu_to_company_mapping):
         except Exception as e:
             logger.error(f"Error getting company name from JSON: {e}")
 
-    # Create company badge - TEMPORARILY point to company search page
+    # Create company badge
     company_info = ""
     if company_name:
-        encoded_company_name = urllib.parse.quote(company_name)
-        # Generate the normalized company ID for the detail page
         company_id = normalize(company_name)
-        # Link directly to company detail page instead of search
         company_link = f'<a href="/company/{company_id}/" class="badge bg-success" style="font-size: 1rem; text-decoration: none;">{company_name}</a>'
         company_info = f'<div class="mt-2 mb-2">{company_link}</div>'
     else:
@@ -363,18 +360,54 @@ def format_component_record(record, cmu_to_company_mapping):
     encoded_component_id = urllib.parse.quote(component_id)
     loc_link = f'<a href="/component/{encoded_component_id}/" style="color: blue; text-decoration: underline;">{loc}</a>'
 
-    # Format badges for type and delivery year
-    type_badge = f'<span class="badge bg-info">{typ}</span>' if typ != "N/A" else ""
-    year_badge = f'<span class="badge bg-secondary">{delivery_year}</span>' if delivery_year != "N/A" else ""
-    badges = " ".join(filter(None, [type_badge, year_badge]))
-    badges_div = f'<div class="mb-2">{badges}</div>' if badges else ""
+    # Extract auction type for badge
+    auction_type = ""
+    auction_badge_class = "bg-secondary"
+    if auction and auction != "N/A":
+        if "T-1" in auction or "T1" in auction:
+            auction_type = "T-1"
+            auction_badge_class = "bg-warning"
+        elif "T-4" in auction or "T4" in auction:
+            auction_type = "T-4"
+            auction_badge_class = "bg-info"
+        elif "T-3" in auction or "T3" in auction:
+            auction_type = "T-3"
+            auction_badge_class = "bg-success"
+        elif "TR" in auction:
+            auction_type = "TR"
+            auction_badge_class = "bg-danger"
+        else:
+            auction_type = auction.split()[0] if " " in auction else auction
+
+    # Format badges
+    badges = []
+    
+    # Auction badge
+    if auction_type:
+        badges.append(f'<span class="badge {auction_badge_class} me-1">{auction_type}</span>')
+    
+    # Delivery year badge
+    if delivery_year != "N/A":
+        badges.append(f'<span class="badge bg-secondary me-1">Year: {delivery_year}</span>')
+    
+    # Technology badge
+    if tech != "N/A":
+        tech_short = tech[:20] + "..." if len(tech) > 20 else tech
+        badges.append(f'<span class="badge bg-primary me-1">{tech_short}</span>')
+    
+    # Type badge (if different from auction type)
+    if typ != "N/A" and typ != auction_type:
+        badges.append(f'<span class="badge bg-dark me-1">{typ}</span>')
+    
+    badges_html = " ".join(badges)
+    badges_div = f'<div class="mb-2">{badges_html}</div>' if badges_html else ""
 
     return f"""
     <div class="component-record">
         <strong>{loc_link}</strong>
         <div class="mt-1 mb-1"><i>{desc}</i></div>
-        <div>Technology: {tech} | <b>{auction}</b> | <span class="text-muted">CMU ID: {cmu_id}</span></div>
         {badges_div}
+        <div class="small text-muted">Full auction: <b>{auction}</b> | CMU ID: {cmu_id}</div>
         {company_info}
     </div>
     """
