@@ -163,22 +163,208 @@ def component_detail(request, component_id):
 @require_http_methods(["GET"])
 def htmx_auction_components(request, company_id, year, auction_name):
     """HTMX endpoint for loading components for a specific auction"""
-    # Add debugging
+    # This directly implements auction_components instead of using get_auction_components
+    from django.http import HttpResponse
+    from django.db.models import Q
     import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"htmx_auction_components called with company_id={company_id}, year={year}, auction_name={auction_name}")
+    import traceback
+    from .models import Component
+    from .utils import normalize, from_url_param
     
-    # Convert parameters from URL format (underscores) back to spaces
+    logger = logging.getLogger(__name__)
+    logger.info(f"Loading auction components: company_id={company_id}, year={year}, auction={auction_name}")
+    
+    # Convert URL parameters from underscores back to spaces
     year = from_url_param(year)
     auction_name = from_url_param(auction_name)
     
-    logger.info(f"After conversion: year={year}, auction_name={auction_name}")
-
-    # Get the HTML for the auction components
-    html = get_auction_components(company_id, year, auction_name)
-    logger.info(f"get_auction_components returned {len(html)} characters of HTML")
-    
-    return HttpResponse(html)
+    try:
+        # Find company name
+        company_query = Component.objects.values('company_name').distinct()
+        company_name = None
+        
+        for company in company_query:
+            curr_name = company['company_name']
+            if curr_name and normalize(curr_name) == company_id:
+                company_name = curr_name
+                break
+        
+        if not company_name:
+            # Try a more flexible match
+            for company in company_query:
+                curr_name = company['company_name']
+                if curr_name and (company_id in normalize(curr_name) or normalize(curr_name) in company_id):
+                    company_name = curr_name
+                    break
+        
+        if not company_name:
+            return HttpResponse(f"<div class='alert alert-warning'>Company not found: {company_id}</div>")
+        
+        logger.info(f"Found company: {company_name}")
+        
+        # Build a more flexible query for components
+        query = Q(company_name=company_name)
+        
+        # Add year filter with flexible matching
+        if year:
+            # Handle multiple year formats
+            year_query = Q(delivery_year=year)
+            year_query |= Q(delivery_year__icontains=year)
+            # Also try to match just the first part of a year range (e.g., 2026 in "2026-27")
+            import re
+            year_number_match = re.search(r'(\d{4})', year)
+            if year_number_match:
+                year_number = year_number_match.group(1)
+                year_query |= Q(delivery_year__icontains=year_number)
+            
+            query &= year_query
+        
+        # Add auction filter with flexible matching
+        if auction_name:
+            # The auction name might be stored differently, try several variations
+            auction_query = Q(auction_name=auction_name)
+            auction_query |= Q(auction_name__icontains=auction_name)
+            
+            # Handle T-4/T-1 variations
+            if "T-4" in auction_name:
+                auction_query |= Q(auction_name__icontains="T4")
+                auction_query |= Q(auction_name__icontains="T 4")
+            elif "T-1" in auction_name:
+                auction_query |= Q(auction_name__icontains="T1")
+                auction_query |= Q(auction_name__icontains="T 1")
+            
+            # Match year part of auction name
+            year_in_auction = re.search(r'(\d{4})[/-]?(\d{2})?', auction_name)
+            if year_in_auction:
+                year_part = year_in_auction.group(0)
+                auction_query |= Q(auction_name__icontains=year_part)
+            
+            query &= auction_query
+        
+        # Get matching components
+        components = Component.objects.filter(query)
+        
+        # Get all unique CMU IDs
+        cmu_ids = components.values('cmu_id').distinct()
+        
+        logger.info(f"Found {components.count()} components across {cmu_ids.count()} CMU IDs")
+        
+        if components.count() == 0:
+            return HttpResponse(f"""
+                <div class='alert alert-warning'>
+                    <p>No components found matching these criteria:</p>
+                    <ul>
+                        <li>Company: {company_name}</li>
+                        <li>Year: {year}</li>
+                        <li>Auction: {auction_name}</li>
+                    </ul>
+                    <p>This could be due to differences in how the data is stored in the database.</p>
+                </div>
+            """)
+        
+        # Generate HTML with the matching components
+        html = f"<div class='component-results mb-3'>"
+        html += f"<div class='alert alert-info'>Found {components.count()} components across {cmu_ids.count()} CMU IDs</div>"
+        
+        # Group by CMU ID
+        html += "<div class='row'>"
+        
+        for cmu_id_obj in cmu_ids:
+            cmu_id = cmu_id_obj['cmu_id']
+            if not cmu_id:
+                continue
+                
+            # Get components for this CMU ID
+            cmu_components = components.filter(cmu_id=cmu_id)
+            
+            # Get all locations for this CMU
+            locations = cmu_components.values('location').distinct()
+            
+            # Format component records for the template
+            cmu_html = f"""
+            <div class="col-md-6 mb-3">
+                <div class="card cmu-card">
+                    <div class="card-header bg-light">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span>CMU ID: <strong>{cmu_id}</strong></span>
+                            <a href="/components/?q={cmu_id}" class="btn btn-sm btn-info">View Components</a>
+                        </div>
+                        <div class="small text-muted mt-1">Found {cmu_components.count()} components</div>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Components:</strong> {cmu_components.count()}</p>
+            """
+            
+            # Add locations list
+            if locations:
+                cmu_html += "<ul class='list-unstyled'>"
+                
+                for location_obj in locations:
+                    location = location_obj['location']
+                    if not location:
+                        continue
+                        
+                    # Add components at this location
+                    location_components = cmu_components.filter(location=location)
+                    
+                    # Create component ID for linking
+                    component_id = f"{cmu_id}_{normalize(location)}"
+                    
+                    # Format location as a blue link
+                    location_html = f'<a href="/component/{component_id}/" style="color: blue; text-decoration: underline;">{location}</a>'
+                    
+                    cmu_html += f"""
+                        <li class="mb-2">
+                            <strong>{location_html}</strong> <span class="text-muted">({location_components.count()} components)</span>
+                            <ul class="ms-3">
+                    """
+                    
+                    # Add description of components
+                    for component in location_components:
+                        desc = component.description or "No description"
+                        tech = component.technology or ""
+                        
+                        cmu_html += f"""
+                            <li><i>{desc}</i>{f" - {tech}" if tech else ""}</li>
+                        """
+                    
+                    cmu_html += """
+                            </ul>
+                        </li>
+                    """
+                
+                cmu_html += "</ul>"
+            else:
+                cmu_html += "<p>No location information available</p>"
+            
+            cmu_html += """
+                    </div>
+                </div>
+            </div>
+            """
+            
+            html += cmu_html
+        
+        html += "</div></div>"
+        
+        return HttpResponse(html)
+        
+    except Exception as e:
+        logger.error(f"Error loading auction components: {str(e)}")
+        logger.error(traceback.format_exc())
+        error_message = f"Error loading auction components: {str(e)}"
+        error_html = f"""
+            <div class='alert alert-danger'>
+                <p><strong>We're having trouble loading these components.</strong></p>
+                <p>Please try again or choose a different auction.</p>
+                <button class="btn btn-primary mt-2" onclick="location.reload()">Try Again</button>
+            </div>
+        """
+        
+        if request.GET.get("debug"):
+            error_html += f"<pre>{traceback.format_exc()}</pre>"
+            
+        return HttpResponse(error_html)
 
 
 @require_http_methods(["GET"])
