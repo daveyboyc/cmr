@@ -163,13 +163,17 @@ def component_detail(request, component_id):
 @require_http_methods(["GET"])
 def htmx_auction_components(request, company_id, year, auction_name):
     """HTMX endpoint for loading components for a specific auction"""
-    # This directly implements auction_components instead of using get_auction_components
     from django.http import HttpResponse
     from django.db.models import Q
     import logging
     import traceback
     from .models import Component
     from .utils import normalize, from_url_param
+    import time
+    
+    # Set a timeout for the entire operation
+    start_time = time.time()
+    MAX_EXECUTION_TIME = 15  # 15 seconds maximum (to avoid 30-second Heroku timeout)
     
     logger = logging.getLogger(__name__)
     logger.info(f"Loading auction components: company_id={company_id}, year={year}, auction={auction_name}")
@@ -179,20 +183,41 @@ def htmx_auction_components(request, company_id, year, auction_name):
     auction_name = from_url_param(auction_name)
     
     try:
-        # Find company name
-        company_query = Component.objects.values('company_name').distinct()
+        # Find company by direct lookup to avoid complex filtering
         company_name = None
+        try:
+            # Try exact match first with raw SQL for performance
+            from django.db import connection
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT DISTINCT company_name FROM checker_component WHERE company_name IS NOT NULL LIMIT 1000"
+                )
+                for row in cursor.fetchall():
+                    if row[0] and normalize(row[0]) == company_id:
+                        company_name = row[0]
+                        break
+        except Exception as db_error:
+            logger.warning(f"Database direct query failed: {db_error}")
+            # Fall back to ORM
+            company_query = Component.objects.values_list('company_name', flat=True).distinct()[:1000]
+            for curr_name in company_query:
+                if curr_name and normalize(curr_name) == company_id:
+                    company_name = curr_name
+                    break
         
-        for company in company_query:
-            curr_name = company['company_name']
-            if curr_name and normalize(curr_name) == company_id:
-                company_name = curr_name
-                break
+        # Check timeout
+        if time.time() - start_time > MAX_EXECUTION_TIME:
+            return HttpResponse("""
+                <div class='alert alert-warning'>
+                    <p><strong>The operation is taking too long.</strong></p>
+                    <p>We're working on improving performance. Please try again later or choose a different auction.</p>
+                </div>
+            """)
         
         if not company_name:
-            # Try a more flexible match
-            for company in company_query:
-                curr_name = company['company_name']
+            # Quick fuzzy match
+            top_companies = Component.objects.values_list('company_name', flat=True).distinct()[:100]
+            for curr_name in top_companies:
                 if curr_name and (company_id in normalize(curr_name) or normalize(curr_name) in company_id):
                     company_name = curr_name
                     break
@@ -202,54 +227,81 @@ def htmx_auction_components(request, company_id, year, auction_name):
         
         logger.info(f"Found company: {company_name}")
         
-        # Build a more flexible query for components
-        query = Q(company_name=company_name)
+        # Extract the year number for simpler matching
+        import re
+        year_number = None
+        year_match = re.search(r'(\d{4})', year) if year else None
+        if year_match:
+            year_number = year_match.group(1)
         
-        # Add year filter with flexible matching
-        if year:
-            # Handle multiple year formats
-            year_query = Q(delivery_year=year)
-            year_query |= Q(delivery_year__icontains=year)
-            # Also try to match just the first part of a year range (e.g., 2026 in "2026-27")
-            import re
-            year_number_match = re.search(r'(\d{4})', year)
-            if year_number_match:
-                year_number = year_number_match.group(1)
-                year_query |= Q(delivery_year__icontains=year_number)
+        # For auction name, extract key parts for matching
+        auction_key_parts = []
+        if "T-1" in auction_name:
+            auction_key_parts.append("T-1")
+            auction_key_parts.append("T1")
+            auction_key_parts.append("T 1")
+        elif "T-4" in auction_name:
+            auction_key_parts.append("T-4")
+            auction_key_parts.append("T4")
+            auction_key_parts.append("T 4")
+        
+        # Extract year from auction name
+        auction_year_match = re.search(r'(\d{4})[/-]?(\d{2})?', auction_name) if auction_name else None
+        if auction_year_match:
+            auction_key_parts.append(auction_year_match.group(0))
+        
+        # Construct an optimized SQL query
+        from django.db import connection
+        
+        # Base query for performance
+        sql_query = """
+            SELECT id, cmu_id, location, description, technology
+            FROM checker_component
+            WHERE company_name = %s
+        """
+        params = [company_name]
+        
+        # Add year filter if provided
+        year_condition = ""
+        if year_number:
+            year_condition = " AND delivery_year LIKE %s"
+            params.append(f"%{year_number}%")
+            sql_query += year_condition
+        
+        # Add auction filter if provided
+        auction_condition = ""
+        if auction_key_parts:
+            auction_parts_placeholders = ", ".join(["%s" for _ in auction_key_parts])
+            auction_condition = f" AND ("
+            auction_conditions = []
             
-            query &= year_query
-        
-        # Add auction filter with flexible matching
-        if auction_name:
-            # The auction name might be stored differently, try several variations
-            auction_query = Q(auction_name=auction_name)
-            auction_query |= Q(auction_name__icontains=auction_name)
+            for part in auction_key_parts:
+                auction_conditions.append("auction_name LIKE %s")
+                params.append(f"%{part}%")
             
-            # Handle T-4/T-1 variations
-            if "T-4" in auction_name:
-                auction_query |= Q(auction_name__icontains="T4")
-                auction_query |= Q(auction_name__icontains="T 4")
-            elif "T-1" in auction_name:
-                auction_query |= Q(auction_name__icontains="T1")
-                auction_query |= Q(auction_name__icontains="T 1")
-            
-            # Match year part of auction name
-            year_in_auction = re.search(r'(\d{4})[/-]?(\d{2})?', auction_name)
-            if year_in_auction:
-                year_part = year_in_auction.group(0)
-                auction_query |= Q(auction_name__icontains=year_part)
-            
-            query &= auction_query
+            auction_condition += " OR ".join(auction_conditions) + ")"
+            sql_query += auction_condition
         
-        # Get matching components
-        components = Component.objects.filter(query)
+        # Add LIMIT to avoid processing too many rows
+        sql_query += " LIMIT 500"
         
-        # Get all unique CMU IDs
-        cmu_ids = components.values('cmu_id').distinct()
+        # Execute the query
+        with connection.cursor() as cursor:
+            cursor.execute(sql_query, params)
+            columns = [col[0] for col in cursor.description]
+            raw_components = [dict(zip(columns, row)) for row in cursor.fetchall()]
         
-        logger.info(f"Found {components.count()} components across {cmu_ids.count()} CMU IDs")
+        # Check timeout
+        if time.time() - start_time > MAX_EXECUTION_TIME:
+            return HttpResponse("""
+                <div class='alert alert-warning'>
+                    <p><strong>The operation is taking too long.</strong></p>
+                    <p>We're working on improving performance. Please try again later or choose a different auction.</p>
+                </div>
+            """)
         
-        if components.count() == 0:
+        # Process results
+        if not raw_components:
             return HttpResponse(f"""
                 <div class='alert alert-warning'>
                     <p>No components found matching these criteria:</p>
@@ -258,27 +310,42 @@ def htmx_auction_components(request, company_id, year, auction_name):
                         <li>Year: {year}</li>
                         <li>Auction: {auction_name}</li>
                     </ul>
-                    <p>This could be due to differences in how the data is stored in the database.</p>
                 </div>
             """)
         
-        # Generate HTML with the matching components
+        # Organize by CMU ID
+        components_by_cmu = {}
+        cmu_ids = set()
+        
+        for comp in raw_components:
+            cmu_id = comp.get('cmu_id')
+            if not cmu_id:
+                continue
+                
+            cmu_ids.add(cmu_id)
+            if cmu_id not in components_by_cmu:
+                components_by_cmu[cmu_id] = []
+            
+            components_by_cmu[cmu_id].append(comp)
+        
+        # Generate HTML
         html = f"<div class='component-results mb-3'>"
-        html += f"<div class='alert alert-info'>Found {components.count()} components across {cmu_ids.count()} CMU IDs</div>"
+        html += f"<div class='alert alert-info'>Found {len(raw_components)} components across {len(cmu_ids)} CMU IDs</div>"
         
         # Group by CMU ID
         html += "<div class='row'>"
         
-        for cmu_id_obj in cmu_ids:
-            cmu_id = cmu_id_obj['cmu_id']
-            if not cmu_id:
-                continue
-                
-            # Get components for this CMU ID
-            cmu_components = components.filter(cmu_id=cmu_id)
+        for cmu_id in cmu_ids:
+            cmu_components = components_by_cmu.get(cmu_id, [])
             
-            # Get all locations for this CMU
-            locations = cmu_components.values('location').distinct()
+            # Extract locations
+            locations = {}
+            for comp in cmu_components:
+                loc = comp.get('location', '')
+                if loc and loc not in locations:
+                    locations[loc] = []
+                if loc:
+                    locations[loc].append(comp)
             
             # Format component records for the template
             cmu_html = f"""
@@ -289,24 +356,26 @@ def htmx_auction_components(request, company_id, year, auction_name):
                             <span>CMU ID: <strong>{cmu_id}</strong></span>
                             <a href="/components/?q={cmu_id}" class="btn btn-sm btn-info">View Components</a>
                         </div>
-                        <div class="small text-muted mt-1">Found {cmu_components.count()} components</div>
+                        <div class="small text-muted mt-1">Found {len(cmu_components)} components</div>
                     </div>
                     <div class="card-body">
-                        <p><strong>Components:</strong> {cmu_components.count()}</p>
+                        <p><strong>Components:</strong> {len(cmu_components)}</p>
             """
+            
+            # Check timeout
+            if time.time() - start_time > MAX_EXECUTION_TIME:
+                return HttpResponse("""
+                    <div class='alert alert-warning'>
+                        <p><strong>The operation is taking too long.</strong></p>
+                        <p>We're working on improving performance. Please try again later or choose a different auction.</p>
+                    </div>
+                """)
             
             # Add locations list
             if locations:
                 cmu_html += "<ul class='list-unstyled'>"
                 
-                for location_obj in locations:
-                    location = location_obj['location']
-                    if not location:
-                        continue
-                        
-                    # Add components at this location
-                    location_components = cmu_components.filter(location=location)
-                    
+                for location, location_components in locations.items():
                     # Create component ID for linking
                     component_id = f"{cmu_id}_{normalize(location)}"
                     
@@ -315,14 +384,14 @@ def htmx_auction_components(request, company_id, year, auction_name):
                     
                     cmu_html += f"""
                         <li class="mb-2">
-                            <strong>{location_html}</strong> <span class="text-muted">({location_components.count()} components)</span>
+                            <strong>{location_html}</strong> <span class="text-muted">({len(location_components)} components)</span>
                             <ul class="ms-3">
                     """
                     
                     # Add description of components
                     for component in location_components:
-                        desc = component.description or "No description"
-                        tech = component.technology or ""
+                        desc = component.get('description', 'No description')
+                        tech = component.get('technology', '')
                         
                         cmu_html += f"""
                             <li><i>{desc}</i>{f" - {tech}" if tech else ""}</li>
