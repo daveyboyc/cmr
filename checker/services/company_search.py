@@ -39,7 +39,8 @@ def search_companies_service(request, extra_context=None, return_data_only=False
     
     # Check cache first for any query
     if query:
-        cache_key = f"search_results_{query.lower()}"
+        # Use a safe cache key that doesn't contain spaces
+        cache_key = get_cache_key("search_results", query.lower())
         cached_results = cache.get(cache_key)
         
         if cached_results:
@@ -59,37 +60,6 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             if extra_context:
                 context.update(extra_context)
             return render(request, "checker/search.html", context)
-    
-    # Handle known problematic queries with special case
-    if query.lower() in ['grid beyond', 'gridbeyond']:
-        logger.info(f"Using special case handler for known problematic query: '{query}'")
-        
-        # Create a direct link to the company page
-        results[query] = [
-            '<div><strong><a href="/company/gridbeyond/" style="color: blue; text-decoration: underline;">GridBeyond</a></strong><div class="mt-1 mb-1"><span class="text-muted">CMU IDs: GBD001, GBD002, GBD003 and 30 more</span></div><div>450 components across 33 CMU IDs</div></div>'
-        ]
-        
-        # Cache these special case results
-        cache_key = f"search_results_{query.lower()}"
-        cache.set(cache_key, results, 7200)  # Cache for 2 hours
-        
-        if return_data_only:
-            return results
-            
-        context = {
-            "results": results,
-            "record_count": 1,
-            "error": error_message,
-            "api_time": 0.1,
-            "query": query,
-            "sort_order": sort_order,
-            "note": "Using optimized results for this query."
-        }
-        
-        if extra_context:
-            context.update(extra_context)
-            
-        return render(request, "checker/search.html", context)
     
     # Add safety limit for search terms
     if len(query) > 100:
@@ -172,56 +142,119 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 return render(request, "checker/search.html", context)
 
         elif query:
-            # Reduce number of fetched/processed CMU IDs for complex queries
-            component_limit = 100
-            if ' ' in query:
-                component_limit = 50
-                logger.info(f"Using reduced component limit for complex query: '{query}'")
-                
+            # Execute an optimized search that will work for all companies
+            start_time = time.time()
             norm_query = normalize(query)
-            cmu_df, df_api_time = get_cmu_dataframe()
-            api_time += df_api_time
-
-            if cmu_df is None:
-                if return_data_only:
-                    return {}
+            
+            # First, try a direct database search for companies
+            company_results = []
+            
+            try:
+                # Use the Component model to directly find matching companies
+                from ..models import Component
+                # Get matching companies directly from the database with a count
+                from django.db.models import Count, Q
+                
+                # Build a query that works for spaces using separate terms
+                query_terms = query.lower().split()
+                query_filter = Q()
+                
+                for term in query_terms:
+                    if len(term) >= 3:  # Only use terms with at least 3 characters
+                        query_filter |= Q(company_name__icontains=term)
+                
+                matching_companies = Component.objects.filter(query_filter)\
+                    .values('company_name')\
+                    .annotate(cmu_count=Count('cmu_id', distinct=True), 
+                              total_components=Count('id'))\
+                    .order_by('-cmu_count')[:50]  # Limit to top 50 companies
+                
+                # Format results directly
+                for company in matching_companies:
+                    if not company['company_name']:
+                        continue
+                        
+                    company_name = company['company_name'] 
+                    company_id = normalize(company_name)
+                    cmu_count = company['cmu_count']
+                    component_count = company['total_components']
                     
-                context = {
-                    "error": "Error fetching CMU data",
-                    "api_time": api_time,
-                    "query": query,
-                    "sort_order": sort_order,
-                }
-
-                if extra_context:
-                    context.update(extra_context)
-
-                return render(request, "checker/search.html", context)
-
-            record_count = len(cmu_df)
-            matching_records = _perform_company_search(cmu_df, norm_query)
+                    # Create formatted HTML
+                    company_html = f'<a href="/company/{company_id}/" style="color: blue; text-decoration: underline;">{company_name}</a>'
+                    company_results.append(f"""
+                    <div>
+                        <strong>{company_html}</strong>
+                        <div class="mt-1 mb-1"><span class="text-muted">Company in component database</span></div>
+                        <div>{component_count} components across {cmu_count} CMU IDs</div>
+                    </div>
+                    """)
+                
+                logger.info(f"Direct DB search found {len(company_results)} companies for '{query}'")
+                    
+            except Exception as e:
+                logger.exception(f"Error in direct database search: {e}")
+                # If the direct DB search fails, fall back to the dataframe method
+                
+            # If we found results directly, use them
+            if company_results:
+                results[query] = company_results
+                api_time = time.time() - start_time
+            else:
+                # Fall back to dataframe-based search with tight limits
+                logger.info(f"Falling back to dataframe search for '{query}'")
+                
+                # Limit company processing to avoid timeouts
+                component_limit = 20  # Only process the top 20 companies max
+                cmu_limit = 3         # Only check up to 3 CMU IDs per company
+                
+                cmu_df, df_api_time = get_cmu_dataframe()
+                api_time += df_api_time
+    
+                if cmu_df is None:
+                    if return_data_only:
+                        return {}
+                        
+                    context = {
+                        "error": "Error fetching CMU data",
+                        "api_time": api_time,
+                        "query": query,
+                        "sort_order": sort_order,
+                    }
+    
+                    if extra_context:
+                        context.update(extra_context)
+    
+                    return render(request, "checker/search.html", context)
+    
+                record_count = len(cmu_df)
+                matching_records = _perform_company_search(cmu_df, norm_query)
+                
+                # Limit the number of companies to avoid timeouts
+                unique_companies = list(matching_records["Full Name"].unique())[:component_limit]
+                
+                # Use a version of _build_search_results that limits CMU ID checks
+                results = _build_search_results(cmu_df, unique_companies, sort_order, query, 
+                                              cmu_limit=cmu_limit, add_debug_info=True)
             
-            # Limit the number of companies to avoid timeouts
-            unique_companies = list(matching_records["Full Name"].unique())[:component_limit]
-            
-            results = _build_search_results(cmu_df, unique_companies, sort_order, query, add_debug_info=True)
-
-            # Cache these search results
+            # Cache these search results - use safe cache key
             if query:
-                cache_key = f"search_results_{query.lower()}"
+                cache_key = get_cache_key("search_results", query.lower())
                 total_items = sum(len(matches) for matches in results.values())
                 
-                if total_items < 100:
-                    cache.set(cache_key, results, 3600)  # 1 hour for small results
+                # Cache longer for smaller result sets
+                if total_items < 10:
+                    cache.set(cache_key, results, 7200)     # 2 hours for very small results
+                elif total_items < 100:
+                    cache.set(cache_key, results, 3600)     # 1 hour for small results
                 elif total_items < 500:
-                    cache.set(cache_key, results, 1800)  # 30 minutes for medium results
+                    cache.set(cache_key, results, 1800)     # 30 minutes for medium results
                 else:
-                    cache.set(cache_key, results, 600)   # 10 minutes for large results
+                    cache.set(cache_key, results, 600)      # 10 minutes for large results
                     
                 logger.info(f"Cached {total_items} results for query '{query}'")
 
             request.session["search_results"] = results
-            request.session["record_count"] = record_count
+            request.session["record_count"] = record_count if 'record_count' in locals() else len(company_results)
             request.session["api_time"] = api_time
             request.session["last_query"] = query
             
@@ -230,7 +263,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
 
             context = {
                 "results": results,
-                "record_count": record_count,
+                "record_count": record_count if 'record_count' in locals() else len(company_results),
                 "error": error_message,
                 "api_time": api_time,
                 "query": query,
@@ -277,7 +310,6 @@ def search_companies_service(request, extra_context=None, return_data_only=False
 
     return render(request, "checker/search.html", context)
 
-
 def _perform_company_search(cmu_df, norm_query):
     """
     Perform search for companies based on normalized query.
@@ -288,10 +320,21 @@ def _perform_company_search(cmu_df, norm_query):
     matching_records = pd.concat([cmu_id_matches, company_matches]).drop_duplicates(subset=['Full Name'])
     return matching_records
 
-def _build_search_results(cmu_df, unique_companies, sort_order, query, add_debug_info=False):
+def _build_search_results(cmu_df, unique_companies, sort_order, query, cmu_limit=5, add_debug_info=False):
     """
     Build search results for companies.
     Returns a dictionary with query as key and list of formatted company links as values.
+    
+    Args:
+        cmu_df: DataFrame with CMU data
+        unique_companies: List of company names to include
+        sort_order: Sort order for years ('asc' or 'desc')
+        query: Original search query
+        cmu_limit: Maximum number of CMU IDs to check per company (default: 5)
+        add_debug_info: Whether to log debug information
+    
+    Returns:
+        Dictionary with query as key and list of formatted company links as values
     """
     logger = logging.getLogger(__name__)
     results = {query: []}
@@ -308,6 +351,10 @@ def _build_search_results(cmu_df, unique_companies, sort_order, query, add_debug
     
     # Process each matching company
     for company in unique_companies:
+        # Skip empty company names
+        if not company:
+            continue
+            
         # Get all CMU IDs for this company
         company_records = cmu_df[cmu_df["Full Name"] == company]
         cmu_ids = company_records["CMU ID"].unique().tolist()
@@ -320,47 +367,105 @@ def _build_search_results(cmu_df, unique_companies, sort_order, query, add_debug
         if year_data:
             debug_info["companies_with_years"] += 1
             
-            # Check if any CMU has components
+            # Check if any CMU has components, but limit the search to avoid timeouts
             has_components = False
             company_component_count = 0
+            cmu_ids_checked = 0
             
-            for cmu_id in cmu_ids:
-                components = get_component_data_from_json(cmu_id)
-                # Skip component fetching for large result sets - just check existence
-                if len(unique_companies) > 20:
-                    # For large result sets, just check if any components exist at all
-                    has_components = Component.objects.filter(cmu_id=cmu_id).exists()
-                    company_component_count = Component.objects.filter(cmu_id=cmu_id).count() if has_components else 0
+            try:
+                # Use a direct database query to get component counts
+                from ..models import Component
+                
+                # First, check if ANY components exist for this company name
+                if Component.objects.filter(company_name=company).exists():
+                    has_components = True
+                    # Get count from database
+                    company_component_count = Component.objects.filter(company_name=company).count()
+                    # Get count of CMU IDs
+                    cmu_count_db = Component.objects.filter(company_name=company).values('cmu_id').distinct().count()
+                    debug_info["companies_with_components"] += 1
                 else:
-                    # Only fetch actual components for small result sets
-                    components = get_component_data_from_json(cmu_id)
-                    has_components = components and len(components) > 0
-                    company_component_count = len(components) if has_components else 0
+                    # Only check a limited number of CMU IDs for components
+                    cmu_ids_to_check = cmu_ids[:min(cmu_limit, len(cmu_ids))]
                     
-                    # If this is the specific company we're debugging, log more details
-                    if add_debug_info and company == "LIMEJUMP LTD":
-                        logger.info(f"Found {len(components)} components for LIMEJUMP LTD's CMU ID: {cmu_id}")
-                        logger.info(f"First component: {components[0].get('Location and Post Code', 'N/A')}")
+                    for cmu_id in cmu_ids_to_check:
+                        cmu_ids_checked += 1
+                        # Check if this CMU has components
+                        if Component.objects.filter(cmu_id=cmu_id).exists():
+                            has_components = True
+                            # Get an approximation of component count
+                            count = Component.objects.filter(cmu_id=cmu_id).count()
+                            company_component_count += count
+                        
+                        # If we found components already, no need to check more CMU IDs
+                        if has_components and company_component_count > 0:
+                            debug_info["companies_with_components"] += 1
+                            break
+            except Exception as e:
+                # If database check fails, fall back to JSON check
+                logger.warning(f"Database component check failed for {company}: {e}")
+                
+                # Only check a limited number of CMU IDs for components
+                cmu_ids_to_check = cmu_ids[:min(cmu_limit, len(cmu_ids))]
+                
+                for cmu_id in cmu_ids_to_check:
+                    cmu_ids_checked += 1
+                    # Check if this CMU has components
+                    try:
+                        from ..models import Component
+                        if Component.objects.filter(cmu_id=cmu_id).exists():
+                            has_components = True
+                            company_component_count += Component.objects.filter(cmu_id=cmu_id).count()
+                            break
+                    except:
+                        # If that fails, try the JSON method
+                        try:
+                            components = get_component_data_from_json(cmu_id)
+                            if components:
+                                has_components = True
+                                company_component_count += len(components)
+                                break
+                        except:
+                            # If both methods fail, continue to the next CMU ID
+                            continue
+                
+                if has_components:
+                    debug_info["companies_with_components"] += 1
             
             debug_info["total_components"] += company_component_count
             
-            if has_components:
-                debug_info["companies_with_components"] += 1
-            
-            # Generate a simple blue link for the company instead of a card
+            # Generate a simple blue link for the company
             company_id = normalize(company)
             company_html = f'<a href="/company/{company_id}/" style="color: blue; text-decoration: underline;">{company}</a>'
             
             # Add additional information about CMU IDs and components count
-            cmu_ids_str = ", ".join(cmu_ids[:3])
-            if len(cmu_ids) > 3:
+            if len(cmu_ids) <= 3:
+                cmu_ids_str = ", ".join(cmu_ids)
+            else:
+                cmu_ids_str = ", ".join(cmu_ids[:3])
                 cmu_ids_str += f" and {len(cmu_ids) - 3} more"
+            
+            # If we didn't find components, show that we have CMU IDs at least
+            if not has_components:
+                if cmu_ids_checked < len(cmu_ids):
+                    # Indicate we only checked some CMU IDs
+                    component_info = f"{len(cmu_ids)} CMU IDs found (checked {cmu_ids_checked})"
+                else:
+                    component_info = f"{len(cmu_ids)} CMU IDs found"
+            else:
+                # Show approximate component count
+                if 'cmu_count_db' in locals():
+                    # If we have the DB count, show that
+                    component_info = f"{company_component_count} components across {cmu_count_db} CMU IDs"
+                else:
+                    # Otherwise estimate based on what we checked
+                    component_info = f"At least {company_component_count} components found"
                 
             company_html = f"""
             <div>
                 <strong>{company_html}</strong>
                 <div class="mt-1 mb-1"><span class="text-muted">CMU IDs: {cmu_ids_str}</span></div>
-                <div>{company_component_count} components across {len(cmu_ids)} CMU IDs</div>
+                <div>{component_info}</div>
             </div>
             """
             

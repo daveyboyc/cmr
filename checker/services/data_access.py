@@ -320,6 +320,18 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
         return paginated_components, metadata
     
     try:
+        # Impose a timeout on database queries
+        from django.db import connection
+        # Save original timeout
+        original_timeout = connection.cursor().connection.gettimeout() if hasattr(connection.cursor().connection, 'gettimeout') else None
+        
+        # Set a reasonable timeout to prevent hanging
+        try:
+            if hasattr(connection.cursor().connection, 'settimeout'):
+                connection.cursor().connection.settimeout(15)  # 15 seconds max
+        except:
+            pass  # Some backends don't support timeout
+        
         # First, check if this is a direct CMU ID search
         if ' ' not in cmu_id and (cmu_id.upper().startswith('CM') or cmu_id.upper().startswith('T-')):
             # Direct CMU ID search - case insensitive  
@@ -329,7 +341,14 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
             query_terms = cmu_id.lower().split()
             
             # Start with empty query
+            from django.db.models import Q
             query_filter = Q()
+            
+            # For multi-term searches with many terms, limit the query complexity
+            if len(query_terms) > 3:
+                # Prioritize the first few terms for performance
+                query_terms = query_terms[:3]
+                logger.info(f"Limiting search to first 3 terms for query: '{cmu_id}'")
             
             # Process each search term independently
             for term in query_terms:
@@ -349,16 +368,17 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
         # Make the queryset distinct to avoid duplicates
         queryset = queryset.distinct()
         
-        # Use a faster existence check for initial queries with limit
-        if per_page > 100:
-            # Don't count everything, just check if any exist and get a sample
-            total_count = min(queryset[:1000].count(), 1000)
-            if total_count == 1000:
-                # Just say "1000+" for large result sets
-                total_count = "1000+"
-        else:
-            # For smaller page sizes, count is reasonable
-            total_count = queryset.count()
+        # Get total count for pagination
+        total_count = queryset.count()
+        
+        # Convert to integer to avoid comparison issues
+        total_count_int = int(total_count) if isinstance(total_count, (str, float)) else total_count
+        
+        # If we have a very large result set, limit it further 
+        if total_count_int > 5000:
+            logger.warning(f"Very large result set ({total_count_int}) for query '{cmu_id}', limiting to 5000")
+            queryset = queryset[:5000]
+            total_count_int = min(total_count_int, 5000)
         
         # Apply sorting by delivery year (descending)
         queryset = queryset.order_by('-delivery_year')
@@ -393,24 +413,31 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
             components.append(comp_dict)
         
         # Cache results if not too large
-        if total_count <= 1000:  # Only cache reasonably sized results
+        if total_count_int <= 1000:  # Only cache reasonably sized results
             cache.set(components_cache_key, components, 3600)
-        elif total_count <= 2000:
+        elif total_count_int <= 2000:
             cache.set(components_cache_key, components, 1800)
-        elif total_count <= 5000:
+        elif total_count_int <= 5000:
             cache.set(components_cache_key, components, 600)
         else:
-            logger.info(f"Result set too large to cache ({total_count} items)")
+            logger.info(f"Result set too large to cache ({total_count_int} items)")
             
         # Create metadata for pagination
         metadata = {
-            "total_count": total_count,
+            "total_count": total_count_int,
             "page": page,
             "per_page": per_page,
-            "total_pages": (total_count + per_page - 1) // per_page if total_count > 0 else 1,
+            "total_pages": (total_count_int + per_page - 1) // per_page if total_count_int > 0 else 1,
             "source": "database",
             "processing_time": time.time() - start_time
         }
+        
+        # Restore original timeout if we changed it
+        try:
+            if hasattr(connection.cursor().connection, 'settimeout') and original_timeout:
+                connection.cursor().connection.settimeout(original_timeout)
+        except:
+            pass
         
         return components, metadata
     
@@ -439,6 +466,8 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
                 
                 # Try to get total count
                 total_count = result.get("total", len(all_api_components))
+                # Ensure total_count is an integer
+                total_count_int = int(total_count) if isinstance(total_count, (str, float)) else total_count
                 
                 # Try to save to database for future use
                 try:
@@ -447,10 +476,10 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
                     logger.error(f"Error saving to database: {str(db_error)}")
                 
                 metadata = {
-                    "total_count": total_count,
+                    "total_count": total_count_int,
                     "page": page,
                     "per_page": per_page,
-                    "total_pages": (total_count + per_page - 1) // per_page,
+                    "total_pages": (total_count_int + per_page - 1) // per_page,
                     "source": "api",
                     "processing_time": time.time() - start_time,
                     "api_time": time.time() - api_start_time
