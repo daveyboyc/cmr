@@ -610,11 +610,32 @@ def get_auction_components(company_id, year, auction_name=None):
 
 def try_parse_year(year_str):
     """Try to parse a year string to an integer for sorting."""
+    if not year_str:
+        return 0
+        
     try:
-        import re
-        matches = re.findall(r'\d+', year_str)
-        if matches:
-            return int(matches[0])
+        # First try direct conversion
+        if isinstance(year_str, (int, float)):
+            return int(year_str)
+            
+        # For strings, check different formats
+        if isinstance(year_str, str):
+            # Look for 4-digit years like "2024"
+            import re
+            year_matches = re.findall(r'20\d\d', year_str)
+            if year_matches:
+                return int(year_matches[0])
+                
+            # Look for year ranges like "2024/25" or "2024-25"
+            range_matches = re.findall(r'(20\d\d)[/-]\d\d', year_str)
+            if range_matches:
+                return int(range_matches[0])
+                
+            # Last try: just convert any numbers
+            numeric_matches = re.findall(r'\d+', year_str)
+            if numeric_matches:
+                return int(numeric_matches[0])
+                
         return 0
     except:
         return 0
@@ -845,96 +866,134 @@ def company_detail(request, company_id):
     Displays all data related to a specific company.
     """
     try:
-        # Get CMU dataframe
-        cmu_df, df_api_time = get_cmu_dataframe()
-
-        if cmu_df is None:
-            return render(request, "checker/company_detail.html", {
-                "error": "Error loading CMU data",
-                "company_name": None
-            })
-
-        # Find company name from company_id
+        # Get company name from component database directly
+        from ..models import Component
+        from django.db.models import Count
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        logger.info(f"Loading company detail for company_id: {company_id}")
+        
+        # Look up company name from normalized ID
+        company_components = Component.objects.filter(company_name__isnull=False).order_by('company_name')
         company_name = None
-        for _, row in cmu_df.iterrows():
-            if normalize(row.get("Full Name", "")) == company_id:
-                company_name = row.get("Full Name")
+        
+        # Try exact match first
+        for company in company_components.values('company_name').distinct():
+            curr_name = company['company_name']
+            if curr_name and normalize(curr_name) == company_id:
+                company_name = curr_name
                 break
-
+        
+        # If still not found, try a more flexible match
         if not company_name:
+            for company in company_components.values('company_name').distinct():
+                curr_name = company['company_name']
+                if curr_name and normalize(curr_name) in company_id or company_id in normalize(curr_name):
+                    company_name = curr_name
+                    break
+        
+        if not company_name:
+            logger.warning(f"Company not found for ID: {company_id}")
+            # Fall back to get_cmu_dataframe, but this is slower
+            cmu_df, df_api_time = get_cmu_dataframe()
+            if cmu_df is not None:
+                for _, row in cmu_df.iterrows():
+                    if normalize(row.get("Full Name", "")) == company_id:
+                        company_name = row.get("Full Name")
+                        break
+        
+        if not company_name:
+            logger.error(f"Company not found after all lookups: {company_id}")
             return render(request, "checker/company_detail.html", {
                 "error": f"Company not found: {company_id}",
                 "company_name": None
             })
-
-        # Get all records for this company
-        company_records = cmu_df[cmu_df["Full Name"] == company_name]
-
-        # Prepare year and auction data
+        
+        logger.info(f"Found company name: {company_name}")
+        
+        # Get all delivery years and auctions directly from the database for this company
+        # This is much faster than using cmu_df
+        years_query = Component.objects.filter(company_name=company_name) \
+                               .values('delivery_year', 'auction_name', 'cmu_id') \
+                               .distinct()
+        
+        # Group by year and auction
         year_auction_data = []
-        grouped = company_records.groupby("Delivery Year")
-
-        for year, group in grouped:
-            if year.startswith("Years:"):
-                year = year.replace("Years:", "").strip()
-
-            auctions = {}
-            auctions_display = []
-            if "Auction Name" in group.columns:
-                for _, row in group.iterrows():
-                    auction_name = row.get("Auction Name", "")
-                    cmu_id = row.get("CMU ID", "")
-                    
-                    # Only include auctions with components
-                    components = get_component_data_from_json(cmu_id)
-                    has_components = components and len(components) > 0
-                    
-                    if auction_name and auction_name not in auctions and has_components:
-                        auctions[auction_name] = []
-
-                        # Extract auction type for badge
-                        auction_type = ""
-                        badge_class = "bg-secondary"
-                        if "T-1" in auction_name:
-                            auction_type = "T-1"
-                            badge_class = "bg-warning"
-                        elif "T-4" in auction_name:
-                            auction_type = "T-4"
-                            badge_class = "bg-info"
-                        else:
-                            auction_type = auction_name
-
-                        # Create unique auction ID
-                        auction_id = f"auction-{normalize(year)}-{normalize(auction_name)}-{company_id}"
-
-                        auctions_display.append((auction_name, auction_id, badge_class, auction_type))
-                        auctions[auction_name].append(cmu_id)
-
-            if not auctions:
+        years_mapping = {}
+        
+        # First, collect all unique years
+        for item in years_query:
+            year = item['delivery_year']
+            if not year or year == 'nan':
                 continue
-
-            year_id = f"year-{normalize(year)}-{company_id}"
-            year_auction_data.append({
-                'year': year,
-                'auctions': auctions,
-                'auctions_display': auctions_display,
-                'year_id': year_id
-            })
-
-        # Get sort order from request, default to desc (newest first)
+                
+            if year not in years_mapping:
+                year_id = f"year-{normalize(year)}-{company_id}"
+                years_mapping[year] = {
+                    'year': year,
+                    'auctions': {},
+                    'auctions_display': [],
+                    'year_id': year_id
+                }
+        
+        # Then add auctions to each year
+        for item in years_query:
+            year = item['delivery_year']
+            auction_name = item['auction_name']
+            cmu_id = item['cmu_id']
+            
+            if not year or year == 'nan' or not auction_name or auction_name == 'nan':
+                continue
+                
+            if year in years_mapping:
+                auction_data = years_mapping[year]
+                
+                # Only add auction if not already added
+                if auction_name not in auction_data['auctions']:
+                    auction_data['auctions'][auction_name] = []
+                    
+                    # Extract auction type for badge
+                    auction_type = ""
+                    badge_class = "bg-secondary"
+                    if "T-1" in auction_name:
+                        auction_type = "T-1"
+                        badge_class = "bg-warning"
+                    elif "T-4" in auction_name:
+                        auction_type = "T-4"
+                        badge_class = "bg-info"
+                    else:
+                        auction_type = auction_name
+                        
+                    # Create unique auction ID
+                    auction_id = f"auction-{normalize(year)}-{normalize(auction_name)}-{company_id}"
+                    
+                    # Add to display list
+                    auction_data['auctions_display'].append((auction_name, auction_id, badge_class, auction_type))
+                
+                # Add CMU ID to auction if not already added
+                if cmu_id not in auction_data['auctions'][auction_name]:
+                    auction_data['auctions'][auction_name].append(cmu_id)
+        
+        # Convert mapping to list
+        for year_data in years_mapping.values():
+            if year_data['auctions']:  # Only add years that have auctions
+                year_auction_data.append(year_data)
+                
+        # Sort the years
         sort_order = request.GET.get("sort", "desc")
-
-        # Sort by year based on sort order
         year_auction_data.sort(
             key=lambda x: try_parse_year(x['year']),
             reverse=(sort_order == "desc")
         )
-
+        
+        logger.info(f"Found {len(year_auction_data)} years with auctions for {company_name}")
+        
         return render(request, "checker/company_detail.html", {
             "company_name": company_name,
             "company_id": company_id,
             "year_auction_data": year_auction_data,
-            "api_time": df_api_time,
+            "api_time": 0,
             "sort_order": sort_order
         })
 
