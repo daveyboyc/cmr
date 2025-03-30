@@ -724,7 +724,7 @@ def auction_components(request, company_id, year, auction_name):
             
         return HttpResponse(error_html)
     
-    
+
 def try_parse_year(year_str):
     """Try to parse a year string to an integer for sorting."""
     if not year_str:
@@ -816,7 +816,7 @@ def get_company_years(company_id, year, auction_name=None):
 
 def _filter_components_by_year_auction(components, year, auction_name=None):
     """
-    Filter components by year and auction name.
+    Filter components by year and auction name with enhanced matching logic.
     Returns the filtered components list.
     """
     logger = logging.getLogger(__name__)
@@ -837,28 +837,38 @@ def _filter_components_by_year_auction(components, year, auction_name=None):
     auction_matches = 0
     
     for comp in components:
-        # Get component data
-        comp_delivery_year = str(comp.get("Delivery Year", ""))
-        comp_auction = comp.get("Auction Name", "")
-        comp_type = comp.get("Type", "")
+        # Get component data - handle None values safely
+        comp_delivery_year = str(comp.get("Delivery Year", "")) if comp.get("Delivery Year") is not None else ""
+        comp_auction = comp.get("Auction Name", "") if comp.get("Auction Name") is not None else ""
+        comp_type = comp.get("Type", "") if comp.get("Type") is not None else ""
+        component_id = comp.get("_id", "") if comp.get("_id") is not None else ""
         
         # Log first component for debugging
         if filtered_components == [] and components:
-            logger.info(f"Sample component: year={comp_delivery_year}, auction={comp_auction}, type={comp_type}")
+            logger.info(f"Sample component: id={component_id}, year={comp_delivery_year}, auction={comp_auction}, type={comp_type}")
         
         # SUPER FLEXIBLE YEAR MATCHING - try multiple approaches
         year_match = False
-        # Strategy 1: Check if the component year contains our year
-        if year_to_match in comp_delivery_year:
+        
+        # If no year to match is specified, consider all components as matching
+        if not year_to_match:
             year_match = True
-        # Strategy 2: Check if our year contains the component year
-        elif comp_delivery_year in year_to_match:
-            year_match = True
-        # Strategy 3: For numeric years, check if they're equal when converted to integers
-        elif year_to_match.isdigit() and comp_delivery_year.isdigit():
-            if int(year_to_match) == int(comp_delivery_year):
+        else:
+            # Strategy 1: Check if the component year contains our year
+            if year_to_match in comp_delivery_year:
                 year_match = True
-                
+            # Strategy 2: Check if our year contains the component year
+            elif comp_delivery_year and comp_delivery_year in year_to_match:
+                year_match = True
+            # Strategy 3: For numeric years, check if they're equal when converted to integers
+            elif year_to_match.isdigit() and comp_delivery_year.isdigit():
+                if int(year_to_match) == int(comp_delivery_year):
+                    year_match = True
+            # Strategy 4: If year is something like "2024-25", try matching against "2024"
+            elif "-" in year_to_match and year_to_match.split('-')[0].isdigit():
+                if comp_delivery_year and comp_delivery_year.isdigit() and comp_delivery_year == year_to_match.split('-')[0]:
+                    year_match = True
+                    
         if not year_match:
             continue
             
@@ -875,7 +885,7 @@ def _filter_components_by_year_auction(components, year, auction_name=None):
             # Strategy 1: Check if normalized strings have significant overlap
             if norm_auction_name in norm_comp_auction or norm_comp_auction in norm_auction_name:
                 auction_match = True
-            # Strategy 2: Check for type match (T-4, T-1)
+            # Strategy 2: Check for exact type match (T-4, T-1)
             elif "t 1" in norm_auction_name and ("t 1" in norm_comp_auction or "t1" in norm_comp_auction or "t 1" in norm_comp_type):
                 auction_match = True
             elif "t 4" in norm_auction_name and ("t 4" in norm_comp_auction or "t4" in norm_comp_auction or "t 4" in norm_comp_type):
@@ -899,6 +909,30 @@ def _filter_components_by_year_auction(components, year, auction_name=None):
                             if a_year == c_year:
                                 auction_match = True
                                 break
+                                
+                # Try to match just the first year (e.g., 2024 in 2024-25)
+                if not auction_match:
+                    auction_year_digits = re.findall(r'20\d\d', norm_auction_name)
+                    comp_year_digits = re.findall(r'20\d\d', norm_comp_auction)
+                    
+                    if auction_year_digits and comp_year_digits:
+                        if auction_year_digits[0] == comp_year_digits[0]:
+                            auction_match = True
+            
+            # Special case for components without auction name but with correct year
+            if not auction_match and not comp_auction and year_match:
+                # If the component has no auction but matches the year, include it if:
+                # 1. The auction type (T-1/T-4) is in the component type field
+                if "t 1" in norm_auction_name and "t 1" in norm_comp_type:
+                    auction_match = True
+                elif "t 4" in norm_auction_name and "t 4" in norm_comp_type:
+                    auction_match = True
+                # 2. Or if this is a very specific component by ID that we know belongs here
+                elif component_id and (
+                    # Add known component IDs here if needed
+                    "special_component" in component_id
+                ):
+                    auction_match = True
             
             if not auction_match:
                 continue
