@@ -518,96 +518,213 @@ def _build_company_card_html(company_name, company_id, year_auction_data):
         'year_auction_data': year_auction_data
     })
 
-def get_auction_components(company_id, year, auction_name=None):
+def auction_components(request, company_id, year, auction_name):
     """
-    Get components for a specific year and auction for a company.
+    API endpoint for fetching components for a specific auction
     """
+    from django.http import HttpResponse
+    from django.db.models import Q
+    import logging
+    import traceback
+    from ..models import Component
+    from ..utils import normalize, from_url_param
+    
     logger = logging.getLogger(__name__)
+    logger.info(f"Loading auction components: company_id={company_id}, year={year}, auction={auction_name}")
     
-    debug_info = []
-    cmu_ids = []
-    total_components_found = 0
-
-    # Get the CMU IDs from the dataframe
-    cmu_df, _ = get_cmu_dataframe()
-    if cmu_df is not None:
-        # Get company name from ID
+    # Convert URL parameters from underscores back to spaces
+    year = from_url_param(year)
+    auction_name = from_url_param(auction_name)
+    
+    try:
+        # Find company name
+        company_query = Component.objects.values('company_name').distinct()
         company_name = None
-        matching_rows = cmu_df[cmu_df["Normalized Full Name"] == company_id]
-        if not matching_rows.empty:
-            company_name = matching_rows.iloc[0]["Full Name"]
-            debug_info.append(f"Found company name: {company_name}")
+        
+        for company in company_query:
+            curr_name = company['company_name']
+            if curr_name and normalize(curr_name) == company_id:
+                company_name = curr_name
+                break
+        
+        if not company_name:
+            # Try a more flexible match
+            for company in company_query:
+                curr_name = company['company_name']
+                if curr_name and (company_id in normalize(curr_name) or normalize(curr_name) in company_id):
+                    company_name = curr_name
+                    break
+        
+        if not company_name:
+            return HttpResponse(f"<div class='alert alert-warning'>Company not found: {company_id}</div>")
+        
+        logger.info(f"Found company: {company_name}")
+        
+        # Build a more flexible query for components
+        query = Q(company_name=company_name)
+        
+        # Add year filter with flexible matching
+        if year:
+            # Handle multiple year formats
+            year_query = Q(delivery_year=year)
+            year_query |= Q(delivery_year__icontains=year)
+            # Also try to match just the first part of a year range (e.g., 2026 in "2026-27")
+            import re
+            year_number_match = re.search(r'(\d{4})', year)
+            if year_number_match:
+                year_number = year_number_match.group(1)
+                year_query |= Q(delivery_year__icontains=year_number)
             
-            # Get all CMU IDs for this company
-            company_records = cmu_df[cmu_df["Full Name"] == company_name]
-            df_cmu_ids = company_records["CMU ID"].unique().tolist()
+            query &= year_query
+        
+        # Add auction filter with flexible matching
+        if auction_name:
+            # The auction name might be stored differently, try several variations
+            auction_query = Q(auction_name=auction_name)
+            auction_query |= Q(auction_name__icontains=auction_name)
             
-            # Add to the CMU IDs list
-            for cmu_id in df_cmu_ids:
-                if cmu_id not in cmu_ids:
-                    cmu_ids.append(cmu_id)
+            # Handle T-4/T-1 variations
+            if "T-4" in auction_name:
+                auction_query |= Q(auction_name__icontains="T4")
+                auction_query |= Q(auction_name__icontains="T 4")
+            elif "T-1" in auction_name:
+                auction_query |= Q(auction_name__icontains="T1")
+                auction_query |= Q(auction_name__icontains="T 1")
+            
+            # Match year part of auction name
+            year_in_auction = re.search(r'(\d{4})[/-]?(\d{2})?', auction_name)
+            if year_in_auction:
+                year_part = year_in_auction.group(0)
+                auction_query |= Q(auction_name__icontains=year_part)
+            
+            query &= auction_query
+        
+        # Get matching components
+        components = Component.objects.filter(query)
+        
+        # Get all unique CMU IDs
+        cmu_ids = components.values('cmu_id').distinct()
+        
+        logger.info(f"Found {components.count()} components across {cmu_ids.count()} CMU IDs")
+        
+        if components.count() == 0:
+            return HttpResponse(f"""
+                <div class='alert alert-warning'>
+                    <p>No components found matching these criteria:</p>
+                    <ul>
+                        <li>Company: {company_name}</li>
+                        <li>Year: {year}</li>
+                        <li>Auction: {auction_name}</li>
+                    </ul>
+                    <p>This could be due to differences in how the data is stored in the database.</p>
+                </div>
+            """)
+        
+        # Generate HTML with the matching components
+        html = f"<div class='component-results mb-3'>"
+        html += f"<div class='alert alert-info'>Found {components.count()} components across {cmu_ids.count()} CMU IDs</div>"
+        
+        # Group by CMU ID
+        html += "<div class='row'>"
+        
+        for cmu_id_obj in cmu_ids:
+            cmu_id = cmu_id_obj['cmu_id']
+            if not cmu_id:
+                continue
+                
+            # Get components for this CMU ID
+            cmu_components = components.filter(cmu_id=cmu_id)
+            
+            # Get all locations for this CMU
+            locations = cmu_components.values('location').distinct()
+            
+            # Format component records for the template
+            cmu_html = f"""
+            <div class="col-md-6 mb-3">
+                <div class="card cmu-card">
+                    <div class="card-header bg-light">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span>CMU ID: <strong>{cmu_id}</strong></span>
+                            <a href="/components/?q={cmu_id}" class="btn btn-sm btn-info">View Components</a>
+                        </div>
+                        <div class="small text-muted mt-1">Found {cmu_components.count()} components</div>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Components:</strong> {cmu_components.count()}</p>
+            """
+            
+            # Add locations list
+            if locations:
+                cmu_html += "<ul class='list-unstyled'>"
+                
+                for location_obj in locations:
+                    location = location_obj['location']
+                    if not location:
+                        continue
+                        
+                    # Add components at this location
+                    location_components = cmu_components.filter(location=location)
                     
-            debug_info.append(f"Found {len(df_cmu_ids)} CMU IDs from dataframe")
-    
-    # Fetch components for all CMU IDs using the method that works in search
-    for cmu_id in cmu_ids:
-        # First try to get components using JSON method (which works in search)
-        components = get_component_data_from_json(cmu_id)
-        
-        # If no components found, try the fetch method as fallback
-        if not components:
-            components, _ = fetch_components_for_cmu_id(cmu_id)
-        
-        # Count total components found
-        if components:
-            total_components_found += len(components)
-            logger.info(f"Found {len(components)} components for CMU ID {cmu_id}")
-    
-    # Now add the total count to debug info
-    debug_info.append(f"Total components before filtering: {total_components_found}")
-    debug_info = ", ".join(debug_info)
-
-    # Generate HTML for each CMU
-    html = f"<div class='small text-muted mb-2'>{debug_info}</div><div class='row'>"
-    
-    total_filtered_components = 0
-    cmu_with_components = 0
-
-    for cmu_id in cmu_ids:
-        # Get components the same way as before
-        components = get_component_data_from_json(cmu_id)
-        if not components:
-            components, _ = fetch_components_for_cmu_id(cmu_id)
-        
-        if not components:
-            continue
+                    # Create component ID for linking
+                    component_id = f"{cmu_id}_{normalize(location)}"
+                    
+                    # Format location as a blue link
+                    location_html = f'<a href="/component/{component_id}/" style="color: blue; text-decoration: underline;">{location}</a>'
+                    
+                    cmu_html += f"""
+                        <li class="mb-2">
+                            <strong>{location_html}</strong> <span class="text-muted">({location_components.count()} components)</span>
+                            <ul class="ms-3">
+                    """
+                    
+                    # Add description of components
+                    for component in location_components:
+                        desc = component.description or "No description"
+                        tech = component.technology or ""
+                        
+                        cmu_html += f"""
+                            <li><i>{desc}</i>{f" - {tech}" if tech else ""}</li>
+                        """
+                    
+                    cmu_html += """
+                            </ul>
+                        </li>
+                    """
+                
+                cmu_html += "</ul>"
+            else:
+                cmu_html += "<p>No location information available</p>"
             
-        component_debug = f"Found {len(components)} components for CMU ID {cmu_id}"
-
-        # Filter components by year and auction if needed
-        filtered_components = _filter_components_by_year_auction(components, year, auction_name)
+            cmu_html += """
+                    </div>
+                </div>
+            </div>
+            """
+            
+            html += cmu_html
         
-        if filtered_components:
-            total_filtered_components += len(filtered_components)
-            cmu_with_components += 1
-            logger.info(f"After filtering: {len(filtered_components)} components match year={year}, auction={auction_name}")
-
-        if not filtered_components:
-            component_debug += f" (filtered to 0 for {year}"
-            if auction_name:
-                component_debug += f", {auction_name}"
-            component_debug += ")"
-            continue  # Skip this CMU if no matching components
-
-        # Generate CMU card HTML
-        print(f"Building CMU card for {cmu_id} with {len(components)} components")
-        html += _build_cmu_card_html(cmu_id, filtered_components, component_debug)
-
-    # Add summary stats to the HTML
-    html += f"</div><div class='alert alert-info mt-3'>Found {total_filtered_components} components across {cmu_with_components} CMU IDs that match year={year}, auction={auction_name}</div>"
+        html += "</div></div>"
+        
+        return HttpResponse(html)
+        
+    except Exception as e:
+        logger.error(f"Error loading auction components: {str(e)}")
+        logger.error(traceback.format_exc())
+        error_message = f"Error loading auction components: {str(e)}"
+        error_html = f"""
+            <div class='alert alert-danger'>
+                <p><strong>We're having trouble loading these components.</strong></p>
+                <p>Please try again or choose a different auction.</p>
+                <button class="btn btn-primary mt-2" onclick="location.reload()">Try Again</button>
+            </div>
+        """
+        
+        if request.GET.get("debug"):
+            error_html += f"<pre>{traceback.format_exc()}</pre>"
+            
+        return HttpResponse(error_html)
     
-    return html
-
+    
 def try_parse_year(year_str):
     """Try to parse a year string to an integer for sorting."""
     if not year_str:
