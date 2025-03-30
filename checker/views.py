@@ -361,19 +361,60 @@ def htmx_auction_components(request, company_id, year, auction_name):
                             <ul class="ms-3">
                     """
                     
-                    # Add description of components
+                    # Add description of components with badges
                     for component in location_components:
                         desc = component.description or 'No description'
                         tech = component.technology or ''
+                        auction = component.auction_name or ''
+                        delivery_year = component.delivery_year or ''
+                        typ = component.type or ''
+                        
+                        # Create badges
+                        badges = []
+                        
+                        # Auction type badge
+                        auction_type = ""
+                        auction_badge_class = "bg-secondary"
+                        if auction:
+                            if "T-1" in auction or "T1" in auction:
+                                auction_type = "T-1" 
+                                auction_badge_class = "bg-warning"
+                            elif "T-4" in auction or "T4" in auction:
+                                auction_type = "T-4"
+                                auction_badge_class = "bg-info"
+                            elif "T-3" in auction or "T3" in auction:
+                                auction_type = "T-3"
+                                auction_badge_class = "bg-success"
+                            elif "TR" in auction:
+                                auction_type = "TR"
+                                auction_badge_class = "bg-danger"
+                            else:
+                                auction_type = auction.split()[0] if " " in auction else auction
+                                
+                        if auction_type:
+                            badges.append(f'<span class="badge {auction_badge_class} me-1">{auction_type}</span>')
+                        
+                        # Delivery year badge
+                        if delivery_year and delivery_year != "N/A":
+                            badges.append(f'<span class="badge bg-secondary me-1">Year: {delivery_year}</span>')
+                        
+                        # Technology badge
+                        if tech and tech != "N/A":
+                            tech_short = tech[:20] + "..." if len(tech) > 20 else tech
+                            badges.append(f'<span class="badge bg-primary me-1">{tech_short}</span>')
+                        
+                        # Type badge (if different from auction type)
+                        if typ and typ != "N/A" and typ != auction_type:
+                            badges.append(f'<span class="badge bg-dark me-1">{typ}</span>')
+                        
+                        badges_html = " ".join(badges)
                         
                         cmu_html += f"""
-                            <li><i>{desc}</i>{f" - {tech}" if tech else ""}</li>
+                            <li>
+                                <div class="mb-1">{badges_html}</div>
+                                <i>{desc}</i>{f" - {tech}" if tech and not tech in badges_html else ""}
+                            </li>
                         """
-                    
-                    cmu_html += """
-                            </ul>
-                        </li>
-                    """
                 
                 cmu_html += "</ul>"
             else:
