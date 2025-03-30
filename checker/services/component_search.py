@@ -313,13 +313,34 @@ def search_components_service(request, return_data_only=False):
 
 def format_component_record(record, cmu_to_company_mapping):
     """Format a component record for display with proper company badge"""
+    # Get base fields with null checks
     loc = record.get("Location and Post Code", "N/A")
+    if loc is None:
+        loc = "N/A"
+        
     desc = record.get("Description of CMU Components", "N/A")
+    if desc is None:
+        desc = "N/A"
+        
     tech = record.get("Generating Technology Class", "N/A")
+    if tech is None:
+        tech = "N/A"
+        
     typ = record.get("Type", "N/A")
+    if typ is None:
+        typ = "N/A"
+        
     delivery_year = record.get("Delivery Year", "N/A")
+    if delivery_year is None:
+        delivery_year = "N/A"
+        
     auction = record.get("Auction Name", "N/A")
+    if auction is None:
+        auction = "N/A"
+        
     cmu_id = record.get("CMU ID", "N/A")
+    if cmu_id is None:
+        cmu_id = "N/A"
 
     # Get company name with multiple fallbacks
     company_name = ""
@@ -393,6 +414,7 @@ def format_component_record(record, cmu_to_company_mapping):
     
     # Technology badge
     if tech != "N/A":
+        # Safe check for string length - tech is guaranteed to be a string not None at this point
         tech_short = tech[:20] + "..." if len(tech) > 20 else tech
         badges.append(f'<span class="badge bg-primary me-1">{tech_short}</span>')
     
