@@ -84,7 +84,7 @@ def format_location_list(locations, components):
         if location_components and "CMU ID" in location_components[0]:
             cmu_id = location_components[0].get("CMU ID", "")
             if cmu_id:
-                loc_normalized = normalize(location)
+                loc_normalized = normalize(location).replace("/", "_")
                 component_id = f"{cmu_id}_{loc_normalized}"
 
         # Format location as a blue link if we have a component ID
@@ -110,6 +110,10 @@ def format_location_list(locations, components):
             tech = component.get("Generating Technology Class", "")
             auction = component.get("Auction Name", "")
             delivery_year = component.get("Delivery Year", "")
+            
+            # Get both types of IDs
+            system_id = component.get("_id", "")[:8] if component.get("_id") else ""
+            component_id_value = component.get("Component ID", "") if component.get("Component ID") else ""
 
             # Extract auction year and type
             auction_year = ""
@@ -129,6 +133,13 @@ def format_location_list(locations, components):
                 auction_badge = f'<span class="badge bg-{badge_color} ms-1">{auction_type}</span>'
 
             year_info = f'<span class="text-muted ms-1">(Auction: {auction_year}, Delivery: {delivery_year})</span>' if auction_year else ""
+
+            # Add both IDs if available
+            id_info = ""
+            if system_id:
+                id_info += f'<small class="text-muted">[ID: {system_id}]</small>'
+            if component_id_value:
+                id_info += f'<small class="text-muted ms-1">[Component ID: {component_id_value}]</small>'
 
             html += f"""
                 <li><i>{desc}</i>{f" - {tech}" if tech else ""} {auction_badge} {year_info}</li>

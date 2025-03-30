@@ -816,49 +816,86 @@ def get_company_years(company_id, year, auction_name=None):
 
 def _filter_components_by_year_auction(components, year, auction_name=None):
     """
-    Strict filtering of components by year and auction type.
+    Filter components by year and auction name with improved matching for auction types.
     """
-    import logging
     logger = logging.getLogger(__name__)
-    
-    # If no components or no auction_name, just return the components
-    if not components or not auction_name:
-        return components
-        
-    # Extract the T-type from the auction name
-    auction_t_type = None
-    if "T-1" in auction_name or "T1" in auction_name:
-        auction_t_type = "T-1"
-    elif "T-4" in auction_name or "T4" in auction_name:
-        auction_t_type = "T-4"
-    elif "T-3" in auction_name or "T3" in auction_name:
-        auction_t_type = "T-3"
-    elif "TR" in auction_name:
-        auction_t_type = "TR"
-        
-    # If we couldn't extract a T-type, fall back to basic filtering
-    if not auction_t_type:
-        return components
-        
-    # Log what we're filtering for
-    logger.info(f"Strictly filtering {len(components)} components for auction type: {auction_t_type}")
-    
-    # Only keep components that explicitly match this auction type
     filtered_components = []
+    
+    # If no auction name specified, return all components for this year
+    if not auction_name:
+        logger.info(f"No auction name specified, returning all {len(components)} components")
+        return components
+    
+    # Determine auction type (T-1, T-3, T-4, TR)
+    auction_type = None
+    if "T-1" in auction_name or "T1" in auction_name:
+        auction_type = "T-1"
+    elif "T-3" in auction_name or "T3" in auction_name:
+        auction_type = "T-3"
+    elif "T-4" in auction_name or "T4" in auction_name:
+        auction_type = "T-4"
+    elif "TR" in auction_name:
+        auction_type = "TR"
+    
+    logger.info(f"Filtering {len(components)} components for year={year}, auction_type={auction_type}")
+    
+    # Track matching for debug
+    year_matches = 0
+    auction_matches = 0
+    
     for comp in components:
-        comp_auction = comp.get("Auction Name", "")
+        # Get data from component, handling None values
+        comp_delivery_year = str(comp.get("Delivery Year", "")) if comp.get("Delivery Year") is not None else ""
+        comp_auction = comp.get("Auction Name", "") if comp.get("Auction Name") is not None else ""
+        comp_type = comp.get("Type", "") if comp.get("Type") is not None else ""
+        component_id = comp.get("_id", "")
         
-        # Check if component's auction name contains the T-type
-        if auction_t_type == "T-1" and ("T-1" in comp_auction or "T1" in comp_auction):
-            filtered_components.append(comp)
-        elif auction_t_type == "T-4" and ("T-4" in comp_auction or "T4" in comp_auction):
-            filtered_components.append(comp)
-        elif auction_t_type == "T-3" and ("T-3" in comp_auction or "T3" in comp_auction):
-            filtered_components.append(comp)
-        elif auction_t_type == "TR" and "TR" in comp_auction:
-            filtered_components.append(comp)
+        # Year matching - need to match the provided year
+        year_match = False
+        
+        # If year is in delivery year or vice versa
+        if year in comp_delivery_year or comp_delivery_year in year:
+            year_match = True
+        
+        if not year_match:
+            continue
             
-    logger.info(f"Filtering resulted in {len(filtered_components)} components")
+        year_matches += 1
+        
+        # For components with this year, check specific auction type
+        # This is the strict matching that prevents components showing in wrong auctions
+        if auction_type:
+            auction_match = False
+            
+            # Match based on auction type
+            if auction_type == "T-1" and ("T-1" in comp_auction or "T1" in comp_auction):
+                auction_match = True
+            elif auction_type == "T-3" and ("T-3" in comp_auction or "T3" in comp_auction):
+                auction_match = True
+            elif auction_type == "T-4" and ("T-4" in comp_auction or "T4" in comp_auction):
+                auction_match = True
+            elif auction_type == "TR" and "TR" in comp_auction:
+                auction_match = True
+                
+            # If no auction name on component but years match, check component type
+            # This helps with components that don't have explicit auction names
+            if not auction_match and not comp_auction and comp_type:
+                if auction_type == "T-1" and ("T-1" in comp_type or "T1" in comp_type):
+                    auction_match = True
+                elif auction_type == "T-3" and ("T-3" in comp_type or "T3" in comp_type):
+                    auction_match = True
+                elif auction_type == "T-4" and ("T-4" in comp_type or "T4" in comp_type):
+                    auction_match = True
+                elif auction_type == "TR" and "TR" in comp_type:
+                    auction_match = True
+                    
+            if not auction_match:
+                continue
+                
+        auction_matches += 1
+        filtered_components.append(comp)
+    
+    logger.info(f"Filtering results: {len(filtered_components)} matches (year:{year_matches}, auction:{auction_matches})")
     return filtered_components
 
 def _build_cmu_card_html(cmu_id, components, component_debug):
