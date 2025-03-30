@@ -355,7 +355,8 @@ def format_component_record(record, cmu_to_company_mapping):
         company_info = f'<div class="mt-2 mb-2"><span class="badge bg-warning">No Company Found</span></div>'
 
     # Create blue link for location pointing to component detail page
-    normalized_loc = normalize(loc)
+    # FIX: Properly handle locations that contain slashes or special characters
+    normalized_loc = normalize(loc).replace('/', '_')  # Replace slashes with underscores
     component_id = f"{cmu_id}_{normalized_loc}"
     encoded_component_id = urllib.parse.quote(component_id)
     loc_link = f'<a href="/component/{encoded_component_id}/" style="color: blue; text-decoration: underline;">{loc}</a>'
@@ -379,7 +380,7 @@ def format_component_record(record, cmu_to_company_mapping):
         else:
             auction_type = auction.split()[0] if " " in auction else auction
 
-    # Format badges
+    # Format badges with proper ordering and spacing
     badges = []
     
     # Auction badge
