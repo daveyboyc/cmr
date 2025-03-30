@@ -170,6 +170,7 @@ def htmx_auction_components(request, company_id, year, auction_name):
     from .models import Component
     from .utils import normalize, from_url_param
     import time
+    import re
     
     # Set a timeout for the entire operation
     start_time = time.time()
@@ -180,7 +181,19 @@ def htmx_auction_components(request, company_id, year, auction_name):
     
     # Convert URL parameters from underscores back to spaces
     year = from_url_param(year)
+    auction_name = from_url_param(year)
     auction_name = from_url_param(auction_name)
+    
+    # Extract auction type and year
+    auction_type = None
+    if "T-1" in auction_name or "T1" in auction_name or "T 1" in auction_name:
+        auction_type = "T-1"
+    elif "T-4" in auction_name or "T4" in auction_name or "T 4" in auction_name:
+        auction_type = "T-4"
+    elif "T-3" in auction_name or "T3" in auction_name or "T 3" in auction_name:
+        auction_type = "T-3"
+        
+    logger.info(f"Auction type: {auction_type}")
     
     try:
         # Find company by direct lookup to avoid complex filtering
@@ -227,69 +240,23 @@ def htmx_auction_components(request, company_id, year, auction_name):
         
         logger.info(f"Found company: {company_name}")
         
-        # Extract the year number for simpler matching
-        import re
-        year_number = None
-        year_match = re.search(r'(\d{4})', year) if year else None
-        if year_match:
-            year_number = year_match.group(1)
+        # Use ORM for simpler components query with just the essential filters
+        query = Q(company_name=company_name)
         
-        # For auction name, extract key parts for matching
-        auction_key_parts = []
-        if "T-1" in auction_name:
-            auction_key_parts.append("T-1")
-            auction_key_parts.append("T1")
-            auction_key_parts.append("T 1")
-        elif "T-4" in auction_name:
-            auction_key_parts.append("T-4")
-            auction_key_parts.append("T4")
-            auction_key_parts.append("T 4")
+        # Add year filter
+        if year:
+            year_query = Q(delivery_year=year)
+            # Also match if year is part of delivery_year
+            year_query |= Q(delivery_year__icontains=year)
+            query &= year_query
         
-        # Extract year from auction name
-        auction_year_match = re.search(r'(\d{4})[/-]?(\d{2})?', auction_name) if auction_name else None
-        if auction_year_match:
-            auction_key_parts.append(auction_year_match.group(0))
-        
-        # Construct an optimized SQL query
-        from django.db import connection
-        
-        # Base query for performance
-        sql_query = """
-            SELECT id, cmu_id, location, description, technology
-            FROM checker_component
-            WHERE company_name = %s
-        """
-        params = [company_name]
-        
-        # Add year filter if provided
-        year_condition = ""
-        if year_number:
-            year_condition = " AND delivery_year LIKE %s"
-            params.append(f"%{year_number}%")
-            sql_query += year_condition
-        
-        # Add auction filter if provided
-        auction_condition = ""
-        if auction_key_parts:
-            auction_parts_placeholders = ", ".join(["%s" for _ in auction_key_parts])
-            auction_condition = f" AND ("
-            auction_conditions = []
+        # Add auction type filter if we identified a specific type
+        if auction_type:
+            auction_query = Q(auction_name__icontains=auction_type)
+            query &= auction_query
             
-            for part in auction_key_parts:
-                auction_conditions.append("auction_name LIKE %s")
-                params.append(f"%{part}%")
-            
-            auction_condition += " OR ".join(auction_conditions) + ")"
-            sql_query += auction_condition
-        
-        # Add LIMIT to avoid processing too many rows
-        sql_query += " LIMIT 500"
-        
-        # Execute the query
-        with connection.cursor() as cursor:
-            cursor.execute(sql_query, params)
-            columns = [col[0] for col in cursor.description]
-            raw_components = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        # Get components with a limit
+        components = Component.objects.filter(query).select_related().order_by('cmu_id', 'location')[:300]
         
         # Check timeout
         if time.time() - start_time > MAX_EXECUTION_TIME:
@@ -301,7 +268,7 @@ def htmx_auction_components(request, company_id, year, auction_name):
             """)
         
         # Process results
-        if not raw_components:
+        if not components:
             return HttpResponse(f"""
                 <div class='alert alert-warning'>
                     <p>No components found matching these criteria:</p>
@@ -309,6 +276,7 @@ def htmx_auction_components(request, company_id, year, auction_name):
                         <li>Company: {company_name}</li>
                         <li>Year: {year}</li>
                         <li>Auction: {auction_name}</li>
+                        <li>Type: {auction_type}</li>
                     </ul>
                 </div>
             """)
@@ -317,9 +285,14 @@ def htmx_auction_components(request, company_id, year, auction_name):
         components_by_cmu = {}
         cmu_ids = set()
         
-        for comp in raw_components:
-            cmu_id = comp.get('cmu_id')
+        for comp in components:
+            cmu_id = comp.cmu_id
             if not cmu_id:
+                continue
+                
+            # Only include components that match the auction type
+            if auction_type and auction_type not in (comp.auction_name or ""):
+                # Skip components that don't match the auction type
                 continue
                 
             cmu_ids.add(cmu_id)
@@ -330,26 +303,26 @@ def htmx_auction_components(request, company_id, year, auction_name):
         
         # Generate HTML
         html = f"<div class='component-results mb-3'>"
-        html += f"<div class='alert alert-info'>Found {len(raw_components)} components across {len(cmu_ids)} CMU IDs</div>"
+        html += f"<div class='alert alert-info'>Found {len(components)} components across {len(cmu_ids)} CMU IDs matching {auction_type or 'any auction type'}</div>"
         
         # Group by CMU ID
         html += "<div class='row'>"
         
-        for cmu_id in cmu_ids:
+        for cmu_id in sorted(cmu_ids):
             cmu_components = components_by_cmu.get(cmu_id, [])
             
             # Extract locations
             locations = {}
             for comp in cmu_components:
-                loc = comp.get('location', '')
+                loc = comp.location
                 if loc and loc not in locations:
                     locations[loc] = []
                 if loc:
                     locations[loc].append(comp)
             
-            # Format component records for the template
+            # Format component records for the template - IMPORTANT: full width for each card
             cmu_html = f"""
-            <div class="col-md-6 mb-3">
+            <div class="col-12 mb-3">
                 <div class="card cmu-card">
                     <div class="card-header bg-light">
                         <div class="d-flex justify-content-between align-items-center">
@@ -375,7 +348,7 @@ def htmx_auction_components(request, company_id, year, auction_name):
             if locations:
                 cmu_html += "<ul class='list-unstyled'>"
                 
-                for location, location_components in locations.items():
+                for location, location_components in sorted(locations.items()):
                     # Create component ID for linking
                     component_id = f"{cmu_id}_{normalize(location)}"
                     
@@ -390,8 +363,8 @@ def htmx_auction_components(request, company_id, year, auction_name):
                     
                     # Add description of components
                     for component in location_components:
-                        desc = component.get('description', 'No description')
-                        tech = component.get('technology', '')
+                        desc = component.description or 'No description'
+                        tech = component.technology or ''
                         
                         cmu_html += f"""
                             <li><i>{desc}</i>{f" - {tech}" if tech else ""}</li>
