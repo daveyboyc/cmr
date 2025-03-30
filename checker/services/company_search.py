@@ -326,9 +326,16 @@ def _build_search_results(cmu_df, unique_companies, sort_order, query, add_debug
             
             for cmu_id in cmu_ids:
                 components = get_component_data_from_json(cmu_id)
-                if components:
-                    has_components = True
-                    company_component_count += len(components)
+                # Skip component fetching for large result sets - just check existence
+                if len(unique_companies) > 20:
+                    # For large result sets, just check if any components exist at all
+                    has_components = Component.objects.filter(cmu_id=cmu_id).exists()
+                    company_component_count = Component.objects.filter(cmu_id=cmu_id).count() if has_components else 0
+                else:
+                    # Only fetch actual components for small result sets
+                    components = get_component_data_from_json(cmu_id)
+                    has_components = components and len(components) > 0
+                    company_component_count = len(components) if has_components else 0
                     
                     # If this is the specific company we're debugging, log more details
                     if add_debug_info and company == "LIMEJUMP LTD":

@@ -119,7 +119,13 @@ def search_components(request):
     if len(query) < 5 or ' ' in query:  
         per_page = 50  # More restrictive for potentially expensive queries
     else:
-        per_page = base_page_size
+        # Much more aggressive page size limits
+        if len(query) < 3:  
+            per_page = 10  # Extremely restrictive for very short queries
+        elif len(query) < 5 or ' ' in query:  
+            per_page = 20  # Very restrictive for potentially expensive queries
+        else:
+            per_page = 50  # Still limited even for better queries
         
     # Add parameters to the redirect URL
     redirect_url = f"/?q={urllib.parse.quote(query)}&page={page}&per_page={per_page}"

@@ -349,8 +349,16 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
         # Make the queryset distinct to avoid duplicates
         queryset = queryset.distinct()
         
-        # Get total count for pagination
-        total_count = queryset.count()
+        # Use a faster existence check for initial queries with limit
+        if per_page > 100:
+            # Don't count everything, just check if any exist and get a sample
+            total_count = min(queryset[:1000].count(), 1000)
+            if total_count == 1000:
+                # Just say "1000+" for large result sets
+                total_count = "1000+"
+        else:
+            # For smaller page sizes, count is reasonable
+            total_count = queryset.count()
         
         # Apply sorting by delivery year (descending)
         queryset = queryset.order_by('-delivery_year')
