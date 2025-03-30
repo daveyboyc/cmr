@@ -1,40 +1,332 @@
 import time
-import logging
+import json
+import os
 import requests
+import pandas as pd
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Q
-from ..models import Component
-from ..utils import get_cache_key
+import logging
+import glob
+from django.db.models import Q, Count
 
-logger = logging.getLogger(__name__)
+from ..utils import normalize, get_cache_key, get_json_path, ensure_directory_exists
 
-# ----- DATABASE FIRST COMPONENT ACCESS FUNCTIONS -----
 
-def search_database_components(query, page=1, per_page=100, sort_order="desc"):
+# CMU DATA ACCESS FUNCTIONS
+
+def get_cmu_data_from_json():
     """
-    Search for components in the database using a multi-term search approach.
-    This handles space-separated queries properly without special cases.
+    Get all CMU data from the JSON file.
+    If the JSON doesn't exist, returns None.
+    """
+    json_path = os.path.join(settings.BASE_DIR, 'cmu_data.json')
+
+    # Check if the file exists
+    if not os.path.exists(json_path):
+        return None
+
+    try:
+        with open(json_path, 'r') as f:
+            all_cmu_data = json.load(f)
+        return all_cmu_data
+    except Exception as e:
+        print(f"Error reading CMU data from JSON: {e}")
+        return None
+
+
+def save_cmu_data_to_json(cmu_records):
+    """
+    Save all CMU records to a JSON file.
+    Creates the file if it doesn't exist, otherwise replaces it.
+    """
+    json_path = os.path.join(settings.BASE_DIR, 'cmu_data.json')
+
+    # Write the data to the file
+    try:
+        with open(json_path, 'w') as f:
+            json.dump(cmu_records, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving CMU data to JSON: {e}")
+        return False
+
+
+def fetch_all_cmu_records(limit=None):
+    """
+    Fetch all CMU records from the API.
+    First checks if we have them stored in JSON.
+    """
+    # Check if we have the data in our JSON file
+    json_cmu_data = get_cmu_data_from_json()
+    if json_cmu_data is not None:
+        print(f"Using JSON-stored CMU data, found {len(json_cmu_data)} records")
+        return json_cmu_data, 0
+
+    params = {
+        "resource_id": "25a5fa2e-873d-41c5-8aaf-fbc2b06d79e6",
+        "limit": limit,
+        "offset": 0
+    }
+    all_records = []
+    total_time = 0
+    while True:
+        start_time = time.time()
+        response = requests.get(
+            "https://api.neso.energy/api/3/action/datastore_search",
+            params=params,
+            timeout=20
+        )
+        response.raise_for_status()
+        total_time += time.time() - start_time
+        result = response.json()["result"]
+        records = result["records"]
+        all_records.extend(records)
+        if len(all_records) >= result["total"]:
+            break
+        params["offset"] += limit
+
+    # Save to JSON for future use
+    save_cmu_data_to_json(all_records)
+
+    return all_records, total_time
+
+
+def get_cmu_dataframe():
+    """
+    Compatibility function that provides a DataFrame-like interface
+    while using the database under the hood.
     
-    Args:
-        query: Search string (can contain multiple words)
-        page: Page number for pagination
-        per_page: Items per page
-        sort_order: 'asc' or 'desc' for sorting by delivery year
-        
     Returns:
-        tuple: (components_list, metadata_dict)
+        tuple: (cmu_dataframe, api_time)
     """
+    import time
+    import pandas as pd
+    from ..models import Component
+    import logging
+    
+    logger = logging.getLogger(__name__)
     start_time = time.time()
     
     try:
-        # First, check if this is a direct CMU ID query
-        if query and not ' ' in query and (query.upper().startswith('CM') or query.upper().startswith('T-')):
-            # Direct CMU ID search - case insensitive
-            queryset = Component.objects.filter(cmu_id__iexact=query)
+        # Check if we have cache
+        cmu_df = cache.get("cmu_df")
+        if cmu_df is not None:
+            return cmu_df, 0
+        
+        # Get data from database
+        cmu_records = Component.objects.values(
+            'cmu_id', 'company_name', 'delivery_year'
+        ).distinct()
+        
+        # Convert to a DataFrame for backward compatibility
+        df_data = []
+        for record in cmu_records:
+            df_data.append({
+                "CMU ID": record['cmu_id'],
+                "Name of Applicant": record['company_name'],
+                "Full Name": record['company_name'],
+                "Delivery Year": record['delivery_year']
+            })
+        
+        cmu_df = pd.DataFrame(df_data)
+        
+        # Add normalized fields for searching
+        cmu_df["Normalized Full Name"] = cmu_df["Full Name"].apply(normalize)
+        cmu_df["Normalized CMU ID"] = cmu_df["CMU ID"].apply(normalize)
+        
+        # Cache the mappings for future use
+        cmu_to_company_mapping = {}
+        for _, row in cmu_df.iterrows():
+            cmu_id = row.get("CMU ID", "").strip()
+            if cmu_id and cmu_id != "N/A":
+                cmu_to_company_mapping[cmu_id] = row.get("Full Name", "")
+                
+        cache.set("cmu_to_company_mapping", cmu_to_company_mapping, 3600)
+        cache.set("cmu_df", cmu_df, 900)
+        
+        api_time = time.time() - start_time
+        return cmu_df, api_time
+    
+    except Exception as e:
+        logger.exception(f"Error creating CMU dataframe: {str(e)}")
+        # If all else fails, try original implementation
+        try:
+            all_records, api_time = fetch_all_cmu_records(limit=5000)
+            cmu_df = pd.DataFrame(all_records)
+            
+            # Set up necessary columns as before
+            cmu_df["Name of Applicant"] = cmu_df.get("Name of Applicant", pd.Series()).fillna("").astype(str)
+            cmu_df["Parent Company"] = cmu_df.get("Parent Company", pd.Series()).fillna("").astype(str)
+            cmu_df["Delivery Year"] = cmu_df.get("Delivery Year", pd.Series()).fillna("").astype(str)
+            
+            possible_cmu_id_fields = ["CMU ID", "cmu_id", "CMU_ID", "cmuId", "id", "identifier", "ID"]
+            cmu_id_field = next((field for field in possible_cmu_id_fields if field in cmu_df.columns), None)
+            if cmu_id_field:
+                cmu_df["CMU ID"] = cmu_df[cmu_id_field].fillna("N/A").astype(str)
+            else:
+                cmu_df["CMU ID"] = "N/A"
+                
+            cmu_df["Full Name"] = cmu_df["Name of Applicant"].str.strip()
+            cmu_df["Full Name"] = cmu_df.apply(
+                lambda row: row["Full Name"] if row["Full Name"] else row["Parent Company"],
+                axis=1
+            )
+            
+            cmu_df["Normalized Full Name"] = cmu_df["Full Name"].apply(normalize)
+            cmu_df["Normalized CMU ID"] = cmu_df["CMU ID"].apply(normalize)
+            
+            cache.set("cmu_df", cmu_df, 900)
+            return cmu_df, api_time
+        except:
+            return None, 0
+
+
+# COMPONENT DATA ACCESS FUNCTIONS
+
+def get_json_path(cmu_id):
+    """
+    Get the path to the JSON file for a given CMU ID.
+    This is a utility function to avoid duplicating path logic.
+    """
+    if not cmu_id:
+        return None
+        
+    # Get first character of CMU ID as folder name
+    prefix = cmu_id[0].upper()
+    
+    # Path for this specific CMU's components
+    json_dir = os.path.join(settings.BASE_DIR, 'json_data')
+    json_path = os.path.join(json_dir, f'components_{prefix}.json')
+    
+    return json_path
+
+
+def get_component_data_from_json(cmu_id):
+    """
+    DEPRECATED: This function now redirects to the database version.
+    Get component data for a specific CMU ID from the database.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.warning(f"get_component_data_from_json is deprecated, redirecting to database lookup for {cmu_id}")
+    
+    # Call the new database-first function but force page 1 with a large limit
+    components, _ = fetch_components_for_cmu_id(cmu_id, page=1, per_page=1000)
+    return components if components else None
+
+
+def save_component_data_to_json(cmu_id, components):
+    """
+    Save component data to JSON for a specific CMU ID.
+    Returns True if successful, False otherwise.
+    """
+    if not cmu_id:
+        return False
+
+    # Get first character of CMU ID as folder name
+    prefix = cmu_id[0].upper()
+
+    # Create a directory for split files if it doesn't exist
+    json_dir = os.path.join(settings.BASE_DIR, 'json_data')
+    ensure_directory_exists(json_dir)
+
+    # Path for this specific CMU's components
+    json_path = os.path.join(json_dir, f'components_{prefix}.json')
+
+    # Initialize or load existing data
+    all_components = {}
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, 'r') as f:
+                all_components = json.load(f)
+        except Exception as e:
+            print(f"Error reading existing component data: {e}")
+
+    # Get company name from mapping cache
+    cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
+    company_name = cmu_to_company_mapping.get(cmu_id, "")
+
+    # Try case-insensitive match if needed
+    if not company_name:
+        for mapping_cmu_id, mapping_company in cmu_to_company_mapping.items():
+            if mapping_cmu_id.lower() == cmu_id.lower():
+                company_name = mapping_company
+                break
+
+    # Make sure each component has the Company Name field
+    updated_components = []
+    for component in components:
+        if "Company Name" not in component and company_name:
+            component = component.copy()  # Make a copy to avoid modifying the original
+            component["Company Name"] = company_name
+
+        # Add CMU ID to the component for reference
+        if "CMU ID" not in component:
+            component = component.copy()
+            component["CMU ID"] = cmu_id
+
+        updated_components.append(component)
+
+    # Add or update the components for this CMU ID
+    all_components[cmu_id] = updated_components
+
+    # Write the updated data back to the file
+    try:
+        with open(json_path, 'w') as f:
+            json.dump(all_components, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving component data to JSON: {e}")
+        return False
+
+
+def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
+    """
+    Fetch components for a given CMU ID using a multi-term search approach 
+    that handles space-separated queries properly.
+    """
+    import time
+    import logging
+    from django.core.cache import cache
+    from ..models import Component
+    
+    logger = logging.getLogger(__name__)
+    start_time = time.time()
+    
+    # Check cache first for performance
+    components_cache_key = get_cache_key(f"components_for_cmu_p{page}_s{per_page}", cmu_id)
+    cached_components = cache.get(components_cache_key)
+    
+    # If found in cache, apply pagination and return
+    if cached_components:
+        logger.info(f"Found {len(cached_components)} components in cache for '{cmu_id}'")
+        total_count = len(cached_components)
+        
+        # Apply pagination
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        paginated_components = cached_components[start_idx:end_idx]
+        
+        metadata = {
+            "total_count": total_count,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": (total_count + per_page - 1) // per_page,
+            "source": "cache",
+            "processing_time": time.time() - start_time
+        }
+        
+        return paginated_components, metadata
+    
+    try:
+        # First, check if this is a direct CMU ID search
+        if ' ' not in cmu_id and (cmu_id.upper().startswith('CM') or cmu_id.upper().startswith('T-')):
+            # Direct CMU ID search - case insensitive  
+            queryset = Component.objects.filter(cmu_id__iexact=cmu_id)
         else:
-            # Multi-term search approach
-            query_terms = query.lower().split()
+            # Multi-term search approach - split query into terms
+            query_terms = cmu_id.lower().split()
             
             # Start with empty query
             query_filter = Q()
@@ -60,11 +352,8 @@ def search_database_components(query, page=1, per_page=100, sort_order="desc"):
         # Get total count for pagination
         total_count = queryset.count()
         
-        # Apply sorting
-        if sort_order == "asc":
-            queryset = queryset.order_by('delivery_year')
-        else:  # Default to desc
-            queryset = queryset.order_by('-delivery_year')
+        # Apply sorting by delivery year (descending)
+        queryset = queryset.order_by('-delivery_year')
         
         # Apply pagination
         offset = (page - 1) * per_page
@@ -73,6 +362,7 @@ def search_database_components(query, page=1, per_page=100, sort_order="desc"):
         # Convert to list of dictionaries for API compatibility
         components = []
         for comp in paginated_queryset:
+            # Create a dictionary representation of the component
             comp_dict = {
                 "CMU ID": comp.cmu_id,
                 "Location and Post Code": comp.location,
@@ -94,7 +384,17 @@ def search_database_components(query, page=1, per_page=100, sort_order="desc"):
                         
             components.append(comp_dict)
         
-        # Create metadata for pagination and timing
+        # Cache results if not too large
+        if total_count <= 1000:  # Only cache reasonably sized results
+            cache.set(components_cache_key, components, 3600)
+        elif total_count <= 2000:
+            cache.set(components_cache_key, components, 1800)
+        elif total_count <= 5000:
+            cache.set(components_cache_key, components, 600)
+        else:
+            logger.info(f"Result set too large to cache ({total_count} items)")
+            
+        # Create metadata for pagination
         metadata = {
             "total_count": total_count,
             "page": page,
@@ -104,285 +404,78 @@ def search_database_components(query, page=1, per_page=100, sort_order="desc"):
             "processing_time": time.time() - start_time
         }
         
-        # Cache results if not too large (for performance)
-        cache_key = get_cache_key(f"components_search_p{page}_s{per_page}", query)
-        if total_count <= 1000:
-            cache.set(cache_key, (components, metadata), 3600)  # 1 hour for small results
-        elif total_count <= 5000:
-            cache.set(cache_key, (components, metadata), 900)   # 15 minutes for medium results
-            
         return components, metadata
-        
+    
     except Exception as e:
-        logger.exception(f"Error in database search for '{query}': {str(e)}")
-        return [], {
-            "error": str(e),
-            "total_count": 0,
-            "processing_time": time.time() - start_time
-        }
-
-
-def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
-    """
-    Fetch components for a given CMU ID. This is a compatibility wrapper
-    around search_database_components to maintain backward compatibility.
-    """
-    # Use the more general search function
-    return search_database_components(cmu_id, page, per_page)
-
-
-def get_company_matches(query, limit=20):
-    """
-    Search for companies in the database that match the query.
-    Uses a multi-term approach for better search results.
-    
-    Args:
-        query: Search string (can contain multiple words)
-        limit: Maximum number of companies to return
+        logger.exception(f"Error in database search for '{cmu_id}': {str(e)}")
         
-    Returns:
-        list: List of dictionaries with company_name and cmu_ids
-    """
-    start_time = time.time()
-    
-    try:
-        # Multi-term search approach
-        query_terms = query.lower().split()
-        
-        # Start with empty query
-        query_filter = Q()
-        
-        # Process each search term independently
-        for term in query_terms:
-            if len(term) >= 3:  # Only use terms with at least 3 characters
-                term_filter = (
-                    Q(company_name__icontains=term) | 
-                    Q(cmu_id__icontains=term)
-                )
-                # Add each term with OR logic
-                query_filter |= term_filter
+        # API FALLBACK: If database query fails, try API
+        try:
+            api_start_time = time.time()
+            params = {
+                "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
+                "q": cmu_id,
+                "limit": per_page,
+                "offset": (page-1) * per_page
+            }
+            
+            response = requests.get(
+                "https://data.nationalgrideso.com/api/3/action/datastore_search",
+                params=params,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json().get("result", {})
+                all_api_components = result.get("records", [])
                 
-        # Get distinct company names that match query
-        company_query = Component.objects.filter(query_filter) \
-                         .values('company_name') \
-                         .distinct()[:limit]
-        
-        companies = []
-        for company in company_query:
-            company_name = company['company_name']
-            
-            # Get all CMU IDs for this company
-            cmu_ids = Component.objects.filter(company_name=company_name) \
-                      .values_list('cmu_id', flat=True).distinct()
-            
-            companies.append({
-                'company_name': company_name,
-                'cmu_ids': list(cmu_ids)
-            })
-            
-        logger.info(f"Found {len(companies)} companies for query '{query}' in {time.time() - start_time:.2f}s")
-        return companies
-        
-    except Exception as e:
-        logger.exception(f"Error searching companies for '{query}': {str(e)}")
-        return []
-
-
-def get_company_details(company_id):
-    """
-    Get detailed information about a company including its CMU IDs,
-    years, and auctions.
-    
-    Args:
-        company_id: Normalized company identifier
-        
-    Returns:
-        dict: Company details or None if not found
-    """
-    # Convert company_id to searchable format
-    searchable_company = company_id.replace('-', ' ')
-    
-    try:
-        # Find components for this company
-        company_components = Component.objects.filter(
-            company_name__icontains=searchable_company
-        )
-        
-        if not company_components.exists():
-            return None
-            
-        # Get company name from first component
-        company_name = company_components.first().company_name
-        
-        # Get all CMU IDs for this company
-        cmu_ids = company_components.values_list('cmu_id', flat=True).distinct()
-        
-        # Get all years and auctions
-        years_auctions = {}
-        year_query = company_components.values_list('delivery_year', 'auction_name') \
-                    .distinct().order_by('delivery_year')
-                    
-        for year, auction in year_query:
-            if year not in years_auctions:
-                years_auctions[year] = []
-            
-            if auction and auction not in years_auctions[year]:
-                years_auctions[year].append(auction)
-        
-        return {
-            'company_name': company_name,
-            'cmu_ids': list(cmu_ids),
-            'years_auctions': years_auctions
-        }
-        
-    except Exception as e:
-        logger.exception(f"Error fetching company details for '{company_id}': {str(e)}")
-        return None
-
-
-def get_auction_components(company_id, year, auction_name):
-    """
-    Get components for a specific company, year and auction.
-    
-    Args:
-        company_id: Normalized company identifier
-        year: Delivery year
-        auction_name: Name of the auction
-        
-    Returns:
-        list: Components matching the criteria
-    """
-    searchable_company = company_id.replace('-', ' ')
-    
-    try:
-        # First try exact matching
-        components = Component.objects.filter(
-            company_name__icontains=searchable_company,
-            delivery_year__icontains=year,
-            auction_name__icontains=auction_name
-        ).order_by('location')
-        
-        # If no results, try more flexible matching
-        if not components.exists():
-            components = Component.objects.filter(
-                company_name__icontains=searchable_company
-            ).filter(
-                Q(delivery_year__icontains=year) | 
-                Q(auction_name__icontains=year)
-            ).filter(
-                Q(auction_name__icontains=auction_name) |
-                Q(auction_name__icontains=auction_name.replace("T-", "T"))
-            ).order_by('location')
-            
-        return list(components)
-        
-    except Exception as e:
-        logger.exception(f"Error fetching auction components: {str(e)}")
-        return []
-
-
-# ----- API FALLBACK FUNCTIONS -----
-
-def api_fetch_components(query, limit=100, offset=0):
-    """
-    Fetch components from the API. This is only used as a fallback or for
-    initial data loading when the database is empty.
-    
-    Args:
-        query: Search string
-        limit: Maximum records to return
-        offset: Pagination offset
-        
-    Returns:
-        tuple: (components_list, total_count, api_time)
-    """
-    start_time = time.time()
-    
-    try:
-        params = {
-            "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
-            "q": query,
-            "limit": limit,
-            "offset": offset
-        }
-        
-        response = requests.get(
-            "https://data.nationalgrideso.com/api/3/action/datastore_search",
-            params=params,
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            result = response.json().get("result", {})
-            components = result.get("records", [])
-            total_count = result.get("total", 0)
-            
-            # Save to database for future use
-            for component in components:
-                cmu_id = component.get("CMU ID", "")
-                if cmu_id:
-                    save_component_to_database(cmu_id, component)
-            
-            return components, total_count, time.time() - start_time
-        else:
-            logger.error(f"API error: {response.status_code}")
-            return [], 0, time.time() - start_time
-            
-    except Exception as e:
-        logger.exception(f"Error fetching components from API: {str(e)}")
-        return [], 0, time.time() - start_time
-
-
-def save_component_to_database(cmu_id, component_data):
-    """
-    Save a single component to the database.
-    
-    Args:
-        cmu_id: CMU ID
-        component_data: Component data dictionary
-    """
-    try:
-        component_id = component_data.get("_id", "")
-        
-        # Skip if component already exists
-        if component_id and Component.objects.filter(component_id=component_id).exists():
-            return
-            
-        # Create component in database
-        Component.objects.create(
-            component_id=component_id,
-            cmu_id=cmu_id,
-            location=component_data.get("Location and Post Code", ""),
-            description=component_data.get("Description of CMU Components", ""),
-            technology=component_data.get("Generating Technology Class", ""),
-            company_name=component_data.get("Company Name", ""),
-            auction_name=component_data.get("Auction Name", ""),
-            delivery_year=component_data.get("Delivery Year", ""),
-            status=component_data.get("Status", ""),
-            type=component_data.get("Type", ""),
-            additional_data=component_data
-        )
-    except Exception as e:
-        logger.exception(f"Error saving component to database: {str(e)}")
+                # Try to get total count
+                total_count = result.get("total", len(all_api_components))
+                
+                # Try to save to database for future use
+                try:
+                    save_components_to_database(cmu_id, all_api_components)
+                except Exception as db_error:
+                    logger.error(f"Error saving to database: {str(db_error)}")
+                
+                metadata = {
+                    "total_count": total_count,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": (total_count + per_page - 1) // per_page,
+                    "source": "api",
+                    "processing_time": time.time() - start_time,
+                    "api_time": time.time() - api_start_time
+                }
+                
+                return all_api_components, metadata
+            else:
+                logger.error(f"API error: {response.status_code}")
+                return [], {"error": f"API error: {response.status_code}"}
+        except Exception as api_error:
+            logger.exception(f"API fallback error: {str(api_error)}")
+            return [], {
+                "error": str(e) + " (API fallback also failed: " + str(api_error) + ")",
+                "total_count": 0,
+                "processing_time": time.time() - start_time
+            }
 
 
 def save_components_to_database(cmu_id, components):
     """
-    Save multiple components to the database.
-    
-    Args:
-        cmu_id: CMU ID
-        components: List of component dictionaries
+    Save components to the database.
+    This is called whenever we fetch components from the API.
     """
     from django.db import transaction
+    from ..models import Component
     
     if not components:
         return
-        
+    
     # Extract component_ids for efficient existence check
     component_ids = [c.get("_id", "") for c in components if c.get("_id")]
     
-    # Find existing IDs in one query
+    # Only do one database query to find all existing IDs
     existing_ids = set()
     if component_ids:
         existing_ids = set(Component.objects.filter(
@@ -394,11 +487,12 @@ def save_components_to_database(cmu_id, components):
     for component in components:
         component_id = component.get("_id", "")
         
-        # Skip if already in database
+        # Skip if we already have this component in the database
+        # FIXED THIS CONDITION - only skip if it's already in existing_ids
         if component_id and component_id in existing_ids:
             continue
-            
-        # Add to list for bulk create
+        
+        # Extract standard fields
         new_components.append(Component(
             component_id=component_id,
             cmu_id=cmu_id,
@@ -413,127 +507,203 @@ def save_components_to_database(cmu_id, components):
             additional_data=component
         ))
     
-    # Bulk create if we have new components
+    # Only do the bulk create if we have new components
     if new_components:
+        # Use a transaction for better performance and atomicity
+        with transaction.atomic():
+            # Bulk create all components at once
+            Component.objects.bulk_create(new_components, ignore_conflicts=True)
+
+
+def fetch_component_search_results(query, limit=1000, sort_order="desc"):
+    """
+    Fetch components based on a search query.
+    Legacy function that now uses fetch_components_for_cmu_id.
+    """
+    components, metadata = fetch_components_for_cmu_id(query, page=1, per_page=limit)
+    api_time = metadata.get("processing_time", 0)
+    error = metadata.get("error")
+    
+    return components, api_time, error
+
+
+def get_component_total_count():
+    """Get the total count of components in the database."""
+    from ..models import Component
+    
+    total_cache_key = "components_overall_total"
+    overall_total = cache.get(total_cache_key)
+    api_time = 0
+
+    if overall_total is None:
         try:
-            with transaction.atomic():
-                Component.objects.bulk_create(new_components, ignore_conflicts=True)
+            start_time = time.time()
+            # Get count from database 
+            overall_total = Component.objects.count()
+            api_time = time.time() - start_time
+            cache.set(total_cache_key, overall_total, 3600)  # Cache for 1 hour
         except Exception as e:
-            logger.exception(f"Error bulk creating components: {str(e)}")
-
-
-# ----- DATABASE STATISTICS -----
-
-def get_database_statistics():
-    """
-    Get statistics about the database.
-    
-    Returns:
-        dict: Statistics about the database
-    """
-    try:
-        return {
-            'total_components': Component.objects.count(),
-            'unique_cmus': Component.objects.values('cmu_id').distinct().count(),
-            'unique_companies': Component.objects.values('company_name').distinct().count(),
-            'top_companies': list(Component.objects.values('company_name')
-                               .annotate(count=Count('id'))
-                               .order_by('-count')[:10]),
-            'delivery_years': list(Component.objects.values_list('delivery_year', flat=True)
-                               .distinct().order_by('delivery_year')),
-        }
-    except Exception as e:
-        logger.exception(f"Error getting database statistics: {str(e)}")
-        return {
-            'error': str(e),
-            'total_components': 0
-        }
-
-
-# ----- LEGACY FUNCTIONS (MAINTAINED FOR BACKWARDS COMPATIBILITY) -----
-
-def get_cmu_data_from_json():
-    """
-    LEGACY: Get CMU data from JSON file.
-    Database should be used instead via Component.objects.values('cmu_id', 'company_name').distinct()
-    """
-    logger.warning("get_cmu_data_from_json is deprecated, use database instead")
-    
-    try:
-        # Get CMU data from database instead
-        cmu_data = []
-        for component in Component.objects.values('cmu_id', 'company_name').distinct()[:1000]:
-            cmu_data.append({
-                "CMU ID": component['cmu_id'],
-                "Name of Applicant": component['company_name']
-            })
-        return cmu_data
-    except:
-        # Fall back to original function
-        import os
-        import json
-        
-        json_path = os.path.join(settings.BASE_DIR, 'cmu_data.json')
-        if not os.path.exists(json_path):
-            return None
+            print(f"Error fetching overall total from DB: {e}")
             
+            # Fall back to API if database fails
+            try:
+                start_time = time.time()
+                count_response = requests.get(
+                    "https://api.neso.energy/api/3/action/datastore_search",
+                    params={
+                        "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
+                        "limit": 1
+                    },
+                    timeout=20
+                )
+                count_response.raise_for_status()
+                api_time = time.time() - start_time
+                count_data = count_response.json()["result"]
+                overall_total = count_data.get("total", 0)
+                cache.set(total_cache_key, overall_total, 3600)  # Cache for 1 hour
+            except Exception as api_e:
+                print(f"Error fetching overall total from API: {api_e}")
+                api_time = time.time() - start_time if 'start_time' in locals() else 0
+                overall_total = 0
+
+    return overall_total, api_time
+
+
+def get_accurate_total_count(query):
+    """
+    Get an accurate count of components matching a query.
+    Now uses database with multi-term search.
+    """
+    import time
+    import logging
+    from django.db.models import Q
+    from ..models import Component
+    
+    logger = logging.getLogger(__name__)
+    start_time = time.time()
+    
+    try:
+        # Use the same multi-term search logic as fetch_components_for_cmu_id
+        if ' ' not in query and (query.upper().startswith('CM') or query.upper().startswith('T-')):
+            # Direct CMU ID search
+            total_count = Component.objects.filter(cmu_id__iexact=query).count()
+        else:
+            # Multi-term search
+            query_terms = query.lower().split()
+            query_filter = Q()
+            
+            for term in query_terms:
+                if len(term) >= 3:
+                    term_filter = (
+                        Q(company_name__icontains=term) | 
+                        Q(location__icontains=term) | 
+                        Q(description__icontains=term) |
+                        Q(cmu_id__icontains=term)
+                    )
+                    query_filter |= term_filter
+            
+            total_count = Component.objects.filter(query_filter).distinct().count()
+            
+        logger.info(f"Database reports {total_count} total matching components for '{query}' in {time.time() - start_time:.2f}s")
+        return total_count
+        
+    except Exception as e:
+        logger.exception(f"Error getting accurate count from database: {str(e)}")
+        
+        # Fall back to original implementation using API
         try:
-            with open(json_path, 'r') as f:
-                all_cmu_data = json.load(f)
-            return all_cmu_data
-        except Exception as e:
-            logger.error(f"Error reading CMU data from JSON: {e}")
-            return None
+            count_params = {
+                "resource_id": "790f5fa0-f8eb-4d82-b98d-0d34d3e404e8",
+                "q": query,
+                "limit": 1
+            }
+            
+            count_response = requests.get(
+                "https://data.nationalgrideso.com/api/3/action/datastore_search",
+                params=count_params,
+                timeout=10
+            )
+            
+            if count_response.status_code == 200:
+                count_result = count_response.json().get("result", {})
+                initial_count = count_result.get("total", 0)
+                logger.info(f"API reports {initial_count} total matching components")
+                return initial_count
+            else:
+                return 0
+        except Exception as api_e:
+            logger.exception(f"API fallback error for accurate count: {str(api_e)}")
+            return 0
+
+
+def search_all_json_files(query, page=1, per_page=500):
+    """
+    DEPRECATED: Search JSON files for components.
+    This function now redirects to database search.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.warning("search_all_json_files is deprecated, using database search instead")
+    return fetch_components_for_cmu_id(query, page=page, per_page=per_page)
 
 
 def get_cmu_data_by_id(cmu_id):
     """
-    LEGACY: Get CMU data for a specific CMU ID.
+    Fetch additional data from cmu_data.json for a specific CMU ID.
     """
+    logger = logging.getLogger(__name__)
+    
     if not cmu_id:
+        logger.warning("No CMU ID provided to get_cmu_data_by_id")
         return None
-        
-    # Try database first
+    
+    # Try to get from cache first
+    cache_key = f"cmu_data_{cmu_id}"
+    cached_data = cache.get(cache_key)
+    if cached_data:
+        logger.info(f"Using cached CMU data for {cmu_id}")
+        return cached_data
+    
+    # Try getting from database first
+    from ..models import Component
     try:
         component = Component.objects.filter(cmu_id=cmu_id).first()
         if component:
-            return {
-                "CMU ID": component.cmu_id,
+            logger.info(f"Found CMU data in database for {cmu_id}")
+            cmu_data = {
+                "CMU ID": cmu_id,
                 "Name of Applicant": component.company_name,
                 "Delivery Year": component.delivery_year,
                 "Auction Name": component.auction_name
             }
-    except:
-        pass
-        
-    # Fall back to cache
-    cache_key = f"cmu_data_{cmu_id}"
-    cached_data = cache.get(cache_key)
-    if cached_data:
-        return cached_data
-        
-    # Fall back to original JSON lookup
-    all_cmu_data = get_cmu_data_from_json()
-    if not all_cmu_data:
-        return None
-        
-    for cmu_data in all_cmu_data:
-        if str(cmu_data.get("CMU ID", "")) == str(cmu_id):
+            # Cache for future use
             cache.set(cache_key, cmu_data, 3600)
             return cmu_data
-            
+    except Exception as db_e:
+        logger.warning(f"Error getting CMU data from database: {str(db_e)}")
+    
+    # Fall back to JSON data
+    all_cmu_data = get_cmu_data_from_json()
+    if not all_cmu_data:
+        logger.warning("No CMU data available from JSON")
+        return None
+    
+    # Find the matching CMU ID
+    for cmu_data in all_cmu_data:
+        if str(cmu_data.get("CMU ID", "")) == str(cmu_id):
+            logger.info(f"Found matching CMU data for {cmu_id} in JSON")
+            # Cache the result for future use (1 hour)
+            cache.set(cache_key, cmu_data, 3600)
+            return cmu_data
+    
+    logger.warning(f"No matching CMU data found for {cmu_id}")
     return None
 
 
 def analyze_component_duplicates(components):
     """
     Analyze a list of components to identify duplicates.
-    
-    Args:
-        components: List of component dictionaries
-        
-    Returns:
-        dict: Duplicate analysis results
     """
     if not components:
         return {
