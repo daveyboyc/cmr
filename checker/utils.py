@@ -137,12 +137,13 @@ def format_location_list(locations, components):
             # Add both IDs if available
             id_info = ""
             if system_id:
-                id_info += f'<small class="text-muted">[ID: {system_id}]</small>'
+                id_info += f' <small class="text-muted">[ID: {system_id}]</small>'
             if component_id_value:
-                id_info += f'<small class="text-muted ms-1">[Component ID: {component_id_value}]</small>'
+                id_info += f' <small class="text-muted ms-1">[Component ID: {component_id_value}]</small>'
 
+            # Now add the IDs to the component line - this was missing!
             html += f"""
-                <li><i>{desc}</i>{f" - {tech}" if tech else ""} {auction_badge} {year_info}</li>
+                <li><i>{desc}</i>{f" - {tech}" if tech else ""} {auction_badge} {year_info} {id_info}</li>
             """
 
         html += """
