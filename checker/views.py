@@ -239,55 +239,33 @@ def htmx_auction_components(request, company_id, year, auction_name):
             logger.critical(f"QUERY PARAMS: company_name='{company_name}', delivery_year='{year}', auction_name='{auction_name}'")
             # === End Logging ===
             
+            # --- Build Query ---
             base_query = Q(company_name=company_name)
-            
-            # --- Year Filter ---
-            # Use icontains for year filter (should be okay for single year display)
+
+            # Filter by year (icontains is likely okay here)
             if year:
-                base_query &= Q(delivery_year__icontains=year) 
-            
-            # --- More Specific Auction Name Matching ---
-            if auction_name:
-                # Extract key parts from the incoming auction name
-                # Example: "2025 26 t 4 four year ahead capacity auction"
-                year_match = re.search(r'(\d{4})', auction_name) # Find the first 4-digit year
-                t_match = re.search(r'(T-\d|T\d|TR)', auction_name, re.IGNORECASE) # Find T-number
-                
-                auction_filter = Q() # Start with an empty filter
-                
-                # 1. Require matching T-number if found in input
-                if t_match:
-                    t_number_part = t_match.group(1).upper().replace(' ','-') # Normalize to T-X
-                    # Need to match variations like T-4 or (T-4)
-                    auction_filter &= (Q(auction_name__icontains=t_number_part) | Q(auction_name__icontains=f"({t_number_part})"))
-                    logger.info(f"Added T-number filter: {t_number_part}")
-                else:
-                     # If no T-number in input, maybe don't filter by it? Or use a default?
-                     logger.warning(f"No T-number found in input auction name: {auction_name}")
+                base_query &= Q(delivery_year__icontains=year)
 
-                # 2. Require matching year part if found in input
-                if year_match:
-                    year_part = year_match.group(1)
-                    # Match variations like 2025 or 2025-26 or 2025/26
-                    auction_filter &= (Q(auction_name__icontains=year_part))
-                    logger.info(f"Added Year filter: {year_part}")
-                else:
-                    logger.warning(f"No Year found in input auction name: {auction_name}")
-                    
-                # 3. If we couldn't extract parts, fall back to basic icontains
-                if not t_match and not year_match:
-                     logger.warning(f"Could not extract parts, falling back to basic contains: {auction_name}")
-                     auction_filter = Q(auction_name__icontains=auction_name)
+            # *** Filter strictly by Auction Type ***
+            # Extract expected T-type from the input auction_name
+            expected_t_type = None
+            if t_match := re.search(r'(T-\d|T\d|TR)', auction_name, re.IGNORECASE):
+                 expected_t_type = t_match.group(1).upper().replace(' ','-') # Normalize to T-X
 
-                # Combine auction filters with AND to the base query
-                base_query &= auction_filter
-            # --- End Specific Matching ---
+            if expected_t_type:
+                # Explicitly filter where auction_name contains the expected T-type
+                logger.info(f"Applying specific T-type filter: {expected_t_type}")
+                base_query &= Q(auction_name__icontains=expected_t_type)
+            elif auction_name: # Fallback only if no T-type was extracted
+                logger.warning(f"No T-type found, falling back to general contains: {auction_name}")
+                base_query &= Q(auction_name__icontains=auction_name)
+            # *** End Auction Type Filter ***
 
             # === Log the final Q object ===
             logger.critical(f"FINAL QUERY FILTER: {base_query}")
             # === End Logging ===
 
-            # Get components with the more specific filter
+            # Get components with the stricter filter
             components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
             
             logger.info(f"Specific query found {components.count()} components.")
