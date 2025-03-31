@@ -174,18 +174,19 @@ def htmx_auction_components(request, company_id, year, auction_name):
     
     # Set a timeout for the entire operation
     start_time = time.time()
-    MAX_EXECUTION_TIME = 15  # 15 seconds maximum (to avoid 30-second Heroku timeout)
+    MAX_EXECUTION_TIME = 15  # 15 seconds maximum (to avoid 30-second timeout)
     
     logger = logging.getLogger(__name__)
     logger.info(f"Loading auction components: company_id={company_id}, year={year}, auction={auction_name}")
     
     # Convert URL parameters from underscores back to spaces
     year = from_url_param(year)
-    auction_name = from_url_param(year)
     auction_name = from_url_param(auction_name)
     
-    # Extract auction type and year
+    # Extract auction type and year from auction name
     auction_type = None
+    auction_year_pattern = None
+    
     if "T-1" in auction_name or "T1" in auction_name or "T 1" in auction_name:
         auction_type = "T-1"
     elif "T-4" in auction_name or "T4" in auction_name or "T 4" in auction_name:
@@ -193,30 +194,29 @@ def htmx_auction_components(request, company_id, year, auction_name):
     elif "T-3" in auction_name or "T3" in auction_name or "T 3" in auction_name:
         auction_type = "T-3"
         
-    logger.info(f"Auction type: {auction_type}")
+    # Try to extract year pattern from auction name (like 2025-26)
+    year_pattern_match = re.search(r'(\d{4})[-/]?(\d{2})', auction_name)
+    if year_pattern_match:
+        auction_year_pattern = year_pattern_match.group(0)
+        
+    logger.info(f"Extracted auction type: {auction_type}, year pattern: {auction_year_pattern}")
     
     try:
         # Find company by direct lookup to avoid complex filtering
         company_name = None
         try:
-            # Try exact match first with raw SQL for performance
-            from django.db import connection
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT DISTINCT company_name FROM checker_component WHERE company_name IS NOT NULL LIMIT 1000"
-                )
-                for row in cursor.fetchall():
-                    if row[0] and normalize(row[0]) == company_id:
-                        company_name = row[0]
-                        break
+            # Try exact match first with ORM for simplicity
+            from django.db.models import Value, CharField
+            from django.db.models.functions import Lower
+            
+            # Get unique company names and normalize them
+            companies = Component.objects.values('company_name').distinct()
+            for company in companies:
+                if company['company_name'] and normalize(company['company_name']) == company_id:
+                    company_name = company['company_name']
+                    break
         except Exception as db_error:
             logger.warning(f"Database direct query failed: {db_error}")
-            # Fall back to ORM
-            company_query = Component.objects.values_list('company_name', flat=True).distinct()[:1000]
-            for curr_name in company_query:
-                if curr_name and normalize(curr_name) == company_id:
-                    company_name = curr_name
-                    break
         
         # Check timeout
         if time.time() - start_time > MAX_EXECUTION_TIME:
@@ -240,7 +240,7 @@ def htmx_auction_components(request, company_id, year, auction_name):
         
         logger.info(f"Found company: {company_name}")
         
-        # Use ORM for simpler components query with just the essential filters
+        # Build a query that matches both the company and specific auction
         query = Q(company_name=company_name)
         
         # Add year filter
@@ -254,6 +254,11 @@ def htmx_auction_components(request, company_id, year, auction_name):
         if auction_type:
             auction_query = Q(auction_name__icontains=auction_type)
             query &= auction_query
+            
+        # Add auction year pattern filter if we identified one
+        if auction_year_pattern:
+            pattern_query = Q(auction_name__icontains=auction_year_pattern)
+            query &= pattern_query
             
         # Get components with a limit
         components = Component.objects.filter(query).select_related().order_by('cmu_id', 'location')[:300]
@@ -277,6 +282,7 @@ def htmx_auction_components(request, company_id, year, auction_name):
                         <li>Year: {year}</li>
                         <li>Auction: {auction_name}</li>
                         <li>Type: {auction_type}</li>
+                        <li>Year Pattern: {auction_year_pattern}</li>
                     </ul>
                 </div>
             """)
@@ -290,10 +296,22 @@ def htmx_auction_components(request, company_id, year, auction_name):
             if not cmu_id:
                 continue
                 
-            # Only include components that match the auction type
-            if auction_type and auction_type not in (comp.auction_name or ""):
+            # Only include components that match the auction type 
+            # This additional check ensures proper filtering
+            comp_auction = comp.auction_name or ""
+            if auction_type and auction_type not in comp_auction and auction_type not in (comp.type or ""):
                 # Skip components that don't match the auction type
                 continue
+                
+            # If auction year pattern exists, check that too
+            if auction_year_pattern and auction_year_pattern not in comp_auction:
+                # Try to match looser version (just the first year)
+                year_match = False
+                if auction_year_pattern and auction_year_pattern[:4].isdigit():
+                    if auction_year_pattern[:4] in comp_auction:
+                        year_match = True
+                if not year_match:
+                    continue
                 
             cmu_ids.add(cmu_id)
             if cmu_id not in components_by_cmu:
@@ -303,7 +321,7 @@ def htmx_auction_components(request, company_id, year, auction_name):
         
         # Generate HTML
         html = f"<div class='component-results mb-3'>"
-        html += f"<div class='alert alert-info'>Found {len(components)} components across {len(cmu_ids)} CMU IDs matching {auction_type or 'any auction type'}</div>"
+        html += f"<div class='alert alert-info'>Found {len(components_by_cmu)} CMU IDs matching {auction_type or 'any auction type'} for {auction_name}</div>"
         
         # Group by CMU ID
         html += "<div class='row'>"
@@ -320,7 +338,7 @@ def htmx_auction_components(request, company_id, year, auction_name):
                 if loc:
                     locations[loc].append(comp)
             
-            # Format component records for the template - IMPORTANT: full width for each card
+            # Format component records for the template - full width for each card
             cmu_html = f"""
             <div class="col-12 mb-3">
                 <div class="card cmu-card">
@@ -365,56 +383,46 @@ def htmx_auction_components(request, company_id, year, auction_name):
                     for component in location_components:
                         desc = component.description or 'No description'
                         tech = component.technology or ''
+                        component_id = component.component_id or ''
                         auction = component.auction_name or ''
                         delivery_year = component.delivery_year or ''
-                        typ = component.type or ''
                         
                         # Create badges
                         badges = []
                         
+                        # Component ID badge - important to display this
+                        if component_id:
+                            badges.append(f'<span class="badge bg-secondary me-1">ID: {component_id}</span>')
+                        
                         # Auction type badge
-                        auction_type = ""
                         auction_badge_class = "bg-secondary"
+                        if "T-1" in auction:
+                            auction_badge_class = "bg-warning"
+                        elif "T-4" in auction:
+                            auction_badge_class = "bg-info"
+                        elif "T-3" in auction:
+                            auction_badge_class = "bg-success"
+                        
                         if auction:
-                            if "T-1" in auction or "T1" in auction:
-                                auction_type = "T-1" 
-                                auction_badge_class = "bg-warning"
-                            elif "T-4" in auction or "T4" in auction:
-                                auction_type = "T-4"
-                                auction_badge_class = "bg-info"
-                            elif "T-3" in auction or "T3" in auction:
-                                auction_type = "T-3"
-                                auction_badge_class = "bg-success"
-                            elif "TR" in auction:
-                                auction_type = "TR"
-                                auction_badge_class = "bg-danger"
-                            else:
-                                auction_type = auction.split()[0] if " " in auction else auction
-                                
-                        if auction_type:
-                            badges.append(f'<span class="badge {auction_badge_class} me-1">{auction_type}</span>')
+                            badges.append(f'<span class="badge {auction_badge_class} me-1">{auction}</span>')
                         
                         # Delivery year badge
-                        if delivery_year and delivery_year != "N/A":
+                        if delivery_year:
                             badges.append(f'<span class="badge bg-secondary me-1">Year: {delivery_year}</span>')
-                        
-                        # Technology badge
-                        if tech and tech != "N/A":
-                            tech_short = tech[:20] + "..." if len(tech) > 20 else tech
-                            badges.append(f'<span class="badge bg-primary me-1">{tech_short}</span>')
-                        
-                        # Type badge (if different from auction type)
-                        if typ and typ != "N/A" and typ != auction_type:
-                            badges.append(f'<span class="badge bg-dark me-1">{typ}</span>')
                         
                         badges_html = " ".join(badges)
                         
                         cmu_html += f"""
                             <li>
                                 <div class="mb-1">{badges_html}</div>
-                                <i>{desc}</i>{f" - {tech}" if tech and not tech in badges_html else ""}
+                                <i>{desc}</i>{f" - {tech}" if tech else ""}
                             </li>
                         """
+                    
+                    cmu_html += """
+                            </ul>
+                        </li>
+                    """
                 
                 cmu_html += "</ul>"
             else:
@@ -435,7 +443,6 @@ def htmx_auction_components(request, company_id, year, auction_name):
     except Exception as e:
         logger.error(f"Error loading auction components: {str(e)}")
         logger.error(traceback.format_exc())
-        error_message = f"Error loading auction components: {str(e)}"
         error_html = f"""
             <div class='alert alert-danger'>
                 <p><strong>We're having trouble loading these components.</strong></p>
