@@ -15,7 +15,7 @@ urlpatterns = [
     path("api/auction-components/<str:company_id>/<str:year>/<str:auction_name>/",
          views.htmx_auction_components, name="htmx_auction_components"),
     path("api/cmu-details/<str:cmu_id>/",
-         views.htmx_cmu_details, name="htmx_cmu_details"),
+         views.get_cmu_details, name="htmx_cmu_details"),
 
     # Component detail page
     path("component/<str:component_id>/",

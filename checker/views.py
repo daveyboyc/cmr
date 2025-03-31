@@ -10,7 +10,7 @@ from django.db.models import Count
 from .models import Component
 
 # Import service functions
-from .services.company_search import search_companies_service, get_company_years, get_cmu_details
+from .services.company_search import search_companies_service, get_company_years, get_cmu_details, get_auction_components
 
 from .services.component_search import search_components_service
 from .services.component_detail import get_component_details
