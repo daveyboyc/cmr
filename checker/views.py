@@ -388,7 +388,8 @@ def htmx_auction_components(request, company_id, year, auction_name):
                         for component in location_components:
                             desc = component.description or 'No description'
                             tech = component.technology or ''
-                            component_id = component.component_id or ''
+                            # Use component.id which is the database primary key
+                            db_id = component.id 
                             auction = component.auction_name or ''
                             delivery_year = component.delivery_year or ''
                             
@@ -417,10 +418,12 @@ def htmx_auction_components(request, company_id, year, auction_name):
                             
                             badges_html = " ".join(badges)
                             
+                            # Make description the link using database id
+                            detail_url = f"/component/{db_id}/" 
                             cmu_html += f"""
                                 <li>
                                     <div class="mb-1">{badges_html}</div>
-                                    <i>{desc}</i>{f" - {tech}" if tech else ""}
+                                    <i><a href="{detail_url}">{desc}</a></i>{f" - {tech}" if tech else ""}
                                 </li>
                             """
                         

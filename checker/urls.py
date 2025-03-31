@@ -17,8 +17,8 @@ urlpatterns = [
     path("api/cmu-details/<str:cmu_id>/",
          views.get_cmu_details, name="htmx_cmu_details"),
 
-    # Component detail page
-    path("component/<str:component_id>/",
+    # Component detail page - use integer primary key
+    path("component/<int:pk>/",
          views.component_detail, name="component_detail"),
 
     # Company detail page
