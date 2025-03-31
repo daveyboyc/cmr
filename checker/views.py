@@ -179,60 +179,91 @@ def htmx_auction_components(request, company_id, year, auction_name):
     logger = logging.getLogger(__name__)
     logger.info(f"Loading auction components: company_id={company_id}, year={year}, auction={auction_name}")
     
-    # Convert URL parameters from underscores back to spaces
-    year = from_url_param(year)
-    auction_name = from_url_param(auction_name)
-    
-    # Extract auction type for display purposes only
-    auction_type = None
-    if "T-1" in auction_name:
-        auction_type = "T-1"
-    elif "T-4" in auction_name:
-        auction_type = "T-4"
-    elif "T-3" in auction_name:
-        auction_type = "T-3"
-    else:
-        auction_type = "other"
-    
-    logger.info(f"Auction details: type={auction_type}, full_name={auction_name}")
-    
     try:
+        # Convert URL parameters from underscores back to spaces
+        year = from_url_param(year)
+        auction_name = from_url_param(auction_name)
+        
+        # Extract auction type for display purposes only
+        auction_type = None
+        if "T-1" in auction_name:
+            auction_type = "T-1"
+        elif "T-4" in auction_name:
+            auction_type = "T-4"
+        elif "T-3" in auction_name:
+            auction_type = "T-3"
+        else:
+            auction_type = "other"
+        
+        logger.info(f"Auction details: type={auction_type}, full_name={auction_name}")
+        
         # Get company name
         company_name = None
-        companies = Component.objects.values('company_name').distinct()
-        for company in companies:
-            if company['company_name'] and normalize(company['company_name']) == company_id:
-                company_name = company['company_name']
-                break
-        
-        if not company_name:
-            # Try a looser match if exact match fails
-            top_companies = Component.objects.values_list('company_name', flat=True).distinct()[:100]
-            for curr_name in top_companies:
-                if curr_name and (company_id in normalize(curr_name) or normalize(curr_name) in company_id):
-                    company_name = curr_name
+        try:
+            companies = Component.objects.values('company_name').distinct()
+            for company in companies:
+                if company['company_name'] and normalize(company['company_name']) == company_id:
+                    company_name = company['company_name']
                     break
+            
+            if not company_name:
+                # Try a looser match if exact match fails
+                top_companies = Component.objects.values_list('company_name', flat=True).distinct()[:100]
+                for curr_name in top_companies:
+                    if curr_name and (company_id in normalize(curr_name) or normalize(curr_name) in company_id):
+                        company_name = curr_name
+                        break
+        except Exception as comp_error:
+            logger.error(f"Error finding company: {str(comp_error)}")
+            logger.error(traceback.format_exc())
+            return HttpResponse(f"""
+                <div class='alert alert-danger'>
+                    <p><strong>Error finding company: {str(comp_error)}</strong></p>
+                    <p>Please try again or choose a different auction.</p>
+                </div>
+            """)
         
         if not company_name:
             return HttpResponse(f"<div class='alert alert-warning'>Company not found: {company_id}</div>")
         
         logger.info(f"Found company: {company_name}")
         
-        # ===== SIMPLIFIED APPROACH =====
+        # ===== SIMPLIFIED APPROACH WITH MORE ERROR HANDLING =====
         # Build query with direct auction name filtering
-        base_query = Q(company_name=company_name)
-        
-        # Add year filter
-        if year:
-            base_query &= Q(delivery_year__icontains=year)
-        
-        # Add direct auction name filter - this is the key to fixing the issue
-        if auction_name:
-            base_query &= Q(auction_name__icontains=auction_name)
-        
-        # Get components with the direct filter
-        components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
-        logger.info(f"Found {len(components)} components matching company={company_name}, year={year}, auction={auction_name}")
+        try:
+            base_query = Q(company_name=company_name)
+            
+            # Add year filter
+            if year:
+                base_query &= Q(delivery_year=year)  # Use exact match first
+            
+            # Add direct auction name filter - this is the key to fixing the issue
+            if auction_name:
+                # Try exact match first for better performance and reliability
+                base_query &= Q(auction_name=auction_name)
+            
+            # Get components with the direct filter
+            components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
+            
+            # If exact match doesn't work, try a looser match
+            if not components and auction_name:
+                logger.info(f"No exact matches for auction_name='{auction_name}', trying looser match")
+                base_query = Q(company_name=company_name)
+                if year:
+                    base_query &= Q(delivery_year=year)
+                base_query &= Q(auction_name__icontains=auction_name)
+                components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
+            
+            logger.info(f"Found {len(components)} components matching company={company_name}, year={year}, auction={auction_name}")
+        except Exception as query_error:
+            logger.error(f"Error in database query: {str(query_error)}")
+            logger.error(traceback.format_exc())
+            return HttpResponse(f"""
+                <div class='alert alert-danger'>
+                    <p><strong>Error querying components: {str(query_error)}</strong></p>
+                    <p>Please try again or choose a different auction.</p>
+                </div>
+            """)
         
         # If we found no components, show specific message
         if not components:
@@ -244,137 +275,148 @@ def htmx_auction_components(request, company_id, year, auction_name):
             """)
         
         # Organize by CMU ID
-        components_by_cmu = {}
-        for comp in components:
-            cmu_id = comp.cmu_id
-            if not cmu_id:
-                continue
+        try:
+            components_by_cmu = {}
+            for comp in components:
+                cmu_id = comp.cmu_id
+                if not cmu_id:
+                    continue
+                    
+                if cmu_id not in components_by_cmu:
+                    components_by_cmu[cmu_id] = []
                 
-            if cmu_id not in components_by_cmu:
-                components_by_cmu[cmu_id] = []
+                components_by_cmu[cmu_id].append(comp)
             
-            components_by_cmu[cmu_id].append(comp)
-        
-        # Generate HTML
-        html = f"<div class='component-results mb-3'>"
-        html += f"<div class='alert alert-info'>Found {len(components_by_cmu)} CMU IDs for auction: {auction_name}</div>"
-        
-        # Group by CMU ID
-        html += "<div class='row'>"
-        
-        for cmu_id in sorted(components_by_cmu.keys()):
-            cmu_components = components_by_cmu.get(cmu_id, [])
+            # Generate HTML
+            html = f"<div class='component-results mb-3'>"
+            html += f"<div class='alert alert-info'>Found {len(components_by_cmu)} CMU IDs for auction: {auction_name}</div>"
             
-            # Extract locations
-            locations = {}
-            for comp in cmu_components:
-                loc = comp.location or "Unknown Location"
-                if loc not in locations:
-                    locations[loc] = []
-                locations[loc].append(comp)
+            # Group by CMU ID
+            html += "<div class='row'>"
             
-            # Format component records for the template - full width for each card
-            cmu_html = f"""
-            <div class="col-12 mb-3">
-                <div class="card cmu-card">
-                    <div class="card-header bg-light">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span>CMU ID: <strong>{cmu_id}</strong></span>
-                            <a href="/components/?q={cmu_id}" class="btn btn-sm btn-info">View Components</a>
+            for cmu_id in sorted(components_by_cmu.keys()):
+                cmu_components = components_by_cmu.get(cmu_id, [])
+                
+                # Extract locations
+                locations = {}
+                for comp in cmu_components:
+                    loc = comp.location or "Unknown Location"
+                    if loc not in locations:
+                        locations[loc] = []
+                    locations[loc].append(comp)
+                
+                # Format component records for the template - full width for each card
+                cmu_html = f"""
+                <div class="col-12 mb-3">
+                    <div class="card cmu-card">
+                        <div class="card-header bg-light">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span>CMU ID: <strong>{cmu_id}</strong></span>
+                                <a href="/components/?q={cmu_id}" class="btn btn-sm btn-info">View Components</a>
+                            </div>
+                            <div class="small text-muted mt-1">Found {len(cmu_components)} components</div>
                         </div>
-                        <div class="small text-muted mt-1">Found {len(cmu_components)} components</div>
-                    </div>
-                    <div class="card-body">
-                        <p><strong>Components:</strong> {len(cmu_components)}</p>
-            """
-            
-            # Check timeout
-            if time.time() - start_time > MAX_EXECUTION_TIME:
-                return HttpResponse("""
-                    <div class='alert alert-warning'>
-                        <p><strong>The operation is taking too long.</strong></p>
-                        <p>We're working on improving performance. Please try again later or choose a different auction.</p>
-                    </div>
-                """)
-            
-            # Add locations list
-            if locations:
-                cmu_html += "<ul class='list-unstyled'>"
+                        <div class="card-body">
+                            <p><strong>Components:</strong> {len(cmu_components)}</p>
+                """
                 
-                for location, location_components in sorted(locations.items()):
-                    # Create component ID for linking
-                    component_id = f"{cmu_id}_{normalize(location)}"
+                # Check timeout
+                if time.time() - start_time > MAX_EXECUTION_TIME:
+                    return HttpResponse("""
+                        <div class='alert alert-warning'>
+                            <p><strong>The operation is taking too long.</strong></p>
+                            <p>We're working on improving performance. Please try again later or choose a different auction.</p>
+                        </div>
+                    """)
+                
+                # Add locations list
+                if locations:
+                    cmu_html += "<ul class='list-unstyled'>"
                     
-                    # Format location as a blue link
-                    location_html = f'<a href="/component/{component_id}/" style="color: blue; text-decoration: underline;">{location}</a>'
-                    
-                    cmu_html += f"""
-                        <li class="mb-2">
-                            <strong>{location_html}</strong> <span class="text-muted">({len(location_components)} components)</span>
-                            <ul class="ms-3">
-                    """
-                    
-                    # Add description of components with badges
-                    for component in location_components:
-                        desc = component.description or 'No description'
-                        tech = component.technology or ''
-                        component_id = component.component_id or ''
-                        auction = component.auction_name or ''
-                        delivery_year = component.delivery_year or ''
+                    for location, location_components in sorted(locations.items()):
+                        # Create component ID for linking
+                        component_id = f"{cmu_id}_{normalize(location)}"
                         
-                        # Create badges
-                        badges = []
-                        
-                        # Component ID badge - important to display this
-                        if component_id:
-                            badges.append(f'<span class="badge bg-secondary me-1">ID: {component_id}</span>')
-                        
-                        # Auction type badge
-                        auction_badge_class = "bg-secondary"
-                        if "T-1" in auction:
-                            auction_badge_class = "bg-warning"
-                        elif "T-4" in auction:
-                            auction_badge_class = "bg-info"
-                        elif "T-3" in auction:
-                            auction_badge_class = "bg-success"
-                        
-                        if auction:
-                            badges.append(f'<span class="badge {auction_badge_class} me-1">{auction}</span>')
-                        
-                        # Delivery year badge
-                        if delivery_year:
-                            badges.append(f'<span class="badge bg-secondary me-1">Year: {delivery_year}</span>')
-                        
-                        badges_html = " ".join(badges)
+                        # Format location as a blue link
+                        location_html = f'<a href="/component/{component_id}/" style="color: blue; text-decoration: underline;">{location}</a>'
                         
                         cmu_html += f"""
-                            <li>
-                                <div class="mb-1">{badges_html}</div>
-                                <i>{desc}</i>{f" - {tech}" if tech else ""}
+                            <li class="mb-2">
+                                <strong>{location_html}</strong> <span class="text-muted">({len(location_components)} components)</span>
+                                <ul class="ms-3">
+                        """
+                        
+                        # Add description of components with badges
+                        for component in location_components:
+                            desc = component.description or 'No description'
+                            tech = component.technology or ''
+                            component_id = component.component_id or ''
+                            auction = component.auction_name or ''
+                            delivery_year = component.delivery_year or ''
+                            
+                            # Create badges
+                            badges = []
+                            
+                            # Component ID badge - important to display this
+                            if component_id:
+                                badges.append(f'<span class="badge bg-secondary me-1">ID: {component_id}</span>')
+                            
+                            # Auction type badge
+                            auction_badge_class = "bg-secondary"
+                            if "T-1" in auction:
+                                auction_badge_class = "bg-warning"
+                            elif "T-4" in auction:
+                                auction_badge_class = "bg-info"
+                            elif "T-3" in auction:
+                                auction_badge_class = "bg-success"
+                            
+                            if auction:
+                                badges.append(f'<span class="badge {auction_badge_class} me-1">{auction}</span>')
+                            
+                            # Delivery year badge
+                            if delivery_year:
+                                badges.append(f'<span class="badge bg-secondary me-1">Year: {delivery_year}</span>')
+                            
+                            badges_html = " ".join(badges)
+                            
+                            cmu_html += f"""
+                                <li>
+                                    <div class="mb-1">{badges_html}</div>
+                                    <i>{desc}</i>{f" - {tech}" if tech else ""}
+                                </li>
+                            """
+                        
+                        cmu_html += """
+                                </ul>
                             </li>
                         """
                     
-                    cmu_html += """
-                            </ul>
-                        </li>
-                    """
+                    cmu_html += "</ul>"
+                else:
+                    cmu_html += "<p>No location information available</p>"
                 
-                cmu_html += "</ul>"
-            else:
-                cmu_html += "<p>No location information available</p>"
-            
-            cmu_html += """
+                cmu_html += """
+                        </div>
                     </div>
                 </div>
-            </div>
-            """
+                """
+                
+                html += cmu_html
             
-            html += cmu_html
-        
-        html += "</div></div>"
-        
-        return HttpResponse(html)
-        
+            html += "</div></div>"
+            
+            return HttpResponse(html)
+        except Exception as e:
+            logger.error(f"Error processing components: {str(e)}")
+            logger.error(traceback.format_exc())
+            error_html = f"""
+                <div class='alert alert-danger'>
+                    <p><strong>Error processing components: {str(e)}</strong></p>
+                    <p>Please try again or choose a different auction.</p>
+                </div>
+            """
+            return HttpResponse(error_html)
+            
     except Exception as e:
         logger.error(f"Error loading auction components: {str(e)}")
         logger.error(traceback.format_exc())
@@ -383,6 +425,7 @@ def htmx_auction_components(request, company_id, year, auction_name):
                 <p><strong>We're having trouble loading these components.</strong></p>
                 <p>Please try again or choose a different auction.</p>
                 <button class="btn btn-primary mt-2" onclick="location.reload()">Try Again</button>
+                <p class="small text-muted mt-3">Error: {str(e)[:200]}...</p>
             </div>
         """
         
