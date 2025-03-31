@@ -183,52 +183,35 @@ def htmx_auction_components(request, company_id, year, auction_name):
     year = from_url_param(year)
     auction_name = from_url_param(auction_name)
     
-    # Extract auction type and year from auction name
+    # First, determine the exact auction type from the auction name
     auction_type = None
-    auction_year_pattern = None
-    
-    if "T-1" in auction_name or "T1" in auction_name or "T 1" in auction_name:
+    if "T-1" in auction_name or "T1 " in auction_name or " T1" in auction_name:
         auction_type = "T-1"
-    elif "T-4" in auction_name or "T4" in auction_name or "T 4" in auction_name:
+    elif "T-4" in auction_name or "T4 " in auction_name or " T4" in auction_name:
         auction_type = "T-4"
-    elif "T-3" in auction_name or "T3" in auction_name or "T 3" in auction_name:
-        auction_type = "T-3"
-        
-    # Try to extract year pattern from auction name (like 2025-26)
-    year_pattern_match = re.search(r'(\d{4})[-/]?(\d{2})', auction_name)
-    if year_pattern_match:
-        auction_year_pattern = year_pattern_match.group(0)
-        
-    logger.info(f"Extracted auction type: {auction_type}, year pattern: {auction_year_pattern}")
+    else:
+        # Default to T-4 if we can't determine (prevents leakage)
+        auction_type = "unknown"
+    
+    # Extract year pattern from auction name
+    year_pattern = None
+    year_match = re.search(r'(\d{4})[-/]?(\d{2})', auction_name)
+    if year_match:
+        year_pattern = year_match.group(0)
+    
+    logger.info(f"Auction details: type={auction_type}, year_pattern={year_pattern}, full_name={auction_name}")
     
     try:
-        # Find company by direct lookup to avoid complex filtering
+        # Get company name
         company_name = None
-        try:
-            # Try exact match first with ORM for simplicity
-            from django.db.models import Value, CharField
-            from django.db.models.functions import Lower
-            
-            # Get unique company names and normalize them
-            companies = Component.objects.values('company_name').distinct()
-            for company in companies:
-                if company['company_name'] and normalize(company['company_name']) == company_id:
-                    company_name = company['company_name']
-                    break
-        except Exception as db_error:
-            logger.warning(f"Database direct query failed: {db_error}")
-        
-        # Check timeout
-        if time.time() - start_time > MAX_EXECUTION_TIME:
-            return HttpResponse("""
-                <div class='alert alert-warning'>
-                    <p><strong>The operation is taking too long.</strong></p>
-                    <p>We're working on improving performance. Please try again later or choose a different auction.</p>
-                </div>
-            """)
+        companies = Component.objects.values('company_name').distinct()
+        for company in companies:
+            if company['company_name'] and normalize(company['company_name']) == company_id:
+                company_name = company['company_name']
+                break
         
         if not company_name:
-            # Quick fuzzy match
+            # Try a looser match if exact match fails
             top_companies = Component.objects.values_list('company_name', flat=True).distinct()[:100]
             for curr_name in top_companies:
                 if curr_name and (company_id in normalize(curr_name) or normalize(curr_name) in company_id):
@@ -240,138 +223,64 @@ def htmx_auction_components(request, company_id, year, auction_name):
         
         logger.info(f"Found company: {company_name}")
         
-        # Build a query that matches both the company and specific auction
-        query = Q(company_name=company_name)
+        # ===== CRUCIAL SECTION: MODIFIED APPROACH =====
+        # Instead of doing complex filtering with database queries,
+        # we'll get ALL components for this company and year first,
+        # then apply strict filtering entirely in Python
         
-        # Add year filter
+        # Base query - just get company and year
+        base_query = Q(company_name=company_name)
         if year:
-            year_query = Q(delivery_year=year)
-            # Also match if year is part of delivery_year
-            year_query |= Q(delivery_year__icontains=year)
-            query &= year_query
+            base_query &= Q(delivery_year__icontains=year)
         
-        # =========== ENHANCED AUCTION FILTERING ===========
-        # Use much more specific auction filtering based on auction type
-        if auction_type:
-            # Use exact matching for auction type to avoid crossover
+        # Get ALL components for this company and year
+        all_components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
+        logger.info(f"Found {len(all_components)} total components for company={company_name}, year={year}")
+        
+        # Now do strict Python-based filtering
+        filtered_components = []
+        
+        for comp in all_components:
+            comp_auction = comp.auction_name or ""
+            
+            # ===== SUPER STRICT AUCTION TYPE MATCHING =====
+            # For T-1 auction section, only include components with T-1 in auction name
+            # AND explicitly exclude any component with T-4
             if auction_type == "T-1":
-                # For T-1, be extremely specific to avoid T-4 components
-                auction_query = (Q(auction_name__startswith="T-1") | 
-                                Q(auction_name__startswith="T1 ") | 
-                                Q(auction_name__contains=" T-1 ") | 
-                                Q(auction_name__contains="(T-1)"))
-                # Explicitly exclude T-4 references 
-                auction_query &= ~Q(auction_name__contains="T-4")
-                auction_query &= ~Q(auction_name__contains="T4 ")
-            
+                if (("T-1" in comp_auction or "T1 " in comp_auction or " T1" in comp_auction) and 
+                    not ("T-4" in comp_auction or "T4 " in comp_auction or " T4" in comp_auction)):
+                    filtered_components.append(comp)
+                    
+            # For T-4 auction section, only include components with T-4 in auction name
+            # AND explicitly exclude any component with T-1
             elif auction_type == "T-4":
-                # For T-4, be extremely specific to avoid T-1 components
-                auction_query = (Q(auction_name__startswith="T-4") | 
-                                Q(auction_name__startswith="T4 ") | 
-                                Q(auction_name__contains=" T-4 ") | 
-                                Q(auction_name__contains="(T-4)"))
-                # Explicitly exclude T-1 references
-                auction_query &= ~Q(auction_name__contains="T-1")
-                auction_query &= ~Q(auction_name__contains="T1 ")
-            
+                if (("T-4" in comp_auction or "T4 " in comp_auction or " T4" in comp_auction) and 
+                    not ("T-1" in comp_auction or "T1 " in comp_auction or " T1" in comp_auction)):
+                    filtered_components.append(comp)
+                    
+            # For other auction types, use more relaxed filtering
             else:
-                # For other auction types, still be specific but less restrictive
-                auction_query = Q(auction_name__contains=auction_type)
-            
-            query &= auction_query
+                if auction_type in comp_auction:
+                    filtered_components.append(comp)
         
-        # Add auction year pattern for additional filtering
-        if auction_year_pattern:
-            query &= Q(auction_name__contains=auction_year_pattern)
+        logger.info(f"After strict filtering, found {len(filtered_components)} components for auction type: {auction_type}")
         
-        # Get components with a limit
-        components = Component.objects.filter(query).select_related().order_by('cmu_id', 'location')[:300]
-        
-        # Check timeout
-        if time.time() - start_time > MAX_EXECUTION_TIME:
-            return HttpResponse("""
-                <div class='alert alert-warning'>
-                    <p><strong>The operation is taking too long.</strong></p>
-                    <p>We're working on improving performance. Please try again later or choose a different auction.</p>
-                </div>
-            """)
-        
-        # Process results
-        if not components:
+        # If we found no components after filtering, show specific message
+        if not filtered_components:
             return HttpResponse(f"""
-                <div class='alert alert-warning'>
-                    <p>No components found matching these criteria:</p>
-                    <ul>
-                        <li>Company: {company_name}</li>
-                        <li>Year: {year}</li>
-                        <li>Auction: {auction_name}</li>
-                        <li>Type: {auction_type}</li>
-                        <li>Year Pattern: {auction_year_pattern}</li>
-                    </ul>
+                <div class='alert alert-info'>
+                    <p>No components found for this auction type: {auction_type}</p>
+                    <p>This might be because this company doesn't participate in this specific auction.</p>
                 </div>
             """)
         
         # Organize by CMU ID
         components_by_cmu = {}
-        cmu_ids = set()
-        
-        for comp in components:
+        for comp in filtered_components:
             cmu_id = comp.cmu_id
             if not cmu_id:
                 continue
                 
-            # ======== ENHANCED COMPONENT FILTERING ========
-            # Apply strict auction type matching for each component
-            comp_auction = comp.auction_name or ""
-            if auction_type:
-                # Make an exact match by auction type - critical to avoid overlap
-                is_matching_auction = False
-                
-                if auction_type == "T-1":
-                    # Very strict check for T-1
-                    is_matching_auction = (
-                        comp_auction.startswith("T-1") or 
-                        comp_auction.startswith("T1 ") or
-                        " T-1 " in comp_auction or
-                        "(T-1)" in comp_auction
-                    )
-                    # Skip if it contains T-4 anywhere
-                    if "T-4" in comp_auction or "T4 " in comp_auction:
-                        continue
-                        
-                elif auction_type == "T-4":
-                    # Very strict check for T-4
-                    is_matching_auction = (
-                        comp_auction.startswith("T-4") or 
-                        comp_auction.startswith("T4 ") or
-                        " T-4 " in comp_auction or
-                        "(T-4)" in comp_auction
-                    )
-                    # Skip if it contains T-1 anywhere
-                    if "T-1" in comp_auction or "T1 " in comp_auction:
-                        continue
-                
-                else:
-                    # For other types, be less strict
-                    is_matching_auction = auction_type in comp_auction
-                
-                # If component doesn't match our auction type, skip it
-                if not is_matching_auction:
-                    # Last-resort check against the type field
-                    if not (comp.type and auction_type in comp.type):
-                        continue
-            
-            # If auction year pattern exists, check that too
-            if auction_year_pattern and auction_year_pattern not in comp_auction:
-                # Try to match looser version (just the first year)
-                year_match = False
-                if auction_year_pattern and auction_year_pattern[:4].isdigit():
-                    if auction_year_pattern[:4] in comp_auction:
-                        year_match = True
-                if not year_match:
-                    continue
-                
-            cmu_ids.add(cmu_id)
             if cmu_id not in components_by_cmu:
                 components_by_cmu[cmu_id] = []
             
@@ -379,22 +288,21 @@ def htmx_auction_components(request, company_id, year, auction_name):
         
         # Generate HTML
         html = f"<div class='component-results mb-3'>"
-        html += f"<div class='alert alert-info'>Found {len(components_by_cmu)} CMU IDs matching {auction_type or 'any auction type'} for {auction_name}</div>"
+        html += f"<div class='alert alert-info'>Found {len(components_by_cmu)} CMU IDs for auction: {auction_name}</div>"
         
         # Group by CMU ID
         html += "<div class='row'>"
         
-        for cmu_id in sorted(cmu_ids):
+        for cmu_id in sorted(components_by_cmu.keys()):
             cmu_components = components_by_cmu.get(cmu_id, [])
             
             # Extract locations
             locations = {}
             for comp in cmu_components:
-                loc = comp.location
-                if loc and loc not in locations:
+                loc = comp.location or "Unknown Location"
+                if loc not in locations:
                     locations[loc] = []
-                if loc:
-                    locations[loc].append(comp)
+                locations[loc].append(comp)
             
             # Format component records for the template - full width for each card
             cmu_html = f"""
@@ -410,15 +318,6 @@ def htmx_auction_components(request, company_id, year, auction_name):
                     <div class="card-body">
                         <p><strong>Components:</strong> {len(cmu_components)}</p>
             """
-            
-            # Check timeout
-            if time.time() - start_time > MAX_EXECUTION_TIME:
-                return HttpResponse("""
-                    <div class='alert alert-warning'>
-                        <p><strong>The operation is taking too long.</strong></p>
-                        <p>We're working on improving performance. Please try again later or choose a different auction.</p>
-                    </div>
-                """)
             
             # Add locations list
             if locations:
