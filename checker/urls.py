@@ -38,8 +38,8 @@ urlpatterns = [
     # Debug endpoints
     path("debug/cache/<str:cmu_id>/",
          views.debug_cache, name="debug_cache"),
-    path("debug/mapping/",
-         views.debug_mapping, name="debug_mapping"),
+#    path("debug/mapping/",
+#         views.debug_mapping, name="debug_mapping"),
     path("debug/mapping-cache/",
          views.debug_mapping_cache, name="debug_mapping_cache"),
          
