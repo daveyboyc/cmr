@@ -250,36 +250,40 @@ def htmx_auction_components(request, company_id, year, auction_name):
             year_query |= Q(delivery_year__icontains=year)
             query &= year_query
         
-        # Add auction type filter if we identified a specific type
-        if auction_type or auction_year_pattern:
-            # Build a more precise auction query
-            auction_queries = []
+        # =========== ENHANCED AUCTION FILTERING ===========
+        # Use much more specific auction filtering based on auction type
+        if auction_type:
+            # Use exact matching for auction type to avoid crossover
+            if auction_type == "T-1":
+                # For T-1, be extremely specific to avoid T-4 components
+                auction_query = (Q(auction_name__startswith="T-1") | 
+                                Q(auction_name__startswith="T1 ") | 
+                                Q(auction_name__contains=" T-1 ") | 
+                                Q(auction_name__contains="(T-1)"))
+                # Explicitly exclude T-4 references 
+                auction_query &= ~Q(auction_name__contains="T-4")
+                auction_query &= ~Q(auction_name__contains="T4 ")
             
-            # If we have both type and year pattern, combine them
-            if auction_type and auction_year_pattern:
-                # Match exact auction format like "T-4 2025-26"
-                combined_pattern = f"{auction_type} {auction_year_pattern}"
-                auction_queries.append(Q(auction_name__icontains=combined_pattern))
-                
-                # Also match if components store it differently
-                auction_queries.append(Q(auction_name__istartswith=auction_type) & 
-                                    Q(auction_name__icontains=auction_year_pattern))
+            elif auction_type == "T-4":
+                # For T-4, be extremely specific to avoid T-1 components
+                auction_query = (Q(auction_name__startswith="T-4") | 
+                                Q(auction_name__startswith="T4 ") | 
+                                Q(auction_name__contains=" T-4 ") | 
+                                Q(auction_name__contains="(T-4)"))
+                # Explicitly exclude T-1 references
+                auction_query &= ~Q(auction_name__contains="T-1")
+                auction_query &= ~Q(auction_name__contains="T1 ")
+            
             else:
-                # If we only have one piece, still be more strict
-                if auction_type:
-                    # Be strict - must start with the auction type to avoid matching partial text
-                    auction_queries.append(Q(auction_name__istartswith=auction_type))
-                
-                if auction_year_pattern:
-                    auction_queries.append(Q(auction_name__icontains=auction_year_pattern))
+                # For other auction types, still be specific but less restrictive
+                auction_query = Q(auction_name__contains=auction_type)
             
-            # Combine all auction queries with OR
-            if auction_queries:
-                auction_query = auction_queries[0]
-                for q in auction_queries[1:]:
-                    auction_query |= q
-                query &= auction_query
-            
+            query &= auction_query
+        
+        # Add auction year pattern for additional filtering
+        if auction_year_pattern:
+            query &= Q(auction_name__contains=auction_year_pattern)
+        
         # Get components with a limit
         components = Component.objects.filter(query).select_related().order_by('cmu_id', 'location')[:300]
         
@@ -316,30 +320,47 @@ def htmx_auction_components(request, company_id, year, auction_name):
             if not cmu_id:
                 continue
                 
-            # Only include components that match the auction type 
-            # This additional check ensures proper filtering
+            # ======== ENHANCED COMPONENT FILTERING ========
+            # Apply strict auction type matching for each component
             comp_auction = comp.auction_name or ""
             if auction_type:
-                # For T-1 and T-4 auctions, be very strict to ensure proper separation
-                auction_match = False
+                # Make an exact match by auction type - critical to avoid overlap
+                is_matching_auction = False
                 
-                # Check 1: Direct match at the start of auction name (most reliable)
-                if comp_auction.startswith(auction_type):
-                    auction_match = True
-                # Check 2: Match with space at the start
-                elif comp_auction.startswith(f"{auction_type} "):
-                    auction_match = True
-                # Check 3: For edge cases, check within parentheses or after specific text
-                elif f"({auction_type})" in comp_auction or f" {auction_type} " in comp_auction:
-                    auction_match = True
-                # Check 4: Check type field as fallback
-                elif comp.type and auction_type in comp.type:
-                    auction_match = True
+                if auction_type == "T-1":
+                    # Very strict check for T-1
+                    is_matching_auction = (
+                        comp_auction.startswith("T-1") or 
+                        comp_auction.startswith("T1 ") or
+                        " T-1 " in comp_auction or
+                        "(T-1)" in comp_auction
+                    )
+                    # Skip if it contains T-4 anywhere
+                    if "T-4" in comp_auction or "T4 " in comp_auction:
+                        continue
+                        
+                elif auction_type == "T-4":
+                    # Very strict check for T-4
+                    is_matching_auction = (
+                        comp_auction.startswith("T-4") or 
+                        comp_auction.startswith("T4 ") or
+                        " T-4 " in comp_auction or
+                        "(T-4)" in comp_auction
+                    )
+                    # Skip if it contains T-1 anywhere
+                    if "T-1" in comp_auction or "T1 " in comp_auction:
+                        continue
                 
-                # Skip if no auction match found
-                if not auction_match:
-                    continue
+                else:
+                    # For other types, be less strict
+                    is_matching_auction = auction_type in comp_auction
                 
+                # If component doesn't match our auction type, skip it
+                if not is_matching_auction:
+                    # Last-resort check against the type field
+                    if not (comp.type and auction_type in comp.type):
+                        continue
+            
             # If auction year pattern exists, check that too
             if auction_year_pattern and auction_year_pattern not in comp_auction:
                 # Try to match looser version (just the first year)
