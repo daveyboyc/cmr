@@ -237,35 +237,19 @@ def htmx_auction_components(request, company_id, year, auction_name):
         try:
             base_query = Q(company_name=company_name)
             
-            # Add year filter
+            # Use icontains for year filter
             if year:
-                base_query &= Q(delivery_year=year)  # Use exact match first
+                base_query &= Q(delivery_year__icontains=year) 
             
-            # Add direct auction name filter - this is the key to fixing the issue
+            # Use icontains for auction name filter
             if auction_name:
-                # Try exact match first for better performance and reliability
-                base_query &= Q(auction_name=auction_name)
+                base_query &= Q(auction_name__icontains=auction_name)
             
-            # Get components with the direct filter
+            # Get components with the flexible filter
             components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
             
-            # === LOGGING ADDED ===
-            logger.info(f"Exact match query found {components.count()} components.")
-            # === END LOGGING ===
+            logger.info(f"Flexible query ('icontains') found {components.count()} components.")
 
-            # If exact match doesn't work, try a looser match
-            if not components.exists() and auction_name:
-                logger.info(f"No exact matches for auction_name='{auction_name}', trying looser match")
-                base_query = Q(company_name=company_name)
-                if year:
-                    base_query &= Q(delivery_year=year)
-                base_query &= Q(auction_name__icontains=auction_name)
-                components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
-                # === LOGGING ADDED ===
-                logger.info(f"Looser match query ('icontains') found {components.count()} components.")
-                # === END LOGGING ===
-
-            logger.info(f"Found {components.count()} components matching company={company_name}, year={year}, auction={auction_name}")
         except Exception as query_error:
             logger.error(f"Error in database query: {str(query_error)}")
             logger.error(traceback.format_exc())
