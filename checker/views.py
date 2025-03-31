@@ -246,26 +246,49 @@ def htmx_auction_components(request, company_id, year, auction_name):
             if year:
                 base_query &= Q(delivery_year__icontains=year)
 
-            # --- Auction Name Filter (Focus on T-Type) ---
+            # --- Stricter Auction Name Matching ---
             if auction_name:
-                # Extract T-type from the input auction_name (e.g., "T-4")
-                t_number_part = None
-                if t_match := re.search(r'(T-\d|T\d|TR)', auction_name, re.IGNORECASE):
+                # Updated Regex to find T-number (allows space)
+                t_match = re.search(r'(T-\d|T\s?\d|TR)', auction_name, re.IGNORECASE) 
+                # Find the primary year (e.g., 2025 from "2025 26...")
+                year_match = re.search(r'(\d{4})', auction_name) 
+                
+                auction_filter = Q() # Start with an empty filter for auction parts
+                
+                # 1. Require matching T-number if found in input
+                if t_match:
                     t_number_part = t_match.group(1).upper().replace(' ','-') # Normalize to T-X
-                    logger.info(f"Extracted T-type: {t_number_part}")
-                    # Require auction_name to contain T-4 or (T-4) using OR
-                    base_query &= (Q(auction_name__icontains=t_number_part) | Q(auction_name__icontains=f"({t_number_part})"))
+                    # Require auction_name to contain T-4 or (T-4)
+                    auction_filter &= (Q(auction_name__icontains=t_number_part) | Q(auction_name__icontains=f"({t_number_part})"))
+                    logger.info(f"Added T-number filter: {t_number_part}")
                 else:
-                     logger.warning(f"No T-type found in input auction name, using broader contains: {auction_name}")
-                     # Fallback to general contains if no T-type extracted
+                    logger.warning(f"No T-number found in input auction name: {auction_name}")
+                    # If no T-number, the query will likely fail, but we proceed
+
+                # 2. Require matching year part if found in input
+                if year_match:
+                    year_part = year_match.group(1)
+                    # Require auction_name to contain the year part (e.g., 2025)
+                    auction_filter &= Q(auction_name__icontains=year_part)
+                    logger.info(f"Added Year filter: {year_part}")
+                else:
+                     logger.warning(f"No Year found in input auction name: {auction_name}")
+                     # If no year, the query will likely fail, but we proceed
+
+                # 3. Only add the auction_filter if we extracted BOTH parts
+                if t_match and year_match:
+                     base_query &= auction_filter
+                elif auction_name: # Fallback to simple contains if parts couldn't be extracted
+                     logger.warning(f"Could not extract required parts, falling back to basic contains: {auction_name}")
                      base_query &= Q(auction_name__icontains=auction_name)
-            # --- End Auction Name Filter ---
+            # --- End Stricter Matching ---
+
 
             # === Log the final Q object ===
-            logger.critical(f"FINAL QUERY FILTER (Relaxed AND): {base_query}")
+            logger.critical(f"FINAL QUERY FILTER (Strict): {base_query}")
             # === End Logging ===
 
-            # Get components with the filter
+            # Get components with the stricter filter
             components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
             
             logger.info(f"Specific query found {components.count()} components.")
