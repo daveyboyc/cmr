@@ -183,15 +183,17 @@ def htmx_auction_components(request, company_id, year, auction_name):
     year = from_url_param(year)
     auction_name = from_url_param(auction_name)
     
-    # First, determine the exact auction type from the auction name
+    # Improved auction type detection with more flexible patterns
     auction_type = None
-    if "T-1" in auction_name or "T1 " in auction_name or " T1" in auction_name:
+    if "T-1" in auction_name or "(T-1)" in auction_name or "T1" in auction_name or "(T1)" in auction_name:
         auction_type = "T-1"
-    elif "T-4" in auction_name or "T4 " in auction_name or " T4" in auction_name:
+    elif "T-4" in auction_name or "(T-4)" in auction_name or "T4" in auction_name or "(T4)" in auction_name:
         auction_type = "T-4"
+    elif "T-3" in auction_name or "(T-3)" in auction_name or "T3" in auction_name or "(T3)" in auction_name:
+        auction_type = "T-3"
     else:
-        # Default to T-4 if we can't determine (prevents leakage)
-        auction_type = "unknown"
+        # For other auction types, use the first word of the auction name
+        auction_type = auction_name.split(" ")[0] if auction_name else "unknown"
     
     # Extract year pattern from auction name
     year_pattern = None
@@ -247,20 +249,20 @@ def htmx_auction_components(request, company_id, year, auction_name):
             # For T-1 auction section, only include components with T-1 in auction name
             # AND explicitly exclude any component with T-4
             if auction_type == "T-1":
-                if (("T-1" in comp_auction or "T1 " in comp_auction or " T1" in comp_auction) and 
-                    not ("T-4" in comp_auction or "T4 " in comp_auction or " T4" in comp_auction)):
+                if (("T-1" in comp_auction or "(T-1)" in comp_auction or "T1" in comp_auction) and 
+                    not ("T-4" in comp_auction or "(T-4)" in comp_auction or "T4" in comp_auction)):
                     filtered_components.append(comp)
                     
             # For T-4 auction section, only include components with T-4 in auction name
             # AND explicitly exclude any component with T-1
             elif auction_type == "T-4":
-                if (("T-4" in comp_auction or "T4 " in comp_auction or " T4" in comp_auction) and 
-                    not ("T-1" in comp_auction or "T1 " in comp_auction or " T1" in comp_auction)):
+                if (("T-4" in comp_auction or "(T-4)" in comp_auction or "T4" in comp_auction) and 
+                    not ("T-1" in comp_auction or "(T-1)" in comp_auction or "T1" in comp_auction)):
                     filtered_components.append(comp)
                     
             # For other auction types, use more relaxed filtering
             else:
-                if auction_type in comp_auction:
+                if auction_type.lower() in comp_auction.lower():
                     filtered_components.append(comp)
         
         logger.info(f"After strict filtering, found {len(filtered_components)} components for auction type: {auction_type}")
@@ -271,6 +273,7 @@ def htmx_auction_components(request, company_id, year, auction_name):
                 <div class='alert alert-info'>
                     <p>No components found for this auction type: {auction_type}</p>
                     <p>This might be because this company doesn't participate in this specific auction.</p>
+                    <p class="small text-muted">Debug: auction_name="{auction_name}", detected type="{auction_type}"</p>
                 </div>
             """)
         
