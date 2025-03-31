@@ -251,14 +251,34 @@ def htmx_auction_components(request, company_id, year, auction_name):
             query &= year_query
         
         # Add auction type filter if we identified a specific type
-        if auction_type:
-            auction_query = Q(auction_name__icontains=auction_type)
-            query &= auction_query
+        if auction_type or auction_year_pattern:
+            # Build a more precise auction query
+            auction_queries = []
             
-        # Add auction year pattern filter if we identified one
-        if auction_year_pattern:
-            pattern_query = Q(auction_name__icontains=auction_year_pattern)
-            query &= pattern_query
+            # If we have both type and year pattern, combine them
+            if auction_type and auction_year_pattern:
+                # Match exact auction format like "T-4 2025-26"
+                combined_pattern = f"{auction_type} {auction_year_pattern}"
+                auction_queries.append(Q(auction_name__icontains=combined_pattern))
+                
+                # Also match if components store it differently
+                auction_queries.append(Q(auction_name__istartswith=auction_type) & 
+                                    Q(auction_name__icontains=auction_year_pattern))
+            else:
+                # If we only have one piece, still be more strict
+                if auction_type:
+                    # Be strict - must start with the auction type to avoid matching partial text
+                    auction_queries.append(Q(auction_name__istartswith=auction_type))
+                
+                if auction_year_pattern:
+                    auction_queries.append(Q(auction_name__icontains=auction_year_pattern))
+            
+            # Combine all auction queries with OR
+            if auction_queries:
+                auction_query = auction_queries[0]
+                for q in auction_queries[1:]:
+                    auction_query |= q
+                query &= auction_query
             
         # Get components with a limit
         components = Component.objects.filter(query).select_related().order_by('cmu_id', 'location')[:300]
@@ -299,9 +319,26 @@ def htmx_auction_components(request, company_id, year, auction_name):
             # Only include components that match the auction type 
             # This additional check ensures proper filtering
             comp_auction = comp.auction_name or ""
-            if auction_type and auction_type not in comp_auction and auction_type not in (comp.type or ""):
-                # Skip components that don't match the auction type
-                continue
+            if auction_type:
+                # For T-1 and T-4 auctions, be very strict to ensure proper separation
+                auction_match = False
+                
+                # Check 1: Direct match at the start of auction name (most reliable)
+                if comp_auction.startswith(auction_type):
+                    auction_match = True
+                # Check 2: Match with space at the start
+                elif comp_auction.startswith(f"{auction_type} "):
+                    auction_match = True
+                # Check 3: For edge cases, check within parentheses or after specific text
+                elif f"({auction_type})" in comp_auction or f" {auction_type} " in comp_auction:
+                    auction_match = True
+                # Check 4: Check type field as fallback
+                elif comp.type and auction_type in comp.type:
+                    auction_match = True
+                
+                # Skip if no auction match found
+                if not auction_match:
+                    continue
                 
             # If auction year pattern exists, check that too
             if auction_year_pattern and auction_year_pattern not in comp_auction:
