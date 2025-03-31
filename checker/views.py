@@ -241,14 +241,40 @@ def htmx_auction_components(request, company_id, year, auction_name):
             
             base_query = Q(company_name=company_name)
             
-            # Use icontains for year filter
+            # Use icontains for year filter (should be okay)
             if year:
                 base_query &= Q(delivery_year__icontains=year) 
             
-            # Use icontains for auction name filter
+            # --- More Flexible Auction Name Matching ---
             if auction_name:
-                base_query &= Q(auction_name__icontains=auction_name)
-            
+                # Extract key parts from the incoming auction name
+                year_match = re.search(r'(\d{4})\s*(\d{2})?', auction_name)
+                t_match = re.search(r'(T-\d|T\d|TR)', auction_name, re.IGNORECASE)
+                
+                auction_filter = Q()
+                
+                # 1. Try matching the exact T-number if found
+                if t_match:
+                    auction_filter |= Q(auction_name__icontains=t_match.group(1).upper())
+                    
+                # 2. Try matching the year part (e.g., "2025" or "2025-26")
+                if year_match:
+                    year1 = year_match.group(1)
+                    year2 = year_match.group(2)
+                    # Match against "2025"
+                    auction_filter |= Q(auction_name__icontains=year1) 
+                    # Match against "2025-26" or "2025/26" if second part exists
+                    if year2:
+                         auction_filter |= Q(auction_name__icontains=f"{year1}-{year2}")
+                         auction_filter |= Q(auction_name__icontains=f"{year1}/{year2}")
+                         
+                # 3. As a fallback, use the original icontains
+                auction_filter |= Q(auction_name__icontains=auction_name)
+                
+                # Combine auction filters with OR, and add to base query with AND
+                base_query &= (auction_filter)
+            # --- End Flexible Matching ---
+
             # === Log the final Q object ===
             logger.critical(f"FINAL QUERY FILTER: {base_query}")
             # === End Logging ===
