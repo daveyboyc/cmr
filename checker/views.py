@@ -372,11 +372,8 @@ def htmx_auction_components(request, company_id, year, auction_name):
                     cmu_html += "<ul class='list-unstyled'>"
                     
                     for location, location_components in sorted(locations.items()):
-                        # Create component ID for linking
-                        component_id = f"{cmu_id}_{normalize(location)}"
-                        
-                        # Format location as a blue link
-                        location_html = f'<a href="/component/{component_id}/" style="color: blue; text-decoration: underline;">{location}</a>'
+                        # Format location as plain text, not a link
+                        location_html = location
                         
                         cmu_html += f"""
                             <li class="mb-2">
