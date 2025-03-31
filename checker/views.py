@@ -183,25 +183,18 @@ def htmx_auction_components(request, company_id, year, auction_name):
     year = from_url_param(year)
     auction_name = from_url_param(auction_name)
     
-    # Improved auction type detection with more flexible patterns
+    # Extract auction type for display purposes only
     auction_type = None
-    if "T-1" in auction_name or "(T-1)" in auction_name or "T1" in auction_name or "(T1)" in auction_name:
+    if "T-1" in auction_name:
         auction_type = "T-1"
-    elif "T-4" in auction_name or "(T-4)" in auction_name or "T4" in auction_name or "(T4)" in auction_name:
+    elif "T-4" in auction_name:
         auction_type = "T-4"
-    elif "T-3" in auction_name or "(T-3)" in auction_name or "T3" in auction_name or "(T3)" in auction_name:
+    elif "T-3" in auction_name:
         auction_type = "T-3"
     else:
-        # For other auction types, use the first word of the auction name
-        auction_type = auction_name.split(" ")[0] if auction_name else "unknown"
+        auction_type = "other"
     
-    # Extract year pattern from auction name
-    year_pattern = None
-    year_match = re.search(r'(\d{4})[-/]?(\d{2})', auction_name)
-    if year_match:
-        year_pattern = year_match.group(0)
-    
-    logger.info(f"Auction details: type={auction_type}, year_pattern={year_pattern}, full_name={auction_name}")
+    logger.info(f"Auction details: type={auction_type}, full_name={auction_name}")
     
     try:
         # Get company name
@@ -225,61 +218,34 @@ def htmx_auction_components(request, company_id, year, auction_name):
         
         logger.info(f"Found company: {company_name}")
         
-        # ===== CRUCIAL SECTION: MODIFIED APPROACH =====
-        # Instead of doing complex filtering with database queries,
-        # we'll get ALL components for this company and year first,
-        # then apply strict filtering entirely in Python
-        
-        # Base query - just get company and year
+        # ===== SIMPLIFIED APPROACH =====
+        # Build query with direct auction name filtering
         base_query = Q(company_name=company_name)
+        
+        # Add year filter
         if year:
             base_query &= Q(delivery_year__icontains=year)
         
-        # Get ALL components for this company and year
-        all_components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
-        logger.info(f"Found {len(all_components)} total components for company={company_name}, year={year}")
+        # Add direct auction name filter - this is the key to fixing the issue
+        if auction_name:
+            base_query &= Q(auction_name__icontains=auction_name)
         
-        # Now do strict Python-based filtering
-        filtered_components = []
+        # Get components with the direct filter
+        components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
+        logger.info(f"Found {len(components)} components matching company={company_name}, year={year}, auction={auction_name}")
         
-        for comp in all_components:
-            comp_auction = comp.auction_name or ""
-            
-            # ===== SUPER STRICT AUCTION TYPE MATCHING =====
-            # For T-1 auction section, only include components with T-1 in auction name
-            # AND explicitly exclude any component with T-4
-            if auction_type == "T-1":
-                if (("T-1" in comp_auction or "(T-1)" in comp_auction or "T1" in comp_auction) and 
-                    not ("T-4" in comp_auction or "(T-4)" in comp_auction or "T4" in comp_auction)):
-                    filtered_components.append(comp)
-                    
-            # For T-4 auction section, only include components with T-4 in auction name
-            # AND explicitly exclude any component with T-1
-            elif auction_type == "T-4":
-                if (("T-4" in comp_auction or "(T-4)" in comp_auction or "T4" in comp_auction) and 
-                    not ("T-1" in comp_auction or "(T-1)" in comp_auction or "T1" in comp_auction)):
-                    filtered_components.append(comp)
-                    
-            # For other auction types, use more relaxed filtering
-            else:
-                if auction_type.lower() in comp_auction.lower():
-                    filtered_components.append(comp)
-        
-        logger.info(f"After strict filtering, found {len(filtered_components)} components for auction type: {auction_type}")
-        
-        # If we found no components after filtering, show specific message
-        if not filtered_components:
+        # If we found no components, show specific message
+        if not components:
             return HttpResponse(f"""
                 <div class='alert alert-info'>
-                    <p>No components found for this auction type: {auction_type}</p>
+                    <p>No components found for this auction: {auction_name}</p>
                     <p>This might be because this company doesn't participate in this specific auction.</p>
-                    <p class="small text-muted">Debug: auction_name="{auction_name}", detected type="{auction_type}"</p>
                 </div>
             """)
         
         # Organize by CMU ID
         components_by_cmu = {}
-        for comp in filtered_components:
+        for comp in components:
             cmu_id = comp.cmu_id
             if not cmu_id:
                 continue
@@ -321,6 +287,15 @@ def htmx_auction_components(request, company_id, year, auction_name):
                     <div class="card-body">
                         <p><strong>Components:</strong> {len(cmu_components)}</p>
             """
+            
+            # Check timeout
+            if time.time() - start_time > MAX_EXECUTION_TIME:
+                return HttpResponse("""
+                    <div class='alert alert-warning'>
+                        <p><strong>The operation is taking too long.</strong></p>
+                        <p>We're working on improving performance. Please try again later or choose a different auction.</p>
+                    </div>
+                """)
             
             # Add locations list
             if locations:
@@ -415,54 +390,6 @@ def htmx_auction_components(request, company_id, year, auction_name):
             error_html += f"<pre>{traceback.format_exc()}</pre>"
             
         return HttpResponse(error_html)
-
-
-@require_http_methods(["GET"])
-def htmx_cmu_details(request, cmu_id):
-    """HTMX endpoint for lazy loading CMU details"""
-    cmu_html = get_cmu_details(cmu_id)
-    return HttpResponse(cmu_html)
-
-
-def debug_mapping(request):
-    """Debug view to examine the CMU ID to company name mapping"""
-    from django.http import JsonResponse
-    from .services.company_search import get_cmu_dataframe
-    import traceback
-    
-    debug_info = {
-        "status": "success",
-        "message": "CMU to company mapping debug",
-    }
-    
-    try:
-        # Get CMU dataframe
-        cmu_df, df_api_time = get_cmu_dataframe()
-        
-        if cmu_df is None:
-            debug_info["status"] = "error"
-            debug_info["message"] = "Error loading CMU data"
-            return JsonResponse(debug_info, status=500)
-            
-        # Create mapping
-        cmu_to_company = {}
-        for _, row in cmu_df.iterrows():
-            cmu_id = row.get("CMU ID", "")
-            company = row.get("Full Name", "")
-            if cmu_id and company:
-                cmu_to_company[cmu_id] = company
-                
-        # Return a sample of the mapping
-        debug_info["mapping_size"] = len(cmu_to_company)
-        debug_info["mapping_sample"] = dict(list(cmu_to_company.items())[:10])
-        
-        return JsonResponse(debug_info)
-    except Exception as e:
-        debug_info["status"] = "error"
-        debug_info["message"] = f"Error building mapping: {str(e)}"
-        debug_info["traceback"] = traceback.format_exc()
-        return JsonResponse(debug_info, status=500)
-        
 
 def debug_mapping_cache(request):
     """Debug view to examine the cached CMU ID to company name mapping"""
