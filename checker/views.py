@@ -235,6 +235,10 @@ def htmx_auction_components(request, company_id, year, auction_name):
         # ===== SIMPLIFIED APPROACH WITH MORE ERROR HANDLING =====
         # Build query with direct auction name filtering
         try:
+            # === Add More Logging ===
+            logger.critical(f"QUERY PARAMS: company_name='{company_name}', delivery_year='{year}', auction_name='{auction_name}'")
+            # === End Logging ===
+            
             base_query = Q(company_name=company_name)
             
             # Use icontains for year filter
@@ -245,6 +249,10 @@ def htmx_auction_components(request, company_id, year, auction_name):
             if auction_name:
                 base_query &= Q(auction_name__icontains=auction_name)
             
+            # === Log the final Q object ===
+            logger.critical(f"FINAL QUERY FILTER: {base_query}")
+            # === End Logging ===
+
             # Get components with the flexible filter
             components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
             
