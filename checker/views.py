@@ -155,9 +155,9 @@ def htmx_company_years(request, company_id, year, auction_name=None):
 
 
 @require_http_methods(["GET"])
-def component_detail(request, component_id):
+def component_detail(request, pk):
     """View function for component details page"""
-    return get_component_details(request, component_id)
+    return get_component_details(request, pk)
 
 
 @require_http_methods(["GET"])
