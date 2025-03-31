@@ -394,8 +394,8 @@ def htmx_auction_components(request, company_id, year, auction_name):
                             badges = []
                             
                             # Component ID badge - important to display this
-                            if component_id:
-                                badges.append(f'<span class="badge bg-secondary me-1">ID: {component_id}</span>')
+                            if db_id:
+                                badges.append(f'<span class="badge bg-secondary me-1">ID: {db_id}</span>')
                             
                             # Auction type badge
                             auction_badge_class = "bg-secondary"
