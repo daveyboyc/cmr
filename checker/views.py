@@ -184,6 +184,10 @@ def htmx_auction_components(request, company_id, year, auction_name):
         year = from_url_param(year)
         auction_name = from_url_param(auction_name)
         
+        # === LOGGING ADDED ===
+        logger.info(f"Parameters after conversion: company_id='{company_id}', year='{year}', auction_name='{auction_name}'")
+        # === END LOGGING ===
+
         # Extract auction type for display purposes only
         auction_type = None
         if "T-1" in auction_name:
@@ -245,16 +249,23 @@ def htmx_auction_components(request, company_id, year, auction_name):
             # Get components with the direct filter
             components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
             
+            # === LOGGING ADDED ===
+            logger.info(f"Exact match query found {components.count()} components.")
+            # === END LOGGING ===
+
             # If exact match doesn't work, try a looser match
-            if not components and auction_name:
+            if not components.exists() and auction_name:
                 logger.info(f"No exact matches for auction_name='{auction_name}', trying looser match")
                 base_query = Q(company_name=company_name)
                 if year:
                     base_query &= Q(delivery_year=year)
                 base_query &= Q(auction_name__icontains=auction_name)
                 components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
-            
-            logger.info(f"Found {len(components)} components matching company={company_name}, year={year}, auction={auction_name}")
+                # === LOGGING ADDED ===
+                logger.info(f"Looser match query ('icontains') found {components.count()} components.")
+                # === END LOGGING ===
+
+            logger.info(f"Found {components.count()} components matching company={company_name}, year={year}, auction={auction_name}")
         except Exception as query_error:
             logger.error(f"Error in database query: {str(query_error)}")
             logger.error(traceback.format_exc())
@@ -266,7 +277,7 @@ def htmx_auction_components(request, company_id, year, auction_name):
             """)
         
         # If we found no components, show specific message
-        if not components:
+        if not components.exists(): # Use exists() for efficiency
             return HttpResponse(f"""
                 <div class='alert alert-info'>
                     <p>No components found for this auction: {auction_name}</p>
