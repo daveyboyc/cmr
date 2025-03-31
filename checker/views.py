@@ -242,30 +242,30 @@ def htmx_auction_components(request, company_id, year, auction_name):
             # --- Build Query ---
             base_query = Q(company_name=company_name)
 
-            # Filter by year (icontains is likely okay here)
+            # Filter by delivery_year (icontains should be sufficient)
             if year:
                 base_query &= Q(delivery_year__icontains=year)
 
-            # *** Filter strictly by Auction Type ***
-            # Extract expected T-type from the input auction_name
-            expected_t_type = None
-            if t_match := re.search(r'(T-\d|T\d|TR)', auction_name, re.IGNORECASE):
-                 expected_t_type = t_match.group(1).upper().replace(' ','-') # Normalize to T-X
-
-            if expected_t_type:
-                # Explicitly filter where auction_name contains the expected T-type
-                logger.info(f"Applying specific T-type filter: {expected_t_type}")
-                base_query &= Q(auction_name__icontains=expected_t_type)
-            elif auction_name: # Fallback only if no T-type was extracted
-                logger.warning(f"No T-type found, falling back to general contains: {auction_name}")
-                base_query &= Q(auction_name__icontains=auction_name)
-            # *** End Auction Type Filter ***
+            # --- Auction Name Filter (Focus on T-Type) ---
+            if auction_name:
+                # Extract T-type from the input auction_name (e.g., "T-4")
+                t_number_part = None
+                if t_match := re.search(r'(T-\d|T\d|TR)', auction_name, re.IGNORECASE):
+                    t_number_part = t_match.group(1).upper().replace(' ','-') # Normalize to T-X
+                    logger.info(f"Extracted T-type: {t_number_part}")
+                    # Require auction_name to contain T-4 or (T-4) using OR
+                    base_query &= (Q(auction_name__icontains=t_number_part) | Q(auction_name__icontains=f"({t_number_part})"))
+                else:
+                     logger.warning(f"No T-type found in input auction name, using broader contains: {auction_name}")
+                     # Fallback to general contains if no T-type extracted
+                     base_query &= Q(auction_name__icontains=auction_name)
+            # --- End Auction Name Filter ---
 
             # === Log the final Q object ===
-            logger.critical(f"FINAL QUERY FILTER: {base_query}")
+            logger.critical(f"FINAL QUERY FILTER (Relaxed AND): {base_query}")
             # === End Logging ===
 
-            # Get components with the stricter filter
+            # Get components with the filter
             components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
             
             logger.info(f"Specific query found {components.count()} components.")
