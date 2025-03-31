@@ -241,48 +241,56 @@ def htmx_auction_components(request, company_id, year, auction_name):
             
             base_query = Q(company_name=company_name)
             
-            # Use icontains for year filter (should be okay)
+            # --- Year Filter ---
+            # Use icontains for year filter (should be okay for single year display)
             if year:
                 base_query &= Q(delivery_year__icontains=year) 
             
-            # --- More Flexible Auction Name Matching ---
+            # --- More Specific Auction Name Matching ---
             if auction_name:
                 # Extract key parts from the incoming auction name
-                year_match = re.search(r'(\d{4})\s*(\d{2})?', auction_name)
-                t_match = re.search(r'(T-\d|T\d|TR)', auction_name, re.IGNORECASE)
+                # Example: "2025 26 t 4 four year ahead capacity auction"
+                year_match = re.search(r'(\d{4})', auction_name) # Find the first 4-digit year
+                t_match = re.search(r'(T-\d|T\d|TR)', auction_name, re.IGNORECASE) # Find T-number
                 
-                auction_filter = Q()
+                auction_filter = Q() # Start with an empty filter
                 
-                # 1. Try matching the exact T-number if found
+                # 1. Require matching T-number if found in input
                 if t_match:
-                    auction_filter |= Q(auction_name__icontains=t_match.group(1).upper())
-                    
-                # 2. Try matching the year part (e.g., "2025" or "2025-26")
+                    t_number_part = t_match.group(1).upper().replace(' ','-') # Normalize to T-X
+                    # Need to match variations like T-4 or (T-4)
+                    auction_filter &= (Q(auction_name__icontains=t_number_part) | Q(auction_name__icontains=f"({t_number_part})"))
+                    logger.info(f"Added T-number filter: {t_number_part}")
+                else:
+                     # If no T-number in input, maybe don't filter by it? Or use a default?
+                     logger.warning(f"No T-number found in input auction name: {auction_name}")
+
+                # 2. Require matching year part if found in input
                 if year_match:
-                    year1 = year_match.group(1)
-                    year2 = year_match.group(2)
-                    # Match against "2025"
-                    auction_filter |= Q(auction_name__icontains=year1) 
-                    # Match against "2025-26" or "2025/26" if second part exists
-                    if year2:
-                         auction_filter |= Q(auction_name__icontains=f"{year1}-{year2}")
-                         auction_filter |= Q(auction_name__icontains=f"{year1}/{year2}")
-                         
-                # 3. As a fallback, use the original icontains
-                auction_filter |= Q(auction_name__icontains=auction_name)
-                
-                # Combine auction filters with OR, and add to base query with AND
-                base_query &= (auction_filter)
-            # --- End Flexible Matching ---
+                    year_part = year_match.group(1)
+                    # Match variations like 2025 or 2025-26 or 2025/26
+                    auction_filter &= (Q(auction_name__icontains=year_part))
+                    logger.info(f"Added Year filter: {year_part}")
+                else:
+                    logger.warning(f"No Year found in input auction name: {auction_name}")
+                    
+                # 3. If we couldn't extract parts, fall back to basic icontains
+                if not t_match and not year_match:
+                     logger.warning(f"Could not extract parts, falling back to basic contains: {auction_name}")
+                     auction_filter = Q(auction_name__icontains=auction_name)
+
+                # Combine auction filters with AND to the base query
+                base_query &= auction_filter
+            # --- End Specific Matching ---
 
             # === Log the final Q object ===
             logger.critical(f"FINAL QUERY FILTER: {base_query}")
             # === End Logging ===
 
-            # Get components with the flexible filter
+            # Get components with the more specific filter
             components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
             
-            logger.info(f"Flexible query ('icontains') found {components.count()} components.")
+            logger.info(f"Specific query found {components.count()} components.")
 
         except Exception as query_error:
             logger.error(f"Error in database query: {str(query_error)}")
