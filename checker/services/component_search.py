@@ -17,7 +17,7 @@ def search_components_service(request, return_data_only=False):
     """Service function for searching components and companies in a unified interface"""
     # Add pagination parameters
     page = int(request.GET.get("page", 1))
-    per_page = int(request.GET.get("per_page", 500))  # Default to 500 items per page
+    per_page = int(request.GET.get("per_page", 50))  # Default to 50 items per page
     sort_order = request.GET.get("comp_sort", "desc")  # Sort for component results
 
     results = {}
