@@ -985,14 +985,18 @@ def statistics_view(request):
                              .order_by('-count')[:20]  # Top 20 companies
     
     # Get technology distribution
-    tech_distribution = Component.objects.values('technology') \
+    tech_distribution = Component.objects.exclude(technology__isnull=True) \
+                                 .exclude(technology='') \
+                                 .values('technology') \
                                  .annotate(count=Count('id')) \
                                  .order_by('-count')[:10]  # Top 10 technologies
     
-    # Get delivery year distribution
-    year_distribution = Component.objects.values('delivery_year') \
+    # Get delivery year distribution - include all years
+    year_distribution = Component.objects.exclude(delivery_year__isnull=True) \
+                                 .exclude(delivery_year='') \
+                                 .values('delivery_year') \
                                  .annotate(count=Count('id')) \
-                                 .order_by('-count')[:10]
+                                 .order_by('delivery_year')  # Order by year ascending
     
     # Get total counts
     total_components = Component.objects.count()

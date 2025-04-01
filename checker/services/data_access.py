@@ -338,9 +338,9 @@ def detect_potential_duplicates(components):
         
         # Find components that match on location AND description
         if loc and desc:
-            loc_matches = set(location_matches.get(loc, []))
-            desc_matches = set(desc_matches.get(desc, []))
-            strong_matches = loc_matches.intersection(desc_matches)
+            loc_matches_set = set(location_matches.get(loc, []))
+            desc_matches_set = set(desc_matches.get(desc, []))
+            strong_matches = loc_matches_set.intersection(desc_matches_set)
             
             # Remove self from matches
             strong_matches.discard(comp_id)
@@ -425,6 +425,7 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
         if ' ' not in cmu_id and (cmu_id.upper().startswith('CM') or cmu_id.upper().startswith('T-')):
             # Direct CMU ID search - case insensitive  
             queryset = Component.objects.filter(cmu_id__iexact=cmu_id)
+            logger.info(f"Direct CMU ID search for: {cmu_id}")
         else:
             # Multi-term search approach - split query into terms
             query_terms = cmu_id.lower().split()
@@ -453,12 +454,14 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
             
             # Apply the combined filter
             queryset = Component.objects.filter(query_filter)
+            logger.info(f"Multi-term search for: {cmu_id}")
         
         # Make the queryset distinct to avoid duplicates
         queryset = queryset.distinct()
         
         # Get total count for pagination
         total_count = queryset.count()
+        logger.info(f"Found {total_count} total components for query: {cmu_id}")
         
         # Convert to integer to avoid comparison issues
         total_count_int = int(total_count) if isinstance(total_count, (str, float)) else total_count
@@ -473,24 +476,25 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
         queryset = queryset.order_by('-delivery_year')
         
         # Apply pagination
-        offset = (page - 1) * per_page
-        paginated_queryset = queryset[offset:offset+per_page]
+        start = (page - 1) * per_page
+        end = start + per_page
+        paginated_queryset = queryset[start:end]
         
-        # Convert to list of dictionaries for API compatibility
+        # Convert to list of dictionaries
         components = []
         for comp in paginated_queryset:
-            # Create a dictionary representation of the component
+            # Create a dictionary representation
             comp_dict = {
                 "CMU ID": comp.cmu_id,
-                "Location and Post Code": comp.location,
-                "Description of CMU Components": comp.description,
-                "Generating Technology Class": comp.technology,
-                "Company Name": comp.company_name,
-                "Auction Name": comp.auction_name,
-                "Delivery Year": comp.delivery_year,
-                "Status": comp.status,
-                "Type": comp.type,
-                "_id": comp.component_id
+                "Location and Post Code": comp.location or '',
+                "Description of CMU Components": comp.description or '',
+                "Generating Technology Class": comp.technology or '',
+                "Company Name": comp.company_name or '',
+                "Auction Name": comp.auction_name or '',
+                "Delivery Year": comp.delivery_year or '',
+                "Status": comp.status or '',
+                "Type": comp.type or '',
+                "_id": comp.id  # Use database ID
             }
             
             # Add any additional data if available
@@ -501,16 +505,16 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
                         
             components.append(comp_dict)
         
+        logger.info(f"Returning {len(components)} components for page {page}")
+        
         # Cache results if not too large
         if total_count_int <= 1000:  # Only cache reasonably sized results
-            cache.set(components_cache_key, components, 3600)
+            cache.set(components_cache_key, components, 3600)  # 1 hour
         elif total_count_int <= 2000:
-            cache.set(components_cache_key, components, 1800)
+            cache.set(components_cache_key, components, 1800)  # 30 minutes
         elif total_count_int <= 5000:
-            cache.set(components_cache_key, components, 600)
-        else:
-            logger.info(f"Result set too large to cache ({total_count_int} items)")
-            
+            cache.set(components_cache_key, components, 600)   # 10 minutes
+        
         # Add duplicate detection to metadata
         duplicates = detect_potential_duplicates(components)
         metadata = {
