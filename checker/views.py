@@ -421,6 +421,11 @@ def htmx_auction_components(request, company_id, year, auction_name):
                                 <li>
                                     <div class="mb-1">{badges_html}</div>
                                     <i><a href="{detail_url}">{desc}</a></i>{f" - {tech}" if tech else ""}
+                                    <div class="small text-muted">
+                                        DB ID: {db_id}
+                                        {f", Component ID: {component.component_id}" if component.component_id else ""}
+                                        {f", Location: {component.location}" if component.location else ""}
+                                    </div>
                                 </li>
                             """
                         
@@ -995,3 +1000,32 @@ def statistics_view(request):
     }
     
     return render(request, "checker/statistics.html", context)
+
+
+@require_http_methods(["GET"])
+def component_detail_by_id(request, component_id):
+    """View function for component details page when looking up by component_id"""
+    from .models import Component
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Try to find component by component_id
+        component = Component.objects.filter(component_id=component_id).first()
+        
+        if component:
+            # If found, redirect to the primary key URL
+            return redirect('component_detail', pk=component.id)
+        else:
+            # If not found, show error
+            return render(request, "checker/error.html", {
+                "error": f"Component not found with ID: {component_id}",
+                "suggestion": "This component ID may be invalid or the component may have been removed."
+            })
+            
+    except Exception as e:
+        logger.error(f"Error looking up component by ID {component_id}: {str(e)}")
+        return render(request, "checker/error.html", {
+            "error": f"Error looking up component: {str(e)}",
+            "suggestion": "Please try again or contact support if the problem persists."
+        })

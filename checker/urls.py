@@ -20,6 +20,8 @@ urlpatterns = [
     # Component detail page - use integer primary key
     path("component/<int:pk>/",
          views.component_detail, name="component_detail"),
+    path("component/by-id/<str:component_id>/",
+         views.component_detail_by_id, name="component_detail_by_id"),
 
     # Company detail page
     path("company/<str:company_id>/",
