@@ -422,9 +422,11 @@ def format_component_record(record, cmu_to_company_mapping):
     if typ != "N/A" and typ != auction_type:
         badges.append(f'<span class="badge bg-dark me-1">{typ}</span>')
     
-    component_id = record.get("_id", "")
-    if component_id:
-        badges.append(f'<span class="badge bg-dark me-1 small">ID: {component_id[:12]}</span>')
+    # Get the database ID (pk) which is now stored in '_id'
+    db_id = record.get("_id", None)
+    if db_id is not None:
+        # Convert the integer ID to string and remove slicing
+        badges.append(f'<span class="badge bg-secondary me-1 small">DB ID: {str(db_id)}</span>')
     
     badges_html = " ".join(badges)
     badges_div = f'<div class="mb-2">{badges_html}</div>' if badges_html else ""
