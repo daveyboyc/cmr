@@ -99,7 +99,7 @@
             {% for company in top_companies %}
                 <div class="mb-3">
                     <div class="d-flex justify-content-between">
-                        <a href="{% url 'company_detail' company.company_name|slugify %}" class="text-decoration-none">
+                        <a href="{% url 'company_detail' company.company_id %}" class="text-decoration-none">
                             {{ company.company_name }}
                         </a>
                         <span class="text-muted">{{ company.count|intcomma }} ({{ company.percentage|floatformat:1 }}%)</span>

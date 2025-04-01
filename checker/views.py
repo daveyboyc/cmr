@@ -975,9 +975,12 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
 
 def statistics_view(request):
     """View function for displaying database statistics"""
+    from .utils import normalize
     
-    # Get top companies by component count
-    top_companies = Component.objects.values('company_name') \
+    # Get top companies by component count, excluding empty company names
+    top_companies = Component.objects.exclude(company_name__isnull=True) \
+                             .exclude(company_name='') \
+                             .values('company_name') \
                              .annotate(count=Count('id')) \
                              .order_by('-count')[:20]  # Top 20 companies
     
@@ -994,11 +997,15 @@ def statistics_view(request):
     # Get total counts
     total_components = Component.objects.count()
     total_cmus = Component.objects.values('cmu_id').distinct().count()
-    total_companies = Component.objects.values('company_name').distinct().count()
+    total_companies = Component.objects.exclude(company_name__isnull=True) \
+                              .exclude(company_name='') \
+                              .values('company_name').distinct().count()
     
-    # Calculate percentages for visual representation
+    # Calculate percentages for visual representation and add normalized company IDs
     for company in top_companies:
         company['percentage'] = (company['count'] / total_components) * 100
+        # Add normalized company ID for URL
+        company['company_id'] = normalize(company['company_name'])
         
     for tech in tech_distribution:
         tech['percentage'] = (tech['count'] / total_components) * 100
