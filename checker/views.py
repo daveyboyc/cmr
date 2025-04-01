@@ -371,10 +371,16 @@ def htmx_auction_components(request, company_id, year, auction_name):
                             auction = component.auction_name or ''
                             delivery_year = component.delivery_year or ''
                             
+                            # --- Get the actual Component ID from additional_data ---
+                            actual_component_id = None
+                            if isinstance(component.additional_data, dict):
+                                actual_component_id = component.additional_data.get("Component ID")
+                            # --- End Get actual Component ID ---
+                            
                             # Create badges
                             badges = []
                             
-                            # Component ID badge - important to display this
+                            # ID badge (using DB ID)
                             if db_id:
                                 badges.append(f'<span class="badge bg-secondary me-1">ID: {db_id}</span>')
                             
@@ -412,13 +418,22 @@ def htmx_auction_components(request, company_id, year, auction_name):
                             
                             # Make description the link using database id
                             detail_url = f"/component/{db_id}/" 
+                            
+                            # --- FIX: Display actual component ID if available --- 
+                            component_id_display = ""
+                            if actual_component_id:
+                                component_id_display = f", <strong>Component ID:</strong> {actual_component_id}"
+                            elif component.component_id: # Fallback to model field
+                                component_id_display = f", <strong>Comp ID (source _id?):</strong> {component.component_id}"
+                            # --- END FIX ---
+                                
                             cmu_html += f"""
                                 <li>
                                     <div class="mb-1">{badges_html}</div>
                                     <i><a href="{detail_url}">{desc}</a></i>{f" - {tech}" if tech else ""}
                                     <div class="small text-muted">
                                         <strong>DB ID:</strong> {db_id}
-                                        {f", <strong>Component ID:</strong> {component.component_id}" if component.component_id else ""}
+                                        {component_id_display} 
                                         {f", <strong>Location:</strong> {component.location}" if component.location else ""}
                                         {f", <strong>CMU ID:</strong> {component.cmu_id}" if component.cmu_id else ""}
                                     </div>
