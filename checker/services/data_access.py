@@ -494,7 +494,8 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
                 "Delivery Year": comp.delivery_year or '',
                 "Status": comp.status or '',
                 "Type": comp.type or '',
-                "_id": comp.id  # Use database ID
+                "_id": comp.id,  # Use database ID (pk) for links
+                "component_id_str": comp.component_id or '' # Add the string component_id
             }
             
             # Add any additional data if available

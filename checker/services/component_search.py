@@ -380,6 +380,8 @@ def format_component_record(record, cmu_to_company_mapping):
 
     # Get the database ID (pk) which is now stored in '_id'
     db_id = record.get("_id", None)
+    # Get the string component ID 
+    component_id_str = record.get("component_id_str", "")
     
     # --- FIX: Generate correct link using db_id --- 
     loc_link = loc # Default to plain text if no ID
@@ -434,11 +436,13 @@ def format_component_record(record, cmu_to_company_mapping):
     if typ != "N/A" and typ != auction_type:
         badges.append(f'<span class="badge bg-dark me-1">{typ}</span>')
     
-    # Get the database ID (pk) which is now stored in '_id'
-    db_id = record.get("_id", None)
+    # Add DB ID badge
     if db_id is not None:
-        # Convert the integer ID to string and remove slicing
         badges.append(f'<span class="badge bg-secondary me-1 small">DB ID: {str(db_id)}</span>')
+    
+    # Add string Component ID badge if it exists and is different from CMU ID
+    if component_id_str and component_id_str != cmu_id:
+        badges.append(f'<span class="badge bg-dark me-1 small">Component ID: {component_id_str}</span>')
     
     badges_html = " ".join(badges)
     badges_div = f'<div class="mb-2">{badges_html}</div>' if badges_html else ""
