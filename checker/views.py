@@ -184,9 +184,23 @@ def htmx_auction_components(request, company_id, year, auction_name):
         year = from_url_param(year)
         auction_name = from_url_param(auction_name)
         
-        # === LOGGING ADDED ===
         logger.info(f"Parameters after conversion: company_id='{company_id}', year='{year}', auction_name='{auction_name}'")
-        # === END LOGGING ===
+
+        # --- FIX: Find all company name variations --- 
+        all_company_names = Component.objects.values_list('company_name', flat=True).distinct()
+        company_name_variations = []
+        primary_company_name = None # For display/logging if needed
+        for name in all_company_names:
+            if name and normalize(name) == company_id:
+                company_name_variations.append(name)
+                if primary_company_name is None:
+                    primary_company_name = name
+
+        if not company_name_variations:
+            return HttpResponse(f"<div class='alert alert-warning'>Company not found matching ID: {company_id}</div>")
+        
+        logger.info(f"Found company name variations for {company_id}: {company_name_variations}")
+        # --- END FIX ---
 
         # Extract auction type for display purposes only
         auction_type = None
@@ -201,46 +215,13 @@ def htmx_auction_components(request, company_id, year, auction_name):
         
         logger.info(f"Auction details: type={auction_type}, full_name={auction_name}")
         
-        # Get company name
-        company_name = None
+        # Build query using company name variations
         try:
-            companies = Component.objects.values('company_name').distinct()
-            for company in companies:
-                if company['company_name'] and normalize(company['company_name']) == company_id:
-                    company_name = company['company_name']
-                    break
+            logger.critical(f"QUERY PARAMS: company_names={company_name_variations}, delivery_year='{year}', auction_name='{auction_name}'")
             
-            if not company_name:
-                # Try a looser match if exact match fails
-                top_companies = Component.objects.values_list('company_name', flat=True).distinct()[:100]
-                for curr_name in top_companies:
-                    if curr_name and (company_id in normalize(curr_name) or normalize(curr_name) in company_id):
-                        company_name = curr_name
-                        break
-        except Exception as comp_error:
-            logger.error(f"Error finding company: {str(comp_error)}")
-            logger.error(traceback.format_exc())
-            return HttpResponse(f"""
-                <div class='alert alert-danger'>
-                    <p><strong>Error finding company: {str(comp_error)}</strong></p>
-                    <p>Please try again or choose a different auction.</p>
-                </div>
-            """)
-        
-        if not company_name:
-            return HttpResponse(f"<div class='alert alert-warning'>Company not found: {company_id}</div>")
-        
-        logger.info(f"Found company: {company_name}")
-        
-        # ===== SIMPLIFIED APPROACH WITH MORE ERROR HANDLING =====
-        # Build query with direct auction name filtering
-        try:
-            # === Add More Logging ===
-            logger.critical(f"QUERY PARAMS: company_name='{company_name}', delivery_year='{year}', auction_name='{auction_name}'")
-            # === End Logging ===
-            
-            # --- Build Query ---
-            base_query = Q(company_name=company_name)
+            # --- FIX: Use company_name__in --- 
+            base_query = Q(company_name__in=company_name_variations)
+            # --- END FIX ---
 
             # Filter by delivery_year (icontains should be sufficient)
             if year:
