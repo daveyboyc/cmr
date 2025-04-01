@@ -15,8 +15,8 @@
         body, html {
             height: 100%;
             margin: 0;
-            /* --- FIX: Use the correct static path for the background image --- */
-            background-image: url("{% static 'checker/images/backgrounds/industrial_background.jpeg' %}"); /* Assuming this was the correct path */
+            /* --- FIX: Use the VERIFIED static path --- */
+            background-image: url("{% static 'images/backgrounds/industrial_background.jpeg' %}"); 
             background-position: center;
             background-repeat: no-repeat;
             background-size: cover;
@@ -33,7 +33,7 @@
             padding-top: 15vh; /* Adjust padding to position vertically */
             padding-bottom: 5vh;
             flex-shrink: 0;
-            position: relative; /* --- FIX: Added relative positioning for absolute child --- */
+            position: relative; /* Needed for absolute positioning of child */
         }
         .google-like-header h1 {
             color: white;
@@ -59,18 +59,21 @@
             border-radius: 25px; /* Match input rounding */
             height: 45px;
         }
+        /* --- FIX: Ensure stats button container is positioned --- */
         .google-like-header .stats-link-container {
-             position: absolute; /* Position top right */
+             position: absolute;
              top: 20px;
              right: 20px;
+             z-index: 10; /* Ensure it's above other elements if needed */
         }
-        /* --- FIX: Make stats button more visible --- */
+        /* --- FIX: Ensure stats button text/border is visible --- */
         .google-like-header .stats-link-container .btn {
-            color: white; /* Ensure text/icon is visible */
-            border-color: white; /* Ensure border is visible */
+            color: white;
+            border-color: white;
         }
         .google-like-header .stats-link-container .btn:hover {
-            background-color: rgba(255, 255, 255, 0.1);
+            background-color: rgba(255, 255, 255, 0.1); /* Subtle hover */
+            color: white; /* Keep text white on hover */
         }
         .content-below-header {
             background-color: rgba(255, 255, 255, 0.9); /* Semi-transparent white bg for results */
