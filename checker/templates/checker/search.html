@@ -15,8 +15,8 @@
         body, html {
             height: 100%;
             margin: 0;
-            /* Ensure the background image covers the entire page */
-            background-image: url("{% static 'checker/images/background.webp' %}");
+            /* --- FIX: Use the correct static path for the background image --- */
+            background-image: url("{% static 'checker/images/backgrounds/industrial_background.jpeg' %}"); /* Assuming this was the correct path */
             background-position: center;
             background-repeat: no-repeat;
             background-size: cover;
@@ -33,6 +33,7 @@
             padding-top: 15vh; /* Adjust padding to position vertically */
             padding-bottom: 5vh;
             flex-shrink: 0;
+            position: relative; /* --- FIX: Added relative positioning for absolute child --- */
         }
         .google-like-header h1 {
             color: white;
@@ -62,6 +63,14 @@
              position: absolute; /* Position top right */
              top: 20px;
              right: 20px;
+        }
+        /* --- FIX: Make stats button more visible --- */
+        .google-like-header .stats-link-container .btn {
+            color: white; /* Ensure text/icon is visible */
+            border-color: white; /* Ensure border is visible */
+        }
+        .google-like-header .stats-link-container .btn:hover {
+            background-color: rgba(255, 255, 255, 0.1);
         }
         .content-below-header {
             background-color: rgba(255, 255, 255, 0.9); /* Semi-transparent white bg for results */
