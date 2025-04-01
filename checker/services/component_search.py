@@ -4,6 +4,7 @@ import logging
 from django.shortcuts import render
 from django.core.cache import cache
 import traceback
+from django.urls import reverse
 
 from ..utils import normalize
 from .data_access import fetch_components_for_cmu_id, get_component_data_from_json
@@ -355,32 +356,43 @@ def format_component_record(record, cmu_to_company_mapping):
                     break
     if not company_name:
         try:
-            json_components = get_component_data_from_json(cmu_id)
-            if json_components:
-                for comp in json_components:
-                    if "Company Name" in comp and comp["Company Name"]:
-                        company_name = comp["Company Name"]
-                        cmu_to_company_mapping[cmu_id] = company_name
-                        cache.set("cmu_to_company_mapping", cmu_to_company_mapping, 3600)
-                        break
+            # DEPRECATED - Should rely on database fetch in calling function
+            # json_components = get_component_data_from_json(cmu_id)
+            # if json_components:
+            #     for comp in json_components:
+            #         if "Company Name" in comp and comp["Company Name"]:
+            #             company_name = comp["Company Name"]
+            #             cmu_to_company_mapping[cmu_id] = company_name
+            #             cache.set("cmu_to_company_mapping", cmu_to_company_mapping, 3600)
+            #             break
+            pass # Keep pass here as fallback logic removed
         except Exception as e:
-            logger.error(f"Error getting company name from JSON: {e}")
+            logger.error(f"Error getting company name: {e}")
 
     # Create company badge
     company_info = ""
     if company_name:
-        company_id = normalize(company_name)
-        company_link = f'<a href="/company/{company_id}/" class="badge bg-success" style="font-size: 1rem; text-decoration: none;">{company_name}</a>'
+        company_id_normalized = normalize(company_name)
+        company_link = f'<a href="/company/{company_id_normalized}/" class="badge bg-success" style="font-size: 1rem; text-decoration: none;">{company_name}</a>'
         company_info = f'<div class="mt-2 mb-2">{company_link}</div>'
     else:
         company_info = f'<div class="mt-2 mb-2"><span class="badge bg-warning">No Company Found</span></div>'
 
-    # Create blue link for location pointing to component detail page
-    # FIX: Properly handle locations that contain slashes or special characters
-    normalized_loc = normalize(loc).replace('/', '_')  # Replace slashes with underscores
-    component_id = f"{cmu_id}_{normalized_loc}"
-    encoded_component_id = urllib.parse.quote(component_id)
-    loc_link = f'<a href="/component/{encoded_component_id}/" style="color: blue; text-decoration: underline;">{loc}</a>'
+    # Get the database ID (pk) which is now stored in '_id'
+    db_id = record.get("_id", None)
+    
+    # --- FIX: Generate correct link using db_id --- 
+    loc_link = loc # Default to plain text if no ID
+    if db_id is not None:
+        try:
+            # Use Django's reverse function if possible, otherwise fallback to hardcoded URL
+            detail_url = reverse('component_detail', kwargs={'pk': db_id})
+            loc_link = f'<a href="{detail_url}" style="color: blue; text-decoration: underline;">{loc}</a>'
+        except Exception as url_error:
+            logger.warning(f"Could not reverse URL for component_detail pk={db_id}: {url_error}. Falling back to hardcoded URL.")
+            # Fallback to hardcoded URL pattern if reverse fails
+            loc_link = f'<a href="/component/{db_id}/" style="color: blue; text-decoration: underline;">{loc}</a>'
+    # --- END FIX ---
 
     # Extract auction type for badge
     auction_type = ""
