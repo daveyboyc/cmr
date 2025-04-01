@@ -495,14 +495,21 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
                 "Status": comp.status or '',
                 "Type": comp.type or '',
                 "_id": comp.id,  # Use database ID (pk) for links
-                "component_id_str": comp.component_id or '' # Add the string component_id
+                "component_id_str": comp.component_id or '' # Add the string component_id from the model field (might be source _id)
             }
             
-            # Add any additional data if available
+            # Add any additional data if available, AND try to get the actual Component ID
+            actual_component_id = None
             if comp.additional_data:
                 for key, value in comp.additional_data.items():
                     if key not in comp_dict:
                         comp_dict[key] = value
+                    # Explicitly look for the key 'Component ID' from the source data
+                    if key == "Component ID": 
+                        actual_component_id = value
+            
+            # Add the actual component ID if found
+            comp_dict["actual_component_id"] = actual_component_id or ''
                         
             components.append(comp_dict)
         
