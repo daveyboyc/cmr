@@ -816,17 +816,16 @@ def get_company_years(company_id, year, auction_name=None):
 
 def _filter_components_by_year_auction(components, year, auction_name=None):
     """
-    Filter components by year and auction name with improved matching for auction types.
+    Filter components by year and auction name with strict matching for auction types.
     """
+    import logging
     logger = logging.getLogger(__name__)
-    filtered_components = []
     
-    # If no auction name specified, return all components for this year
+    # If no auction name specified, return all components
     if not auction_name:
-        logger.info(f"No auction name specified, returning all {len(components)} components")
         return components
     
-    # Determine auction type (T-1, T-3, T-4, TR)
+    # Extract auction type from auction name
     auction_type = None
     if "T-1" in auction_name or "T1" in auction_name:
         auction_type = "T-1"
@@ -839,63 +838,30 @@ def _filter_components_by_year_auction(components, year, auction_name=None):
     
     logger.info(f"Filtering {len(components)} components for year={year}, auction_type={auction_type}")
     
-    # Track matching for debug
-    year_matches = 0
-    auction_matches = 0
-    
+    filtered_components = []
     for comp in components:
-        # Get data from component, handling None values
-        comp_delivery_year = str(comp.get("Delivery Year", "")) if comp.get("Delivery Year") is not None else ""
-        comp_auction = comp.get("Auction Name", "") if comp.get("Auction Name") is not None else ""
-        comp_type = comp.get("Type", "") if comp.get("Type") is not None else ""
-        component_id = comp.get("_id", "")
+        # Ensure we have string values to work with
+        comp_year = str(comp.get("Delivery Year", "")) if comp.get("Delivery Year") is not None else ""
+        comp_auction = str(comp.get("Auction Name", "")) if comp.get("Auction Name") is not None else ""
         
-        # Year matching - need to match the provided year
-        year_match = False
-        
-        # If year is in delivery year or vice versa
-        if year in comp_delivery_year or comp_delivery_year in year:
-            year_match = True
-        
-        if not year_match:
-            continue
-            
-        year_matches += 1
-        
-        # For components with this year, check specific auction type
-        # This is the strict matching that prevents components showing in wrong auctions
-        if auction_type:
-            auction_match = False
-            
-            # Match based on auction type
-            if auction_type == "T-1" and ("T-1" in comp_auction or "T1" in comp_auction):
-                auction_match = True
-            elif auction_type == "T-3" and ("T-3" in comp_auction or "T3" in comp_auction):
-                auction_match = True
-            elif auction_type == "T-4" and ("T-4" in comp_auction or "T4" in comp_auction):
-                auction_match = True
-            elif auction_type == "TR" and "TR" in comp_auction:
-                auction_match = True
-                
-            # If no auction name on component but years match, check component type
-            # This helps with components that don't have explicit auction names
-            if not auction_match and not comp_auction and comp_type:
-                if auction_type == "T-1" and ("T-1" in comp_type or "T1" in comp_type):
-                    auction_match = True
-                elif auction_type == "T-3" and ("T-3" in comp_type or "T3" in comp_type):
-                    auction_match = True
-                elif auction_type == "T-4" and ("T-4" in comp_type or "T4" in comp_type):
-                    auction_match = True
-                elif auction_type == "TR" and "TR" in comp_type:
-                    auction_match = True
-                    
-            if not auction_match:
-                continue
-                
-        auction_matches += 1
-        filtered_components.append(comp)
+        # First match by year
+        if not year or year in comp_year:
+            # Then strictly match by auction type - this is the key part!
+            if auction_type:
+                # Only include components with this specific auction type
+                if auction_type == "T-1" and ("T-1" in comp_auction or "T1" in comp_auction):
+                    filtered_components.append(comp)
+                elif auction_type == "T-3" and ("T-3" in comp_auction or "T3" in comp_auction):
+                    filtered_components.append(comp)
+                elif auction_type == "T-4" and ("T-4" in comp_auction or "T4" in comp_auction):
+                    filtered_components.append(comp)
+                elif auction_type == "TR" and "TR" in comp_auction:
+                    filtered_components.append(comp)
+            else:
+                # If no auction type extracted, include all components for this year
+                filtered_components.append(comp)
     
-    logger.info(f"Filtering results: {len(filtered_components)} matches (year:{year_matches}, auction:{auction_matches})")
+    logger.info(f"Filtered to {len(filtered_components)} components")
     return filtered_components
 
 def _build_cmu_card_html(cmu_id, components, component_debug):
@@ -980,51 +946,33 @@ def company_detail(request, company_id):
         logger = logging.getLogger(__name__)
         logger.info(f"Loading company detail for company_id: {company_id}")
         
-        # Look up company name from normalized ID
-        company_components = Component.objects.filter(company_name__isnull=False).order_by('company_name')
-        company_name = None
-        
-        # Try exact match first
-        for company in company_components.values('company_name').distinct():
-            curr_name = company['company_name']
-            if curr_name and normalize(curr_name) == company_id:
-                company_name = curr_name
-                break
-        
-        # If still not found, try a more flexible match
-        if not company_name:
-            for company in company_components.values('company_name').distinct():
-                curr_name = company['company_name']
-                if curr_name and normalize(curr_name) in company_id or company_id in normalize(curr_name):
-                    company_name = curr_name
-                    break
-        
-        if not company_name:
-            logger.warning(f"Company not found for ID: {company_id}")
-            # Fall back to get_cmu_dataframe, but this is slower
-            cmu_df, df_api_time = get_cmu_dataframe()
-            if cmu_df is not None:
-                for _, row in cmu_df.iterrows():
-                    if normalize(row.get("Full Name", "")) == company_id:
-                        company_name = row.get("Full Name")
-                        break
-        
-        if not company_name:
-            logger.error(f"Company not found after all lookups: {company_id}")
+        # Step 1: Find all company name variations that match the normalized company_id
+        all_company_names = Component.objects.values_list('company_name', flat=True).distinct()
+        company_name_variations = []
+        primary_company_name = None
+        for name in all_company_names:
+            if name and normalize(name) == company_id:
+                company_name_variations.append(name)
+                if primary_company_name is None: # Use the first match as the primary display name
+                    primary_company_name = name
+
+        # If no matching company names found at all, it's an error
+        if not company_name_variations:
+            logger.error(f"Company not found for normalized ID: {company_id}")
             return render(request, "checker/company_detail.html", {
                 "error": f"Company not found: {company_id}",
                 "company_name": None
             })
+
+        # Use the first found name for display, but query using all variations
+        logger.info(f"Found company variations for {company_id}: {company_name_variations}")
         
-        logger.info(f"Found company name: {company_name}")
-        
-        # Get all delivery years and auctions directly from the database for this company
-        # This is much faster than using cmu_df
-        years_query = Component.objects.filter(company_name=company_name) \
+        # Step 2: Get all delivery years and auctions using all found company name variations
+        years_query = Component.objects.filter(company_name__in=company_name_variations) \
                                .values('delivery_year', 'auction_name', 'cmu_id') \
                                .distinct()
         
-        # Group by year and auction
+        # Group by year and auction (existing logic is fine)
         year_auction_data = []
         years_mapping = {}
         
@@ -1035,6 +983,7 @@ def company_detail(request, company_id):
                 continue
                 
             if year not in years_mapping:
+                # Use the URL company_id for consistency in HTML IDs
                 year_id = f"year-{normalize(year)}-{company_id}"
                 years_mapping[year] = {
                     'year': year,
@@ -1047,7 +996,7 @@ def company_detail(request, company_id):
         for item in years_query:
             year = item['delivery_year']
             auction_name = item['auction_name']
-            cmu_id = item['cmu_id']
+            cmu_id_val = item['cmu_id'] # Renamed to avoid conflict
             
             if not year or year == 'nan' or not auction_name or auction_name == 'nan':
                 continue
@@ -1058,7 +1007,7 @@ def company_detail(request, company_id):
                 # Only add auction if not already added
                 if auction_name not in auction_data['auctions']:
                     auction_data['auctions'][auction_name] = []
-                    
+
                     # Extract auction type for badge
                     auction_type = ""
                     badge_class = "bg-secondary"
@@ -1068,18 +1017,22 @@ def company_detail(request, company_id):
                     elif "T-4" in auction_name:
                         auction_type = "T-4"
                         badge_class = "bg-info"
+                    # Added T-3 check based on other code parts
+                    elif "T-3" in auction_name: 
+                        auction_type = "T-3"
+                        badge_class = "bg-success"
                     else:
-                        auction_type = auction_name
+                        auction_type = auction_name # Fallback
                         
-                    # Create unique auction ID
+                    # Create unique auction ID using URL company_id
                     auction_id = f"auction-{normalize(year)}-{normalize(auction_name)}-{company_id}"
                     
                     # Add to display list
                     auction_data['auctions_display'].append((auction_name, auction_id, badge_class, auction_type))
                 
                 # Add CMU ID to auction if not already added
-                if cmu_id not in auction_data['auctions'][auction_name]:
-                    auction_data['auctions'][auction_name].append(cmu_id)
+                if cmu_id_val not in auction_data['auctions'][auction_name]:
+                    auction_data['auctions'][auction_name].append(cmu_id_val)
         
         # Convert mapping to list
         for year_data in years_mapping.values():
@@ -1093,13 +1046,13 @@ def company_detail(request, company_id):
             reverse=(sort_order == "desc")
         )
         
-        logger.info(f"Found {len(year_auction_data)} years with auctions for {company_name}")
-        
+        logger.info(f"Found {len(year_auction_data)} years with auctions for company ID {company_id}")
+
         return render(request, "checker/company_detail.html", {
-            "company_name": company_name,
-            "company_id": company_id,
+            "company_name": primary_company_name, # Display the primary name found
+            "company_id": company_id, # Pass the normalized ID from URL
             "year_auction_data": year_auction_data,
-            "api_time": 0,
+            "api_time": 0, # Since it's from DB
             "sort_order": sort_order
         })
 
