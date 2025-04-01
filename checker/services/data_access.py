@@ -281,6 +281,91 @@ def save_component_data_to_json(cmu_id, components):
         return False
 
 
+def detect_potential_duplicates(components):
+    """
+    Analyze a list of components to detect potential duplicates based on various criteria.
+    Returns a dict mapping component IDs to lists of potential duplicate IDs.
+    """
+    if not components:
+        return {}
+        
+    # Create lookup dictionaries for different matching criteria
+    location_matches = {}  # Components with same location
+    desc_matches = {}     # Components with same description
+    cmu_matches = {}      # Components with same CMU ID
+    
+    # First pass: build lookup dictionaries
+    for comp in components:
+        loc = comp.get("Location and Post Code", "").strip().lower()
+        desc = comp.get("Description of CMU Components", "").strip().lower()
+        cmu_id = comp.get("CMU ID", "").strip()
+        comp_id = comp.get("_id", "")
+        
+        if not comp_id:  # Skip if no component ID
+            continue
+            
+        # Add to location matches
+        if loc:
+            if loc not in location_matches:
+                location_matches[loc] = []
+            location_matches[loc].append(comp_id)
+            
+        # Add to description matches
+        if desc:
+            if desc not in desc_matches:
+                desc_matches[desc] = []
+            desc_matches[desc].append(comp_id)
+            
+        # Add to CMU matches
+        if cmu_id:
+            if cmu_id not in cmu_matches:
+                cmu_matches[cmu_id] = []
+            cmu_matches[cmu_id].append(comp_id)
+    
+    # Second pass: identify potential duplicates
+    duplicates = {}
+    
+    for comp in components:
+        comp_id = comp.get("_id", "")
+        if not comp_id:
+            continue
+            
+        loc = comp.get("Location and Post Code", "").strip().lower()
+        desc = comp.get("Description of CMU Components", "").strip().lower()
+        cmu_id = comp.get("CMU ID", "").strip()
+        
+        potential_dupes = set()
+        
+        # Find components that match on location AND description
+        if loc and desc:
+            loc_matches = set(location_matches.get(loc, []))
+            desc_matches = set(desc_matches.get(desc, []))
+            strong_matches = loc_matches.intersection(desc_matches)
+            
+            # Remove self from matches
+            strong_matches.discard(comp_id)
+            
+            if strong_matches:
+                potential_dupes.update(strong_matches)
+        
+        # Add components with same CMU ID and similar descriptions
+        if cmu_id:
+            for other_id in cmu_matches.get(cmu_id, []):
+                if other_id != comp_id:
+                    # Find the other component's description
+                    other_comp = next((c for c in components if c.get("_id") == other_id), None)
+                    if other_comp:
+                        other_desc = other_comp.get("Description of CMU Components", "").strip().lower()
+                        # Use similarity threshold
+                        if desc and other_desc and (desc in other_desc or other_desc in desc):
+                            potential_dupes.add(other_id)
+        
+        if potential_dupes:
+            duplicates[comp_id] = list(potential_dupes)
+    
+    return duplicates
+
+
 def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
     """
     Fetch components for a given CMU ID using a multi-term search approach 
@@ -308,13 +393,17 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
         end_idx = start_idx + per_page
         paginated_components = cached_components[start_idx:end_idx]
         
+        # Add duplicate detection to metadata
+        duplicates = detect_potential_duplicates(paginated_components)
         metadata = {
             "total_count": total_count,
             "page": page,
             "per_page": per_page,
             "total_pages": (total_count + per_page - 1) // per_page,
             "source": "cache",
-            "processing_time": time.time() - start_time
+            "processing_time": time.time() - start_time,
+            "potential_duplicates": duplicates,
+            "has_duplicates": bool(duplicates)
         }
         
         return paginated_components, metadata
@@ -422,14 +511,17 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
         else:
             logger.info(f"Result set too large to cache ({total_count_int} items)")
             
-        # Create metadata for pagination
+        # Add duplicate detection to metadata
+        duplicates = detect_potential_duplicates(components)
         metadata = {
             "total_count": total_count_int,
             "page": page,
             "per_page": per_page,
             "total_pages": (total_count_int + per_page - 1) // per_page if total_count_int > 0 else 1,
             "source": "database",
-            "processing_time": time.time() - start_time
+            "processing_time": time.time() - start_time,
+            "potential_duplicates": duplicates,
+            "has_duplicates": bool(duplicates)
         }
         
         # Restore original timeout if we changed it
@@ -475,6 +567,8 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
                 except Exception as db_error:
                     logger.error(f"Error saving to database: {str(db_error)}")
                 
+                # Add duplicate detection to metadata
+                duplicates = detect_potential_duplicates(all_api_components)
                 metadata = {
                     "total_count": total_count_int,
                     "page": page,
@@ -482,7 +576,9 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
                     "total_pages": (total_count_int + per_page - 1) // per_page,
                     "source": "api",
                     "processing_time": time.time() - start_time,
-                    "api_time": time.time() - api_start_time
+                    "api_time": time.time() - api_start_time,
+                    "potential_duplicates": duplicates,
+                    "has_duplicates": bool(duplicates)
                 }
                 
                 return all_api_components, metadata

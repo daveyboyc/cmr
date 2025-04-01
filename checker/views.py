@@ -414,6 +414,20 @@ def htmx_auction_components(request, company_id, year, auction_name):
                                 badges.append(f'<span class="badge bg-secondary me-1">Year: {delivery_year}</span>')
                             
                             badges_html = " ".join(badges)
+
+                            # Check for potential duplicates in the same location
+                            duplicate_warning = ""
+                            duplicate_count = sum(1 for c in location_components if 
+                                c.location == component.location and 
+                                c.description == component.description and
+                                c.id != component.id)
+                            
+                            if duplicate_count > 0:
+                                duplicate_warning = f"""
+                                    <div class="alert alert-warning py-1 mt-1">
+                                        <small>⚠️ Found {duplicate_count} potential duplicate(s) with same location and description</small>
+                                    </div>
+                                """
                             
                             # Make description the link using database id
                             detail_url = f"/component/{db_id}/" 
@@ -422,10 +436,12 @@ def htmx_auction_components(request, company_id, year, auction_name):
                                     <div class="mb-1">{badges_html}</div>
                                     <i><a href="{detail_url}">{desc}</a></i>{f" - {tech}" if tech else ""}
                                     <div class="small text-muted">
-                                        DB ID: {db_id}
-                                        {f", Component ID: {component.component_id}" if component.component_id else ""}
-                                        {f", Location: {component.location}" if component.location else ""}
+                                        <strong>DB ID:</strong> {db_id}
+                                        {f", <strong>Component ID:</strong> {component.component_id}" if component.component_id else ""}
+                                        {f", <strong>Location:</strong> {component.location}" if component.location else ""}
+                                        {f", <strong>CMU ID:</strong> {component.cmu_id}" if component.cmu_id else ""}
                                     </div>
+                                    {duplicate_warning}
                                 </li>
                             """
                         
