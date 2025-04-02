@@ -883,3 +883,81 @@ def analyze_component_duplicates(components):
         "location_counts": location_counts,
         "duplicate_locations": duplicate_locations
     }
+
+
+def get_components_from_database(cmu_id=None, component_id=None, location=None, company_name=None, limit=100, page=None, per_page=None):
+    """
+    Fetch components from the database based on various filters with optimization.
+    Returns a list of component dictionaries.
+    """
+    from checker.models import Component
+    import logging
+    from django.db.models import Q
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"Fetching components from database: cmu_id={cmu_id}, component_id={component_id}, limit={limit}")
+    
+    # Build the query
+    query = Component.objects.all()
+    
+    if cmu_id:
+        query = query.filter(cmu_id__iexact=cmu_id)
+    
+    if component_id:
+        query = query.filter(component_id=component_id)
+        
+    if location:
+        # For location searches, split into terms and use icontains for each
+        location_terms = location.lower().split()
+        location_query = Q()
+        for term in location_terms:
+            if len(term) >= 3:  # Only use terms with at least 3 characters
+                location_query |= Q(location__icontains=term)
+        query = query.filter(location_query)
+        
+    if company_name:
+        # For company searches, split into terms and use icontains for each
+        company_terms = company_name.lower().split()
+        company_query = Q()
+        for term in company_terms:
+            if len(term) >= 3:  # Only use terms with at least 3 characters
+                company_query |= Q(company_name__icontains=term)
+        query = query.filter(company_query)
+    
+    # Check existence before proceeding (faster than count)
+    if not query.exists():
+        return []
+    
+    # Apply pagination if provided
+    if page is not None and per_page is not None:
+        start = (page - 1) * per_page
+        query = query[start:start + per_page]
+    # Apply limit if provided
+    elif limit:
+        query = query[:limit]
+    
+    # Execute query and convert to list of dictionaries
+    components = []
+    for comp in query:
+        # Create a dictionary representation
+        comp_dict = {
+            "CMU ID": comp.cmu_id,
+            "Location and Post Code": comp.location or '',
+            "Description of CMU Components": comp.description or '',
+            "Generating Technology Class": comp.technology or '',
+            "Company Name": comp.company_name or '',
+            "Auction Name": comp.auction_name or '',
+            "Delivery Year": comp.delivery_year or '',
+            "_id": comp.component_id or ''
+        }
+        
+        # Add any additional data if available
+        if comp.additional_data:
+            for key, value in comp.additional_data.items():
+                if key not in comp_dict:
+                    comp_dict[key] = value
+                    
+        components.append(comp_dict)
+    
+    logger.info(f"Found {len(components)} components in database")
+    return components

@@ -68,69 +68,85 @@ def search_components_service(request, return_data_only=False):
     # --- START SEARCH LOGIC (if query exists) --- 
     start_time = time.time()
     
-    # STEP 1: Search for matching companies (using dataframe approach)
-    debug_info["company_search_attempted"] = True
-    try:
-        cmu_df, df_api_time = get_cmu_dataframe()
-        api_time += df_api_time
-        if cmu_df is not None:
-            norm_query = normalize(query)
-            matching_records = _perform_company_search(cmu_df, norm_query)
-            # Limit companies shown for performance, use _build_search_results for formatting
-            unique_companies = list(matching_records["Full Name"].unique())[:20] 
-            company_results_built = _build_search_results(cmu_df, unique_companies, sort_order, query, cmu_limit=3)
-            if query in company_results_built:
-                company_links = company_results_built[query]
-            logger.info(f"Found {len(company_links)} matching company links for '{query}'")
-        else:
-            error_message = "Error loading company data (CMU dataframe)."
-            logger.error(error_message)
-    except Exception as e:
-        error_message = f"Error searching companies: {str(e)}"
-        logger.exception(error_message)
-        debug_info["company_error"] = error_message
+    # Check cache first
+    cache_key = get_cache_key("search_results", query.lower())
+    cached_results = cache.get(cache_key)
+    if cached_results:
+        logger.info(f"Using cached results for query '{query}'")
+        note = "Using cached results"
+        component_results_dict = cached_results
+        total_component_count = sum(len(matches) for matches in cached_results.values())
+        displayed_component_count = min(per_page, total_component_count)
+        api_time = 0
+    else:
+        # STEP 1: Search for matching companies (using dataframe approach)
+        debug_info["company_search_attempted"] = True
+        try:
+            cmu_df, df_api_time = get_cmu_dataframe()
+            api_time += df_api_time
+            if cmu_df is not None:
+                norm_query = normalize(query)
+                matching_records = _perform_company_search(cmu_df, norm_query)
+                # Limit companies shown for performance, use _build_search_results for formatting
+                unique_companies = list(matching_records["Full Name"].unique())[:20] 
+                company_results_built = _build_search_results(cmu_df, unique_companies, sort_order, query, cmu_limit=3)
+                if query in company_results_built:
+                    company_links = company_results_built[query]
+                logger.info(f"Found {len(company_links)} matching company links for '{query}'")
+            else:
+                error_message = "Error loading company data (CMU dataframe)."
+                logger.error(error_message)
+        except Exception as e:
+            error_message = f"Error searching companies: {str(e)}"
+            logger.exception(error_message)
+            debug_info["company_error"] = error_message
 
-    # STEP 2: Search for matching components (using database fetch)
-    debug_info["component_search_attempted"] = True
-    components_list = []
-    try:
-        # Fetch components using the data_access function with pagination
-        fetched_components, metadata = fetch_components_for_cmu_id(query, page=page, per_page=per_page)
-        components_list = fetched_components or []
-        
-        # Get accurate total count and source from metadata
-        total_component_count = metadata.get("total_count", 0)
-        api_time += metadata.get("processing_time", 0)
-        debug_info["data_source"] = metadata.get("source", "unknown")
-        if debug_info["data_source"] == "cache":
-            note = "Using cached results"
-        
-        logger.info(f"Fetched {len(components_list)} components for '{query}' page {page}. Total: {total_component_count}. Source: {debug_info['data_source']}")
-        
-    except Exception as e:
-        error_msg = f"Error fetching component data: {str(e)}"
-        logger.exception(error_msg)
-        if not error_message: error_message = error_msg # Show component error if no company error
-        debug_info["component_error"] = error_msg
+        # STEP 2: Search for matching components (using database fetch)
+        debug_info["component_search_attempted"] = True
         components_list = []
-        total_component_count = 0
+        try:
+            # First try location-based search since it's faster
+            components_list = get_components_from_database(location=query, page=page, per_page=per_page)
+            
+            if not components_list:
+                # If no location matches, try company name search
+                components_list = get_components_from_database(company_name=query, page=page, per_page=per_page)
+            
+            if not components_list:
+                # Finally, try CMU ID search
+                components_list = get_components_from_database(cmu_id=query, page=page, per_page=per_page)
+            
+            # Get total count for pagination
+            total_component_count = len(components_list)
+            displayed_component_count = len(components_list)
+            debug_info["data_source"] = "database"
+            
+            logger.info(f"Fetched {len(components_list)} components for '{query}' page {page}")
+            
+            # Cache the results
+            if components_list:
+                cache.set(cache_key, {query: components_list}, 3600)  # Cache for 1 hour
+            
+        except Exception as e:
+            error_msg = f"Error fetching component data: {str(e)}"
+            logger.exception(error_msg)
+            if not error_message: error_message = error_msg
+            debug_info["component_error"] = error_msg
+            components_list = []
+            total_component_count = 0
 
-    # STEP 3: Format component results for display
-    formatted_components = []
-    # --- Get mapping needed for formatting --- 
-    cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
-    # --- 
-    if components_list:
-        for component in components_list:
-            formatted_record = format_component_record(component, cmu_to_company_mapping)
-            formatted_components.append(formatted_record)
-        
-        if formatted_components:
-            component_results_dict[query] = formatted_components
-            logger.info(f"Formatted {len(formatted_components)} component records for display.")
+        # STEP 3: Format component results for display
+        formatted_components = []
+        if components_list:
+            for component in components_list:
+                formatted_record = format_component_record(component, {})
+                formatted_components.append(formatted_record)
+            
+            if formatted_components:
+                component_results_dict[query] = formatted_components
+                logger.info(f"Formatted {len(formatted_components)} component records for display.")
 
-    # STEP 4: Calculate final pagination variables based on actual component fetch
-    displayed_component_count = len(components_list) # How many we ACTUALLY have
+    # STEP 4: Calculate final pagination variables
     if total_component_count > 0 and per_page > 0:
         total_pages = (total_component_count + per_page - 1) // per_page
     else:
@@ -156,20 +172,19 @@ def search_components_service(request, return_data_only=False):
         "note": note,
         "company_links": company_links,
         "component_results": component_results_dict, 
-        "component_count": total_component_count, # The grand total
-        "displayed_component_count": displayed_component_count, # How many are shown on this page (<= per_page)
+        "component_count": total_component_count,
+        "displayed_component_count": displayed_component_count,
         "error": error_message,
         "api_time": api_time,
         "sort_order": sort_order,
         "debug_info": debug_info,
-        # Pagination context calculated correctly
         "page": page,
-        "per_page": per_page, # Pass per_page for reference if needed
+        "per_page": per_page,
         "total_pages": total_pages,
         "has_prev": has_prev,
         "has_next": has_next,
         "page_range": page_range,
-        "unified_search": True # Flag to show component section if results exist
+        "unified_search": True
     }
 
     return render(request, "checker/search.html", context)
