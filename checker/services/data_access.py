@@ -11,7 +11,17 @@ from django.db.models import Q, Count
 import re
 
 from ..utils import normalize, get_cache_key, get_json_path, ensure_directory_exists
-from ..data.postcodes import get_postcodes_for_area, get_area_for_postcode
+# Wrap postcode import in try-except
+try:
+    from ..data.postcodes import get_postcodes_for_area, get_area_for_postcode
+except ImportError:
+    # Dummy implementations for missing module
+    def get_postcodes_for_area(area):
+        """Dummy function when postcodes module is not available"""
+        return []
+    def get_area_for_postcode(postcode):
+        """Dummy function when postcodes module is not available"""
+        return None
 from ..models import Component
 
 
