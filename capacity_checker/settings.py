@@ -59,7 +59,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = "urls"
+ROOT_URLCONF = "capacity_checker.urls"
 
 TEMPLATES = [
     {
@@ -166,3 +166,5 @@ CACHES = {
 #         'LOCATION': 'django_cache',
 #     }
 # }
+
+# Trigger rebuild (temporary comment)
