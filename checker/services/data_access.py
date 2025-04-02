@@ -10,8 +10,8 @@ import glob
 from django.db.models import Q, Count
 import re
 
-from checker.utils import normalize, get_cache_key, get_json_path, ensure_directory_exists
-from checker.data.postcodes import get_postcodes_for_area, get_area_for_postcode
+from ..utils import normalize, get_cache_key, get_json_path, ensure_directory_exists
+from ..data.postcodes import get_postcodes_for_area, get_area_for_postcode
 from ..models import Component
 
 
