@@ -887,54 +887,43 @@ def analyze_component_duplicates(components):
     }
 
 
-def get_components_from_database(search_term: str) -> list[Component]:
+def get_components_from_database(search_term: str) -> list:
     """
-    Get components from the database based on search term.
-    Prioritizes location-based searches and uses postcode data for better matching.
+    Get components from the database based on a search term.
+    Prioritizes location-based searches using postcode data.
     """
-    if not search_term:
-        return []
-
+    from django.db.models import Q
+    from ..models import Component
+    
     # Split search term into words and filter out short words
-    search_words = [word for word in search_term.split() if len(word) >= 3]
-    if not search_words:
-        return []
-
-    # Try to find postcodes for the search term
+    search_terms = [term for term in search_term.lower().split() if len(term) >= 3]
+    
+    # Get postcodes for the search term
     postcodes = []
-    for word in search_words:
-        area_postcodes = get_postcodes_for_area(word)
-        if area_postcodes:
-            postcodes.extend(area_postcodes)
-
-    # Build the query
+    for term in search_terms:
+        postcodes.extend(get_postcodes_for_area(term))
+    
+    # Build the query with prioritization
     query = Q()
     
-    # First try exact location match
+    # First priority: Exact location matches
     location_query = Q()
-    for word in search_words:
-        location_query |= Q(location__icontains=word)
-    if location_query:
-        query |= location_query
-
-    # Then try postcode matches if we found any
+    for term in search_terms:
+        location_query |= Q(location__iexact=term)
+    query |= location_query
+    
+    # Second priority: Postcode matches
     if postcodes:
         postcode_query = Q()
         for postcode in postcodes:
             postcode_query |= Q(location__icontains=postcode)
-        if postcode_query:
-            query |= postcode_query
-
-    # Finally try description match
-    description_query = Q()
-    for word in search_words:
-        description_query |= Q(description__icontains=word)
-    if description_query:
-        query |= description_query
-
-    # If no matches found, return empty list
-    if not query:
-        return []
-
-    # Execute the query and return results
+        query |= postcode_query
+    
+    # Third priority: Description matches
+    desc_query = Q()
+    for term in search_terms:
+        desc_query |= Q(description__icontains=term)
+    query |= desc_query
+    
+    # Execute the query and return distinct results
     return list(Component.objects.filter(query).distinct())
