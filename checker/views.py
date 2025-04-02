@@ -19,7 +19,7 @@ from .utils import safe_url_param, from_url_param
 from .services.data_access import get_component_data_from_json, get_json_path, fetch_components_for_cmu_id
 
 # Now import the models
-from capacity_checker.checker.models import Component
+from .models import Component
 
 # Define logger after imports
 import logging
