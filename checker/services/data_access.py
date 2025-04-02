@@ -11,17 +11,7 @@ from django.db.models import Q, Count
 import re
 
 from ..utils import normalize, get_cache_key, get_json_path, ensure_directory_exists
-# Wrap postcode import in try-except
-try:
-    from .data.postcodes import get_postcodes_for_area, get_area_for_postcode
-except ImportError:
-    # Dummy implementations for missing module
-    def get_postcodes_for_area(area):
-        """Dummy function when postcodes module is not available"""
-        return []
-    def get_area_for_postcode(postcode):
-        """Dummy function when postcodes module is not available"""
-        return None
+# Remove the postcodes import from here - it will be moved inside the function
 from ..models import Component
 
 
@@ -905,7 +895,18 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
     """
     import logging
     from django.db.models import Q
-    # from ..models import Component # Model already imported at top level
+    
+    # Import postcode functions here to avoid import errors
+    try:
+        from .data.postcodes import get_postcodes_for_area, get_area_for_postcode
+    except ImportError:
+        # Dummy implementations if import fails
+        def get_postcodes_for_area(area):
+            """Dummy function when postcodes module is not available"""
+            return []
+        def get_area_for_postcode(postcode):
+            """Dummy function when postcodes module is not available"""
+            return None
     
     logger = logging.getLogger(__name__)
     logger.info(f"DB Query: cmu={cmu_id}, comp={component_id}, loc={location}, company={company_name}, term={search_term}, page={page}, per_page={per_page}")
