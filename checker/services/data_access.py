@@ -11,7 +11,7 @@ from django.db.models import Q, Count
 import re
 
 from ..utils import normalize, get_cache_key, get_json_path, ensure_directory_exists
-# Remove the postcodes import from here - it will be moved inside the function
+from ..data.postcodes import get_postcodes_for_area, get_area_for_postcode
 from ..models import Component
 
 
@@ -378,6 +378,7 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
     import logging
     from django.core.cache import cache
     from ..models import Component
+    from ..utils import get_cache_key
     
     logger = logging.getLogger(__name__)
     start_time = time.time()
