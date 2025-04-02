@@ -23,83 +23,21 @@ def search_companies(request):
     """View function for searching companies using the unified search"""
     # Get the query parameter
     query = request.GET.get("q", "").strip()
-    comp_sort = request.GET.get("comp_sort", "desc")  # Sort for component results
-    
-    # Add pagination parameters but don't change data fetching yet
-    page = int(request.GET.get("page", 1))  # Current page, default to 1
-    per_page = int(request.GET.get("per_page", 100))  # Items per page, default to 100
     
     # Setup logging
     import logging
     logger = logging.getLogger(__name__)
-    
-    # If no query, just return the regular company search page
-    if not query:
-        return search_companies_service(request)
 
-    # Get component results if there's a query - use the EXACT SAME approach as before
-    component_results = {}
-    total_component_count = 0
-    components = []
-    
-    if query:
-        # Get components using the standard service - no changes to this part
-        component_results = search_components_service(request, return_data_only=True)
-        
-        # If we have results, prepare for pagination UI
-        if component_results and query in component_results:
-            components = component_results[query]
-            total_component_count = len(components)
-            
-            # We're not actually paginating the data yet - just preparing counts for the UI
-            # This ensures we don't break the existing functionality
-
-    # Get company results - no changes here
-    company_results = search_companies_service(request, return_data_only=True)
-
-    # Create company links for the unified search - no changes
-    company_links = []
-    if company_results and query in company_results:
-        for company_html in company_results[query]:
-            company_links.append(company_html)
-
-    # Prepare pagination metadata
-    total_component_count = 0
-    displayed_component_count = 0
-    if component_results and query in component_results:
-        displayed_component_count = len(component_results[query])
-        
-        # Get actual total count from metadata if available
-        total_component_count = getattr(component_results, 'total_count', displayed_component_count)        
-
-    # Prepare pagination metadata for UI
-    total_pages = (total_component_count + per_page - 1) // per_page if total_component_count > 0 else 1
-    has_prev = page > 1
-    has_next = page < total_pages
-    
-    # Pass both results to the template
-    extra_context = {
-        'unified_search': True,
-        'company_links': company_links,
-        'component_results': component_results,
-        'component_count': total_component_count,
-        'displayed_component_count': total_component_count, # For now, show all components
-        'comp_sort': comp_sort,
-        'query': query,
-        # Pagination context (for UI only at first)
-        'page': page,
-        'per_page': per_page,
-        'total_pages': total_pages,
-        'has_prev': has_prev,
-        'has_next': has_next,
-        'page_range': range(max(1, page-2), min(total_pages+1, page+3))
-    }
-
-    return search_companies_service(request, extra_context=extra_context)
+    # If no query, or if query, delegate ALL logic (company+component search & render)
+    # to search_components_service. It will handle defaults and context.
+    logger.info(f"Delegating search for query '{query}' to search_components_service")
+    return search_components_service(request)
 
 
 def search_components(request):
-    """View function for searching components with smart pagination"""
+    """View function FOR REDIRECTING component searches with smart pagination""" 
+    # This view is primarily for handling the /components/ URL 
+    # and redirecting back to the main search page / with appropriate params.
     # Get the query parameter
     query = request.GET.get("q", "").strip()
     
@@ -110,23 +48,15 @@ def search_components(request):
     # Smart pagination - adjust page size based on query complexity
     page = int(request.GET.get("page", 1))
     
-    # Base page size - standard is 100 items per page
-    base_page_size = 100
-    
-    # If query is very short or contains spaces, it's likely to match many records
-    # or be a complex query - reduce page size to prevent timeouts
-    if len(query) < 5 or ' ' in query:  
-        per_page = 50  # More restrictive for potentially expensive queries
-    else:
-        # Much more aggressive page size limits
-        if len(query) < 3:  
-            per_page = 10  # Extremely restrictive for very short queries
-        elif len(query) < 5 or ' ' in query:  
-            per_page = 20  # Very restrictive for potentially expensive queries
-        else:
-            per_page = 50  # Still limited even for better queries
+    # --- USE 50 as the base/max per_page for component searches --- 
+    per_page = 50 
+    # Adjust lower if needed based on query complexity (optional refinement)
+    # if len(query) < 5 or ' ' in query:  
+    #     per_page = 30 
+    # elif len(query) < 3:  
+    #     per_page = 15
         
-    # Add parameters to the redirect URL
+    # Add parameters to the redirect URL (pointing back to the main view)
     redirect_url = f"/?q={urllib.parse.quote(query)}&page={page}&per_page={per_page}"
     
     # Add sorting parameter if present
@@ -134,9 +64,7 @@ def search_components(request):
         redirect_url += f"&comp_sort={request.GET.get('comp_sort')}"
         
     # Log the pagination settings to help with debugging
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"Component search with query '{query}': page={page}, per_page={per_page}")
+    logger.info(f"Redirecting component search from /components/ for query '{query}': page={page}, per_page={per_page}")
     
     return redirect(redirect_url)
 
