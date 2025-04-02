@@ -8,8 +8,10 @@ from django.core.cache import cache
 import logging
 import glob
 from django.db.models import Q, Count
+import re
 
 from ..utils import normalize, get_cache_key, get_json_path, ensure_directory_exists
+from ..data.postcodes import get_postcodes_for_area, get_area_for_postcode
 
 
 # CMU DATA ACCESS FUNCTIONS
@@ -885,90 +887,54 @@ def analyze_component_duplicates(components):
     }
 
 
-def get_components_from_database(cmu_id=None, component_id=None, location=None, company_name=None, limit=100, page=None, per_page=None):
+def get_components_from_database(search_term: str) -> list[Component]:
     """
-    Fetch components from the database based on various filters with optimization.
-    Returns a list of component dictionaries.
+    Get components from the database based on search term.
+    Prioritizes location-based searches and uses postcode data for better matching.
     """
-    from checker.models import Component
-    import logging
-    from django.db.models import Q
-    
-    logger = logging.getLogger(__name__)
-    logger.info(f"Fetching components from database: cmu_id={cmu_id}, component_id={component_id}, location={location}, company_name={company_name}")
-    
-    # Build the query
-    query = Component.objects.all()
-    
-    if cmu_id:
-        query = query.filter(cmu_id__iexact=cmu_id)
-    
-    if component_id:
-        query = query.filter(component_id=component_id)
-        
-    if location:
-        # For location searches, split into terms and use icontains for each
-        location_terms = location.lower().split()
-        location_query = Q()
-        for term in location_terms:
-            if len(term) >= 3:  # Only use terms with at least 3 characters
-                # Search in both location and description fields for better matches
-                location_query |= (
-                    Q(location__icontains=term) |
-                    Q(description__icontains=term)
-                )
-        if location_query:
-            query = query.filter(location_query)
-        
-    if company_name:
-        # For company searches, split into terms and use icontains for each
-        company_terms = company_name.lower().split()
-        company_query = Q()
-        for term in company_terms:
-            if len(term) >= 3:  # Only use terms with at least 3 characters
-                company_query |= Q(company_name__icontains=term)
-        if company_query:
-            query = query.filter(company_query)
-    
-    # Make the query distinct to avoid duplicates
-    query = query.distinct()
-    
-    # Check existence before proceeding (faster than count)
-    if not query.exists():
-        logger.info("No components found matching the criteria")
+    if not search_term:
         return []
+
+    # Split search term into words and filter out short words
+    search_words = [word for word in search_term.split() if len(word) >= 3]
+    if not search_words:
+        return []
+
+    # Try to find postcodes for the search term
+    postcodes = []
+    for word in search_words:
+        area_postcodes = get_postcodes_for_area(word)
+        if area_postcodes:
+            postcodes.extend(area_postcodes)
+
+    # Build the query
+    query = Q()
     
-    # Apply pagination if provided
-    if page is not None and per_page is not None:
-        start = (page - 1) * per_page
-        query = query[start:start + per_page]
-    # Apply limit if provided
-    elif limit:
-        query = query[:limit]
-    
-    # Execute query and convert to list of dictionaries
-    components = []
-    for comp in query:
-        # Create a dictionary representation
-        comp_dict = {
-            "CMU ID": comp.cmu_id,
-            "Location and Post Code": comp.location or '',
-            "Description of CMU Components": comp.description or '',
-            "Generating Technology Class": comp.technology or '',
-            "Company Name": comp.company_name or '',
-            "Auction Name": comp.auction_name or '',
-            "Delivery Year": comp.delivery_year or '',
-            "_id": comp.id,  # Use database ID for links
-            "component_id_str": comp.component_id or '' # Original component ID string
-        }
-        
-        # Add any additional data if available
-        if comp.additional_data:
-            for key, value in comp.additional_data.items():
-                if key not in comp_dict:
-                    comp_dict[key] = value
-                    
-        components.append(comp_dict)
-    
-    logger.info(f"Found {len(components)} components in database")
-    return components
+    # First try exact location match
+    location_query = Q()
+    for word in search_words:
+        location_query |= Q(location__icontains=word)
+    if location_query:
+        query |= location_query
+
+    # Then try postcode matches if we found any
+    if postcodes:
+        postcode_query = Q()
+        for postcode in postcodes:
+            postcode_query |= Q(location__icontains=postcode)
+        if postcode_query:
+            query |= postcode_query
+
+    # Finally try description match
+    description_query = Q()
+    for word in search_words:
+        description_query |= Q(description__icontains=word)
+    if description_query:
+        query |= description_query
+
+    # If no matches found, return empty list
+    if not query:
+        return []
+
+    # Execute the query and return results
+    return list(Component.objects.filter(query).distinct())
