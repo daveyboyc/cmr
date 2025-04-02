@@ -925,18 +925,25 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
     if search_term and not has_filter:
         search_terms = [term for term in search_term.lower().split() if len(term) >= 3]
         term_filters = Q()
+        # Import postcode function here, only if needed
+        postcode_func_available = False
+        try:
+            from .data.postcodes import get_postcodes_for_area
+            postcode_func_available = True
+        except ImportError:
+            logger.warning("Postcode lookup function not available.")
+            
         for term in search_terms:
              # Original term filters
              term_filters |= Q(location__icontains=term) | Q(description__icontains=term) | Q(company_name__icontains=term) | Q(cmu_id__icontains=term) 
              
              # --- Add Postcode Lookup Logic --- 
-             # Check if term could be an area name (simple check: not numeric)
-             if not term.isnumeric():
+             if postcode_func_available and not term.isnumeric(): # Check if func loaded
                  try:
-                     related_postcodes = get_postcodes_for_area(term)
-                     if related_postcodes:
+                     related_postcodes = get_postcodes_for_area(term) # Use the imported function
+                     if related_postcodes: # Check if list is not empty
                          logger.info(f"Found postcodes for area '{term}': {related_postcodes}")
-                         for postcode in related_postcodes:
+                         for postcode in related_postcodes: # Iterate through the list
                              # Add postcode matches to the OR filter for this term
                              term_filters |= Q(location__icontains=postcode)
                  except Exception as e:
