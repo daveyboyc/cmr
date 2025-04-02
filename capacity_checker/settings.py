@@ -58,7 +58,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = "capacity_checker.urls"
+ROOT_URLCONF = "urls"
 
 TEMPLATES = [
     {
@@ -76,7 +76,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "capacity_checker.wsgi.application"
+WSGI_APPLICATION = "wsgi.application"
 
 
 # Database
