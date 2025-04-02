@@ -10,9 +10,9 @@ import glob
 from django.db.models import Q, Count
 import re
 
-from checker.utils import normalize, get_cache_key, get_json_path, ensure_directory_exists
-from checker.data.postcodes import get_postcodes_for_area, get_area_for_postcode
-from checker.models import Component
+from ..utils import normalize, get_cache_key, get_json_path, ensure_directory_exists
+from ..data.postcodes import get_postcodes_for_area, get_area_for_postcode
+from ..models import Component
 
 
 # CMU DATA ACCESS FUNCTIONS
@@ -105,7 +105,7 @@ def get_cmu_dataframe():
     import time
     import pandas as pd
     import logging
-    from checker.models import Component
+    from ..models import Component
     
     logger = logging.getLogger(__name__)
     start_time = time.time()
@@ -377,7 +377,7 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
     import time
     import logging
     from django.core.cache import cache
-    from checker.models import Component
+    from ..models import Component
     
     logger = logging.getLogger(__name__)
     start_time = time.time()
@@ -615,7 +615,7 @@ def save_components_to_database(cmu_id, components):
     This is called whenever we fetch components from the API.
     """
     from django.db import transaction
-    from checker.models import Component
+    from ..models import Component
     
     if not components:
         return
@@ -677,7 +677,7 @@ def fetch_component_search_results(query, limit=1000, sort_order="desc"):
 
 def get_component_total_count():
     """Get the total count of components in the database."""
-    from checker.models import Component
+    from ..models import Component
     total_cache_key = "components_overall_total"
     overall_total = cache.get(total_cache_key)
     api_time = 0
@@ -724,7 +724,7 @@ def get_accurate_total_count(query):
     import time
     import logging
     from django.db.models import Q
-    from checker.models import Component
+    from ..models import Component
     
     logger = logging.getLogger(__name__)
     start_time = time.time()
@@ -892,7 +892,7 @@ def get_components_from_database(search_term: str) -> list:
     Prioritizes location-based searches using postcode data.
     """
     from django.db.models import Q
-    from checker.models import Component
+    from ..models import Component
     
     # Split search term into words and filter out short words
     search_terms = [term for term in search_term.lower().split() if len(term) >= 3]
