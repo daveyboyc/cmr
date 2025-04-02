@@ -19,7 +19,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
+# BASE_DIR should be the directory containing settings.py
+BASE_DIR = Path(__file__).resolve().parent
 
 
 # Quick-start development settings - unsuitable for production
@@ -86,7 +87,7 @@ WSGI_APPLICATION = "wsgi.application"
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+        'NAME': BASE_DIR / "db.sqlite3", # Use pathlib syntax
     }
 }
 
@@ -135,7 +136,8 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"  # For Heroku collectstatic
 STATICFILES_DIRS = [
-    BASE_DIR / "checker/static",  # Include app-specific static files
+    # Go up one level from BASE_DIR to find the checker app
+    BASE_DIR.parent / "checker/static",  
 ]
 
 # WhiteNoise configuration for serving static files in production
