@@ -119,16 +119,15 @@ def search_components_service(request, return_data_only=False):
                 # Finally, try CMU ID search
                 components_list = get_components_from_database(cmu_id=query, page=page, per_page=per_page)
             
-            # Get total count for pagination
+            # Get total count for pagination BEFORE formatting
             total_component_count = len(components_list)
-            displayed_component_count = len(components_list)
+            displayed_component_count = len(components_list) # Placeholder, will be adjusted after pagination logic
             debug_info["data_source"] = "database"
-            
             logger.info(f"Fetched {len(components_list)} components for '{query}' page {page}")
             
-            # Cache the results
-            if components_list:
-                cache.set(cache_key, {query: components_list}, 3600)  # Cache for 1 hour
+            # DO NOT CACHE RAW LIST HERE
+            # if components_list:
+            #     cache.set(cache_key, {query: components_list}, 3600) 
             
         except Exception as e:
             error_msg = f"Error fetching component data: {str(e)}"
@@ -148,8 +147,23 @@ def search_components_service(request, return_data_only=False):
             if formatted_components:
                 component_results_dict[query] = formatted_components
                 logger.info(f"Formatted {len(formatted_components)} component records for display.")
+                
+                # CACHE THE FORMATTED RESULTS IN THE DICTIONARY
+                cache.set(cache_key, component_results_dict, 3600) # Cache for 1 hour
 
-    # STEP 4: Calculate final pagination variables
+    # STEP 4: Calculate final pagination variables (Needs adjustment for cached data)
+    if note == "Using cached results": # If loaded from cache
+        # Recalculate counts based on the structure of cached_results (which is component_results_dict)
+        if query in component_results_dict:
+            total_component_count = len(component_results_dict[query])
+            displayed_component_count = min(per_page, total_component_count)
+        else:
+            total_component_count = 0
+            displayed_component_count = 0
+    # Else: total_component_count was already set from len(components_list) 
+    # Update displayed_component_count based on pagination
+    displayed_component_count = min(per_page, total_component_count - (page - 1) * per_page)
+        
     if total_component_count > 0 and per_page > 0:
         total_pages = (total_component_count + per_page - 1) // per_page
     else:
