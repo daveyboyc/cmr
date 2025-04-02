@@ -17,7 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 import sys
-from checker import views
+from capacity_checker.checker import views
 
 print("DEBUG: Loading main urls.py", file=sys.stderr)
 

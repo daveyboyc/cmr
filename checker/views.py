@@ -7,7 +7,7 @@ import os
 import json
 import glob
 from django.db.models import Count
-from .models import Component
+from capacity_checker.checker import models
 
 # Import service functions
 from .services.company_search import search_companies_service, get_company_years, get_cmu_details
@@ -95,7 +95,6 @@ def htmx_auction_components(request, company_id, year, auction_name):
     from django.db.models import Q
     import logging
     import traceback
-    from .models import Component
     from .utils import normalize, from_url_param
     import time
     import re
@@ -115,7 +114,7 @@ def htmx_auction_components(request, company_id, year, auction_name):
         logger.info(f"Parameters after conversion: company_id='{company_id}', year='{year}', auction_name='{auction_name}'")
 
         # --- FIX: Find all company name variations --- 
-        all_company_names = Component.objects.values_list('company_name', flat=True).distinct()
+        all_company_names = models.Component.objects.values_list('company_name', flat=True).distinct()
         company_name_variations = []
         primary_company_name = None # For display/logging if needed
         for name in all_company_names:
@@ -198,7 +197,7 @@ def htmx_auction_components(request, company_id, year, auction_name):
             # === End Logging ===
 
             # Get components with the stricter filter
-            components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
+            components = models.Component.objects.filter(base_query).order_by('cmu_id', 'location')
             
             logger.info(f"Specific query found {components.count()} components.")
 
@@ -902,30 +901,30 @@ def statistics_view(request):
     from .utils import normalize
     
     # Get top companies by component count, excluding empty company names
-    top_companies = Component.objects.exclude(company_name__isnull=True) \
+    top_companies = models.Component.objects.exclude(company_name__isnull=True) \
                              .exclude(company_name='') \
                              .values('company_name') \
                              .annotate(count=Count('id')) \
                              .order_by('-count')[:20]  # Top 20 companies
     
     # Get technology distribution
-    tech_distribution = Component.objects.exclude(technology__isnull=True) \
+    tech_distribution = models.Component.objects.exclude(technology__isnull=True) \
                                  .exclude(technology='') \
                                  .values('technology') \
                                  .annotate(count=Count('id')) \
                                  .order_by('-count')[:10]  # Top 10 technologies
     
     # Get delivery year distribution - include all years
-    year_distribution = Component.objects.exclude(delivery_year__isnull=True) \
+    year_distribution = models.Component.objects.exclude(delivery_year__isnull=True) \
                                  .exclude(delivery_year='') \
                                  .values('delivery_year') \
                                  .annotate(count=Count('id')) \
                                  .order_by('delivery_year')  # Order by year ascending
     
     # Get total counts
-    total_components = Component.objects.count()
-    total_cmus = Component.objects.values('cmu_id').distinct().count()
-    total_companies = Component.objects.exclude(company_name__isnull=True) \
+    total_components = models.Component.objects.count()
+    total_cmus = models.Component.objects.values('cmu_id').distinct().count()
+    total_companies = models.Component.objects.exclude(company_name__isnull=True) \
                               .exclude(company_name='') \
                               .values('company_name').distinct().count()
     
@@ -956,13 +955,12 @@ def statistics_view(request):
 @require_http_methods(["GET"])
 def component_detail_by_id(request, component_id):
     """View function for component details page when looking up by component_id"""
-    from .models import Component
     import logging
     logger = logging.getLogger(__name__)
     
     try:
         # Try to find component by component_id
-        component = Component.objects.filter(component_id=component_id).first()
+        component = models.Component.objects.filter(component_id=component_id).first()
         
         if component:
             # If found, redirect to the primary key URL

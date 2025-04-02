@@ -58,7 +58,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = "capacity_checker.urls"
+ROOT_URLCONF = "capacity_checker.capacity_checker.urls"
 
 TEMPLATES = [
     {
