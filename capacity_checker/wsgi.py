@@ -8,6 +8,12 @@ https://docs.djangoproject.com/en/5.1/howto/deployment/wsgi/
 """
 
 import os
+import sys
+from pathlib import Path
+
+# Add the parent directory (containing the 'checker' app) to sys.path
+BASE_DIR_PARENT = Path(__file__).resolve().parent.parent
+sys.path.append(str(BASE_DIR_PARENT))
 
 from django.core.wsgi import get_wsgi_application
 
