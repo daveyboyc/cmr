@@ -7,27 +7,29 @@ import os
 import json
 import glob
 from django.db.models import Count
-from capacity_checker import checker
+# Remove Component import from here
+# Remove unused checker import
+# from capacity_checker import checker 
 
-# Import service functions
-from .services.company_search import search_companies_service, get_company_years, get_cmu_details
-
+# Import service functions first
+from .services.company_search import search_companies_service, get_company_years, get_cmu_details, company_detail # Import company_detail only once
 from .services.component_search import search_components_service
 from .services.component_detail import get_component_details
-from .services.company_search import company_detail
 from .utils import safe_url_param, from_url_param
 from .services.data_access import get_component_data_from_json, get_json_path, fetch_components_for_cmu_id
 
+# Now import the models
+from capacity_checker.checker.models import Component
+
+# Define logger after imports
+import logging
+logger = logging.getLogger(__name__)
 
 def search_companies(request):
     """View function for searching companies using the unified search"""
     # Get the query parameter
     query = request.GET.get("q", "").strip()
     
-    # Setup logging
-    import logging
-    logger = logging.getLogger(__name__)
-
     # If no query, or if query, delegate ALL logic (company+component search & render)
     # to search_components_service. It will handle defaults and context.
     logger.info(f"Delegating search for query '{query}' to search_components_service")
@@ -114,7 +116,7 @@ def htmx_auction_components(request, company_id, year, auction_name):
         logger.info(f"Parameters after conversion: company_id='{company_id}', year='{year}', auction_name='{auction_name}'")
 
         # --- FIX: Find all company name variations --- 
-        all_company_names = checker.models.Component.objects.values_list('company_name', flat=True).distinct()
+        all_company_names = Component.objects.values_list('company_name', flat=True).distinct()
         company_name_variations = []
         primary_company_name = None # For display/logging if needed
         for name in all_company_names:
@@ -197,7 +199,7 @@ def htmx_auction_components(request, company_id, year, auction_name):
             # === End Logging ===
 
             # Get components with the stricter filter
-            components = checker.models.Component.objects.filter(base_query).order_by('cmu_id', 'location')
+            components = Component.objects.filter(base_query).order_by('cmu_id', 'location')
             
             logger.info(f"Specific query found {components.count()} components.")
 
@@ -901,30 +903,30 @@ def statistics_view(request):
     from .utils import normalize
     
     # Get top companies by component count, excluding empty company names
-    top_companies = checker.models.Component.objects.exclude(company_name__isnull=True) \
+    top_companies = Component.objects.exclude(company_name__isnull=True) \
                              .exclude(company_name='') \
                              .values('company_name') \
                              .annotate(count=Count('id')) \
                              .order_by('-count')[:20]  # Top 20 companies
     
     # Get technology distribution
-    tech_distribution = checker.models.Component.objects.exclude(technology__isnull=True) \
+    tech_distribution = Component.objects.exclude(technology__isnull=True) \
                                  .exclude(technology='') \
                                  .values('technology') \
                                  .annotate(count=Count('id')) \
                                  .order_by('-count')[:10]  # Top 10 technologies
     
     # Get delivery year distribution - include all years
-    year_distribution = checker.models.Component.objects.exclude(delivery_year__isnull=True) \
+    year_distribution = Component.objects.exclude(delivery_year__isnull=True) \
                                  .exclude(delivery_year='') \
                                  .values('delivery_year') \
                                  .annotate(count=Count('id')) \
                                  .order_by('delivery_year')  # Order by year ascending
     
     # Get total counts
-    total_components = checker.models.Component.objects.count()
-    total_cmus = checker.models.Component.objects.values('cmu_id').distinct().count()
-    total_companies = checker.models.Component.objects.exclude(company_name__isnull=True) \
+    total_components = Component.objects.count()
+    total_cmus = Component.objects.values('cmu_id').distinct().count()
+    total_companies = Component.objects.exclude(company_name__isnull=True) \
                               .exclude(company_name='') \
                               .values('company_name').distinct().count()
     
@@ -960,7 +962,7 @@ def component_detail_by_id(request, component_id):
     
     try:
         # Try to find component by component_id
-        component = checker.models.Component.objects.filter(component_id=component_id).first()
+        component = Component.objects.filter(component_id=component_id).first()
         
         if component:
             # If found, redirect to the primary key URL
