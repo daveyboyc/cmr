@@ -896,43 +896,101 @@ def analyze_component_duplicates(components):
     }
 
 
-def get_components_from_database(search_term: str) -> list:
+def get_components_from_database(cmu_id=None, component_id=None, location=None, company_name=None, search_term=None, limit=100, page=None, per_page=None):
     """
-    Get components from the database based on a search term.
-    Prioritizes location-based searches using postcode data.
+    Fetch components from the database based on various filters with optimization.
+    Accepts specific filters (cmu_id, location, company_name) and a general search_term.
+    Includes pagination support.
+    Returns a list of component dictionaries.
     """
+    import logging
     from django.db.models import Q
-    from ..models import Component
+    # from ..models import Component # Model already imported at top level
     
-    # Split search term into words and filter out short words
-    search_terms = [term for term in search_term.lower().split() if len(term) >= 3]
+    logger = logging.getLogger(__name__)
+    logger.info(f"DB Query: cmu={cmu_id}, comp={component_id}, loc={location}, company={company_name}, term={search_term}, page={page}, per_page={per_page}")
     
-    # Get postcodes for the search term
-    postcodes = []
-    for term in search_terms:
-        postcodes.extend(get_postcodes_for_area(term))
+    # Build the query
+    query_set = Component.objects.all()
+    filters = Q()
+    has_filter = False
+
+    if cmu_id:
+        filters &= Q(cmu_id__iexact=cmu_id)
+        has_filter = True
     
-    # Build the query with prioritization
-    query = Q()
+    if component_id:
+        filters &= Q(component_id=component_id)
+        has_filter = True
+        
+    if location:
+        filters &= Q(location__icontains=location)
+        has_filter = True
+        
+    if company_name:
+        filters &= Q(company_name__icontains=company_name)
+        has_filter = True
+        
+    # Apply general search term if no specific filters were used or if provided
+    if search_term and not has_filter:
+        search_terms = [term for term in search_term.lower().split() if len(term) >= 3]
+        term_filters = Q()
+        for term in search_terms:
+             term_filters |= Q(location__icontains=term) | Q(description__icontains=term) | Q(company_name__icontains=term) | Q(cmu_id__icontains=term) 
+        if term_filters:
+            filters &= term_filters
+            has_filter = True
+
+    # Only apply filters if any were added
+    if has_filter:
+        query_set = query_set.filter(filters)
+    else:
+        # If no filters/search term, maybe return empty or all? 
+        # Returning empty for now to avoid loading everything.
+        logger.warning("get_components_from_database called with no filters or search term. Returning empty.")
+        return []
+
+    # Apply distinct if complex filters were used
+    if has_filter:
+        query_set = query_set.distinct()
+
+    # Check existence before proceeding (faster than count for large sets)
+    # if not query_set.exists():
+    #     return [] # Skip if exists() is too slow
     
-    # First priority: Exact location matches
-    location_query = Q()
-    for term in search_terms:
-        location_query |= Q(location__iexact=term)
-    query |= location_query
+    # Apply ordering
+    query_set = query_set.order_by('-delivery_year', 'cmu_id', 'location')
+
+    # Apply pagination if provided
+    if page is not None and per_page is not None:
+        start = (page - 1) * per_page
+        paginated_queryset = query_set[start:start + per_page]
+    # Apply limit if pagination not used
+    elif limit:
+        paginated_queryset = query_set[:limit]
+    else:
+        paginated_queryset = query_set # Or apply a default limit?
     
-    # Second priority: Postcode matches
-    if postcodes:
-        postcode_query = Q()
-        for postcode in postcodes:
-            postcode_query |= Q(location__icontains=postcode)
-        query |= postcode_query
+    # Execute query and convert to list of dictionaries
+    components = []
+    for comp in paginated_queryset: # Iterate over the paginated/limited queryset
+        # ... (rest of component dictionary creation) ...
+        comp_dict = {
+            "CMU ID": comp.cmu_id,
+            "Location and Post Code": comp.location or '',
+            "Description of CMU Components": comp.description or '',
+            "Generating Technology Class": comp.technology or '',
+            "Company Name": comp.company_name or '',
+            "Auction Name": comp.auction_name or '',
+            "Delivery Year": comp.delivery_year or '',
+            "_id": comp.id, # Use pk as _id for linking
+            "component_id_str": comp.component_id or '' # Keep original string ID if present
+        }
+        if comp.additional_data:
+            for key, value in comp.additional_data.items():
+                if key not in comp_dict:
+                    comp_dict[key] = value
+        components.append(comp_dict)
     
-    # Third priority: Description matches
-    desc_query = Q()
-    for term in search_terms:
-        desc_query |= Q(description__icontains=term)
-    query |= desc_query
-    
-    # Execute the query and return distinct results
-    return list(Component.objects.filter(query).distinct())
+    logger.info(f"Found {len(components)} components in database matching filters.")
+    return components
