@@ -11,7 +11,7 @@ from django.db.models import Q, Count
 import re
 
 from ..utils import normalize, get_cache_key, get_json_path, ensure_directory_exists
-from .data.postcodes import get_postcodes_for_area, get_area_for_postcode
+from ..data.postcodes import get_postcodes_for_area, get_area_for_postcode
 from ..models import Component
 
 
@@ -895,7 +895,7 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
     """
     import logging
     from django.db.models import Q
-    # from ..models import Component # Model already imported at top level
+    from ..models import Component
     
     logger = logging.getLogger(__name__)
     logger.info(f"DB Query: cmu={cmu_id}, comp={component_id}, loc={location}, company={company_name}, term={search_term}, page={page}, per_page={per_page}")
@@ -926,7 +926,23 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
         search_terms = [term for term in search_term.lower().split() if len(term) >= 3]
         term_filters = Q()
         for term in search_terms:
+             # Original term filters
              term_filters |= Q(location__icontains=term) | Q(description__icontains=term) | Q(company_name__icontains=term) | Q(cmu_id__icontains=term) 
+             
+             # --- Add Postcode Lookup Logic --- 
+             # Check if term could be an area name (simple check: not numeric)
+             if not term.isnumeric():
+                 try:
+                     related_postcodes = get_postcodes_for_area(term)
+                     if related_postcodes:
+                         logger.info(f"Found postcodes for area '{term}': {related_postcodes}")
+                         for postcode in related_postcodes:
+                             # Add postcode matches to the OR filter for this term
+                             term_filters |= Q(location__icontains=postcode)
+                 except Exception as e:
+                      logger.error(f"Error during postcode lookup for area '{term}': {e}")
+             # --- End Postcode Lookup Logic ---
+
         if term_filters:
             filters &= term_filters
             has_filter = True
