@@ -13,7 +13,7 @@ import re
 from ..utils import normalize, get_cache_key, get_json_path, ensure_directory_exists
 # Wrap postcode import in try-except
 try:
-    from ..data.postcodes import get_postcodes_for_area, get_area_for_postcode
+    from .data.postcodes import get_postcodes_for_area, get_area_for_postcode
 except ImportError:
     # Dummy implementations for missing module
     def get_postcodes_for_area(area):
