@@ -7,7 +7,10 @@ import traceback
 from django.urls import reverse
 
 from ..utils import normalize, get_cache_key
-from .data_access import fetch_components_for_cmu_id
+from .data_access import (
+    fetch_components_for_cmu_id, 
+    get_components_from_database
+)
 from .company_search import _perform_company_search, get_cmu_dataframe, _build_search_results
 
 logger = logging.getLogger(__name__)

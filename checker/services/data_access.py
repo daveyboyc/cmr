@@ -895,7 +895,7 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
     from django.db.models import Q
     
     logger = logging.getLogger(__name__)
-    logger.info(f"Fetching components from database: cmu_id={cmu_id}, component_id={component_id}, limit={limit}")
+    logger.info(f"Fetching components from database: cmu_id={cmu_id}, component_id={component_id}, location={location}, company_name={company_name}")
     
     # Build the query
     query = Component.objects.all()
@@ -912,8 +912,13 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
         location_query = Q()
         for term in location_terms:
             if len(term) >= 3:  # Only use terms with at least 3 characters
-                location_query |= Q(location__icontains=term)
-        query = query.filter(location_query)
+                # Search in both location and description fields for better matches
+                location_query |= (
+                    Q(location__icontains=term) |
+                    Q(description__icontains=term)
+                )
+        if location_query:
+            query = query.filter(location_query)
         
     if company_name:
         # For company searches, split into terms and use icontains for each
@@ -922,10 +927,15 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
         for term in company_terms:
             if len(term) >= 3:  # Only use terms with at least 3 characters
                 company_query |= Q(company_name__icontains=term)
-        query = query.filter(company_query)
+        if company_query:
+            query = query.filter(company_query)
+    
+    # Make the query distinct to avoid duplicates
+    query = query.distinct()
     
     # Check existence before proceeding (faster than count)
     if not query.exists():
+        logger.info("No components found matching the criteria")
         return []
     
     # Apply pagination if provided
@@ -948,7 +958,8 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
             "Company Name": comp.company_name or '',
             "Auction Name": comp.auction_name or '',
             "Delivery Year": comp.delivery_year or '',
-            "_id": comp.component_id or ''
+            "_id": comp.id,  # Use database ID for links
+            "component_id_str": comp.component_id or '' # Original component ID string
         }
         
         # Add any additional data if available
