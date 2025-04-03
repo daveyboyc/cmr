@@ -199,12 +199,12 @@
                     <h3>Component Results ({{ component_count }})</h3>
                     {% if request.GET.q %}
                         {% if comp_sort == "desc" %}
-                            <a href="?q={{ request.GET.q }}&comp_sort=asc" class="sort-toggle">
-                                <span>↑</span> Sort Components: Newest First
+                            <a href="?q={{ request.GET.q }}&comp_sort=asc&page={{ page }}&per_page={{ per_page }}" class="sort-toggle">
+                                <span>↑</span> Sort Components: Oldest First
                             </a>
                         {% else %}
-                            <a href="?q={{ request.GET.q }}&comp_sort=desc" class="sort-toggle">
-                                <span>↓</span> Sort Components: Oldest First
+                            <a href="?q={{ request.GET.q }}&comp_sort=desc&page={{ page }}&per_page={{ per_page }}" class="sort-toggle">
+                                <span>↓</span> Sort Components: Newest First
                             </a>
                         {% endif %}
                     {% endif %}
@@ -227,8 +227,8 @@
                     <nav aria-label="Component navigation" class="pagination-nav">
                         <ul class="pagination justify-content-center">
                             {% if has_prev %}
-                                <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page=1&comp_sort={{ comp_sort }}">First</a></li>
-                                <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page={{ page|add:'-1' }}&comp_sort={{ comp_sort }}">Previous</a></li>
+                                <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page=1&comp_sort={{ comp_sort }}&per_page={{ per_page }}">First</a></li>
+                                <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page={{ page|add:'-1' }}&comp_sort={{ comp_sort }}&per_page={{ per_page }}">Previous</a></li>
                             {% else %}
                                 <li class="page-item disabled"><span class="page-link">First</span></li>
                                 <li class="page-item disabled"><span class="page-link">Previous</span></li>
@@ -238,13 +238,13 @@
                                 {% if i == page %}
                                     <li class="page-item active" aria-current="page"><span class="page-link">{{ i }}</span></li>
                                 {% else %}
-                                    <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page={{ i }}&comp_sort={{ comp_sort }}">{{ i }}</a></li>
+                                    <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page={{ i }}&comp_sort={{ comp_sort }}&per_page={{ per_page }}">{{ i }}</a></li>
                                 {% endif %}
                             {% endfor %}
 
                             {% if has_next %}
-                                <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page={{ page|add:'1' }}&comp_sort={{ comp_sort }}">Next</a></li>
-                                <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page={{ total_pages }}&comp_sort={{ comp_sort }}">Last</a></li>
+                                <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page={{ page|add:'1' }}&comp_sort={{ comp_sort }}&per_page={{ per_page }}">Next</a></li>
+                                <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page={{ total_pages }}&comp_sort={{ comp_sort }}&per_page={{ per_page }}">Last</a></li>
                             {% else %}
                                 <li class="page-item disabled"><span class="page-link">Next</span></li>
                                 <li class="page-item disabled"><span class="page-link">Last</span></li>

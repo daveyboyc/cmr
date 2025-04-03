@@ -11,7 +11,6 @@ from django.db.models import Q, Count
 import re
 
 from ..utils import normalize, get_cache_key, get_json_path, ensure_directory_exists
-from ..data.postcodes import get_postcodes_for_area, get_area_for_postcode
 from ..models import Component
 
 
@@ -369,7 +368,7 @@ def detect_potential_duplicates(components):
     return duplicates
 
 
-def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
+def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100, sort_order="desc"):
     """
     Fetch components for a given CMU ID using a multi-term search approach 
     that handles space-separated queries properly.
@@ -383,8 +382,13 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
     logger = logging.getLogger(__name__)
     start_time = time.time()
     
+    # For company name searches that might return too many components, set a sane default limit
+    # This helps with searches like "Tata Steel" which would otherwise return hundreds of components
+    default_component_limit = 50  # Default max components to show initially
+    
     # Check cache first for performance
-    components_cache_key = get_cache_key(f"components_for_cmu_p{page}_s{per_page}", cmu_id)
+    # Include sort_order in the cache key to ensure different sort orders have different cache entries
+    components_cache_key = get_cache_key(f"components_for_cmu_p{page}_s{per_page}_sort{sort_order}", cmu_id)
     cached_components = cache.get(components_cache_key)
     
     # If found in cache, apply pagination and return
@@ -470,14 +474,42 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
         # Convert to integer to avoid comparison issues
         total_count_int = int(total_count) if isinstance(total_count, (str, float)) else total_count
         
+        # For searches returning many results, check if this is likely a company name search
+        # and apply a more reasonable limit for the initial display
+        is_likely_company_search = False
+        if total_count_int > 100 and ' ' not in cmu_id and not cmu_id.upper().startswith('CM') and not cmu_id.upper().startswith('T-'):
+            # Check if this query matches any company names
+            company_match_count = Component.objects.filter(company_name__icontains=cmu_id).values('company_name').distinct().count()
+            if company_match_count > 0:
+                is_likely_company_search = True
+                logger.info(f"Query '{cmu_id}' appears to be a company name search with {company_match_count} matching companies")
+        
         # If we have a very large result set, limit it further 
         if total_count_int > 5000:
             logger.warning(f"Very large result set ({total_count_int}) for query '{cmu_id}', limiting to 5000")
             queryset = queryset[:5000]
             total_count_int = min(total_count_int, 5000)
+        # For likely company searches, set a lower initial limit
+        elif is_likely_company_search and per_page > default_component_limit:
+            logger.info(f"Limiting initial component display to {default_component_limit} for company search '{cmu_id}'")
+            per_page = default_component_limit
         
-        # Apply sorting by delivery year (descending)
-        queryset = queryset.order_by('-delivery_year')
+        # Restore original timeout if we changed it
+        try:
+            if hasattr(connection.cursor().connection, 'settimeout') and original_timeout:
+                connection.cursor().connection.settimeout(original_timeout)
+        except:
+            pass
+        
+        # Apply sorting based on sort_order
+        if sort_order == "asc":
+            # Oldest first - ascending delivery year
+            queryset = queryset.order_by('delivery_year')
+            logger.info("Sorting by delivery year (oldest first)")
+        else:
+            # Newest first - descending delivery year (default)
+            queryset = queryset.order_by('-delivery_year')
+            logger.info("Sorting by delivery year (newest first)")
         
         # Apply pagination
         start = (page - 1) * per_page
@@ -521,11 +553,15 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
         
         # Cache results if not too large
         if total_count_int <= 1000:  # Only cache reasonably sized results
-            cache.set(components_cache_key, components, 3600)  # 1 hour
+            # Store all component results (not just paginated) in the cache with the sort order
+            all_components = list(queryset)
+            cache.set(components_cache_key, all_components, 3600)  # 1 hour
         elif total_count_int <= 2000:
-            cache.set(components_cache_key, components, 1800)  # 30 minutes
+            all_components = list(queryset)
+            cache.set(components_cache_key, all_components, 1800)  # 30 minutes
         elif total_count_int <= 5000:
-            cache.set(components_cache_key, components, 600)   # 10 minutes
+            all_components = list(queryset)
+            cache.set(components_cache_key, all_components, 600)   # 10 minutes
         
         # Add duplicate detection to metadata
         duplicates = detect_potential_duplicates(components)
@@ -539,13 +575,6 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
             "potential_duplicates": duplicates,
             "has_duplicates": bool(duplicates)
         }
-        
-        # Restore original timeout if we changed it
-        try:
-            if hasattr(connection.cursor().connection, 'settimeout') and original_timeout:
-                connection.cursor().connection.settimeout(original_timeout)
-        except:
-            pass
         
         return components, metadata
     
@@ -571,6 +600,20 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
             if response.status_code == 200:
                 result = response.json().get("result", {})
                 all_api_components = result.get("records", [])
+                
+                # Sort the API results based on sort_order
+                if all_api_components:
+                    try:
+                        if sort_order == "asc":
+                            # Sort oldest first
+                            all_api_components = sorted(all_api_components, key=lambda x: x.get("Delivery Year", "0"))
+                            logger.info("API results sorted by delivery year (oldest first)")
+                        else:
+                            # Sort newest first (default)
+                            all_api_components = sorted(all_api_components, key=lambda x: x.get("Delivery Year", "0"), reverse=True)
+                            logger.info("API results sorted by delivery year (newest first)")
+                    except Exception as sort_error:
+                        logger.error(f"Error sorting API results: {str(sort_error)}")
                 
                 # Try to get total count
                 total_count = result.get("total", len(all_api_components))
@@ -669,7 +712,7 @@ def fetch_component_search_results(query, limit=1000, sort_order="desc"):
     Fetch components based on a search query.
     Legacy function that now uses fetch_components_for_cmu_id.
     """
-    components, metadata = fetch_components_for_cmu_id(query, page=1, per_page=limit)
+    components, metadata = fetch_components_for_cmu_id(query, page=1, per_page=limit, sort_order=sort_order)
     api_time = metadata.get("processing_time", 0)
     error = metadata.get("error")
     
@@ -784,7 +827,7 @@ def get_accurate_total_count(query):
             return 0
 
 
-def search_all_json_files(query, page=1, per_page=500):
+def search_all_json_files(query, page=1, per_page=500, sort_order="desc"):
     """
     DEPRECATED: Search JSON files for components.
     This function now redirects to database search.
@@ -793,7 +836,7 @@ def search_all_json_files(query, page=1, per_page=500):
     logger = logging.getLogger(__name__)
     
     logger.warning("search_all_json_files is deprecated, using database search instead")
-    return fetch_components_for_cmu_id(query, page=page, per_page=per_page)
+    return fetch_components_for_cmu_id(query, page=page, per_page=per_page, sort_order=sort_order)
 
 
 def get_cmu_data_by_id(cmu_id):
@@ -887,30 +930,21 @@ def analyze_component_duplicates(components):
     }
 
 
-def get_components_from_database(cmu_id=None, component_id=None, location=None, company_name=None, search_term=None, limit=100, page=None, per_page=None):
+def get_components_from_database(cmu_id=None, component_id=None, location=None, company_name=None, search_term=None, limit=100, page=None, per_page=None, sort_order="desc"):
     """
     Fetch components from the database based on various filters with optimization.
     Accepts specific filters (cmu_id, location, company_name) and a general search_term.
     Includes pagination support.
-    Returns a list of component dictionaries.
+    Returns a tuple of (components list, total count).
     """
     import logging
     from django.db.models import Q
     
-    # Import postcode functions here to avoid import errors
-    try:
-        from .data.postcodes import get_postcodes_for_area, get_area_for_postcode
-    except ImportError:
-        # Dummy implementations if import fails
-        def get_postcodes_for_area(area):
-            """Dummy function when postcodes module is not available"""
-            return []
-        def get_area_for_postcode(postcode):
-            """Dummy function when postcodes module is not available"""
-            return None
-    
+    # Import the enhanced postcode functions
+    from .data import get_all_postcodes_for_area, get_area_for_any_postcode
     logger = logging.getLogger(__name__)
-    logger.info(f"DB Query: cmu={cmu_id}, comp={component_id}, loc={location}, company={company_name}, term={search_term}, page={page}, per_page={per_page}")
+    
+    logger.info(f"DB Query: cmu={cmu_id}, comp={component_id}, loc={location}, company={company_name}, term={search_term}, page={page}, per_page={per_page}, sort={sort_order}")
     
     # Build the query
     query_set = Component.objects.all()
@@ -926,22 +960,108 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
         has_filter = True
         
     if location:
-        filters &= Q(location__icontains=location)
-        has_filter = True
+        # Starting with a tighter location filter - only exact matches have priority
+        logger.info(f"Starting location search with filters for: {location}")
         
+        # Set up a more precise filtering approach using OR conditions with priorities
+        exact_location_filter = Q(location__iexact=location)  # Exact match has highest priority
+        
+        # Create a filter for locations that start with our search term
+        # This catches places where the location is "Manchester M1 1AA" when searching for "Manchester"
+        starts_with_filter = Q(location__istartswith=f"{location} ") | Q(location__istartswith=f"{location},")
+        
+        # Check if location is an area name and get related postcodes
+        related_postcodes = get_all_postcodes_for_area(location)
+        postcode_filter = Q()
+        if related_postcodes:
+            # Limit number of postcodes to prevent overly broad searches
+            # Focus on the most relevant postcodes (usually the first 5-10 are most central to the area)
+            limited_postcodes = related_postcodes[:10]  # Take at most 10 postcodes
+            logger.info(f"Found {len(related_postcodes)} related postcodes for area: {location}, using {len(limited_postcodes)}")
+            
+            # For each postcode, create a filter that requires the postcode to appear as a whole word
+            # This prevents matching substrings like "SE1" within "ESSEX"
+            for postcode in limited_postcodes:
+                # To match whole postcodes, look for postcodes with space/comma before or after
+                # This avoids matching "SE1" in "ESSEX" but catches "SE1 9RT" or "SE1, London"
+                postcode_filter |= (
+                    Q(location__iregex=f"\\b{postcode}\\b") |  # Match SE1 as a whole word
+                    Q(location__iregex=f"\\b{postcode}[0-9A-Z]") |  # Match SE1 followed by more characters like SE16
+                    Q(location__icontains=f" {postcode},") |  # Match " SE1,"
+                    Q(location__icontains=f" {postcode} ")    # Match " SE1 "
+                )
+        
+        # Check if location might be a postcode and get related area
+        area = get_area_for_any_postcode(location)
+        area_filter = Q()
+        if area:
+            logger.info(f"Found related area for postcode {location}: {area}")
+            # Only match the area name as a complete word, not as a substring
+            area_filter = Q(location__iregex=f"\\b{area}\\b")
+        
+        # Combine all filters with priority - exact matches first, then starts_with, then postcodes, then area names
+        # Use | (OR) between filters, so any match will work, but prioritize the filters when combining
+        location_filter = exact_location_filter | starts_with_filter | postcode_filter | area_filter
+        
+        # Basic substring match as last resort, but with lower weight in results
+        contains_filter = Q(location__icontains=location)
+        
+        # Combine all filters - priority filters have precedence, contains is last resort
+        filters &= (location_filter | contains_filter)
+        has_filter = True
+
     if company_name:
         filters &= Q(company_name__icontains=company_name)
         has_filter = True
         
-    # Apply general search term if no specific filters were used or if provided
-    if search_term and not has_filter:
-        search_terms = [term for term in search_term.lower().split() if len(term) >= 3]
-        term_filters = Q()
-        for term in search_terms:
-             term_filters |= Q(location__icontains=term) | Q(description__icontains=term) | Q(company_name__icontains=term) | Q(cmu_id__icontains=term) 
-        if term_filters:
-            filters &= term_filters
+    # Apply general search term if provided - use more precise matching to ensure components
+    # actually contain the search term in at least one field
+    if search_term:
+        search_term_lower = search_term.lower().strip()
+        search_terms = [term for term in search_term_lower.split() if len(term) >= 3]
+        
+        # For single-term searches, be more precise in matching
+        if len(search_terms) == 1 and len(search_term_lower) >= 3:
+            term = search_term_lower
+            logger.info(f"Using precise single-term search for: '{term}'")
+            
+            # Create a filter that ensures the term appears as a distinct word or part
+            # This helps prevent matches where the term is just part of another word
+            # (but still allows partial matches at beginning/end of words)
+            term_filter = (
+                Q(company_name__icontains=term) | 
+                Q(location__icontains=term) | 
+                Q(description__icontains=term) |
+                Q(cmu_id__icontains=term)
+            )
+            filters &= term_filter
             has_filter = True
+        
+        # For multi-term searches, use the original approach with improvements
+        elif len(search_terms) > 1:
+            logger.info(f"Using multi-term search for: {search_terms}")
+            
+            # Create term-specific filters
+            term_filters = Q()
+            for term in search_terms:
+                # Only use terms with at least 3 characters for meaningful search
+                if len(term) >= 3:
+                    single_term_filter = (
+                        Q(company_name__icontains=term) | 
+                        Q(location__icontains=term) | 
+                        Q(description__icontains=term) |
+                        Q(cmu_id__icontains=term)
+                    )
+                    # Combine with OR - any field can match any term
+                    term_filters |= single_term_filter
+            
+            if term_filters:
+                filters &= term_filters
+                has_filter = True
+                
+        # If search_term is too short or has no valid terms, log a warning
+        else:
+            logger.warning(f"Search term '{search_term}' is too short or has no valid terms")
 
     # Only apply filters if any were added
     if has_filter:
@@ -950,18 +1070,25 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
         # If no filters/search term, maybe return empty or all? 
         # Returning empty for now to avoid loading everything.
         logger.warning("get_components_from_database called with no filters or search term. Returning empty.")
-        return []
+        return [], 0
 
     # Apply distinct if complex filters were used
     if has_filter:
         query_set = query_set.distinct()
-
-    # Check existence before proceeding (faster than count for large sets)
-    # if not query_set.exists():
-    #     return [] # Skip if exists() is too slow
     
-    # Apply ordering
-    query_set = query_set.order_by('-delivery_year', 'cmu_id', 'location')
+    # Get total count before applying pagination
+    total_count = query_set.count()
+    logger.info(f"Total matching records: {total_count}")
+    
+    # Apply ordering based on sort_order
+    if sort_order == "asc":
+        # Oldest first - ascending delivery year
+        query_set = query_set.order_by('delivery_year')
+        logger.info("Sorting by delivery year (oldest first)")
+    else:
+        # Newest first - descending delivery year (default)
+        query_set = query_set.order_by('-delivery_year')
+        logger.info("Sorting by delivery year (newest first)")
 
     # Apply pagination if provided
     if page is not None and per_page is not None:
@@ -976,7 +1103,6 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
     # Execute query and convert to list of dictionaries
     components = []
     for comp in paginated_queryset: # Iterate over the paginated/limited queryset
-        # ... (rest of component dictionary creation) ...
         comp_dict = {
             "CMU ID": comp.cmu_id,
             "Location and Post Code": comp.location or '',
@@ -995,4 +1121,4 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
         components.append(comp_dict)
     
     logger.info(f"Found {len(components)} components in database matching filters.")
-    return components
+    return components, total_count

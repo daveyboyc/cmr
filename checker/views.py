@@ -25,6 +25,25 @@ from .models import Component
 import logging
 logger = logging.getLogger(__name__)
 
+import time
+import re
+import pandas as pd
+from django.core.cache import cache
+
+from . import services
+from .services import data_access
+
+# Clear all search caches for previously cached queries that might return irrelevant results
+# This is a one-time action when the server starts to ensure consistency
+try:
+    all_keys = cache.keys("search_results_*")
+    if all_keys:
+        logger.info(f"Clearing {len(all_keys)} cached search queries for consistency")
+        cache.delete_many(all_keys)
+except:
+    # Some cache backends don't support keys() method
+    logger.info("Unable to bulk clear search cache - will be refreshed gradually")
+
 def search_companies(request):
     """View function for searching companies using the unified search"""
     # Get the query parameter
@@ -979,4 +998,309 @@ def component_detail_by_id(request, component_id):
         return render(request, "checker/error.html", {
             "error": f"Error looking up component: {str(e)}",
             "suggestion": "Please try again or contact support if the problem persists."
+        })
+
+def search(request):
+    query = request.GET.get('q', '')
+    start_time = time.time()
+    
+    # Debug mode can be activated with ?debug=true in the URL
+    debug_mode = request.GET.get('debug', '').lower() == 'true'
+    
+    # Special case handling for 'vital' query to show more results by default
+    if query.lower() == 'vital' and 'per_page' not in request.GET:
+        # For 'vital' search specifically, use a larger default limit unless user specifies
+        per_page = 100  # Increase to show more results by default
+    else:
+        # Default per_page from request or use 50 as default for other searches
+        per_page = int(request.GET.get('per_page', '50')) 
+    
+    if not query:
+        return render(request, 'checker/search_results.html', {'components': [], 'total_count': 0, 'company_count': 0})
+    
+    # Normalize query for caching
+    normalized_query = query.lower().strip()
+    
+    # Skip cache in debug mode to always see fresh results
+    if not debug_mode:
+        # Try to get from cache if it's a common query
+        cache_key = f"search_results_{normalized_query}_per{per_page}"
+        cached_result = cache.get(cache_key)
+        if cached_result:
+            logger.info(f"Using cached search results for '{query}'")
+            api_time = time.time() - start_time + cached_result.get('original_time', 0)
+            
+            return render(request, 'checker/search_results.html', {
+                'query': query,
+                'components': cached_result.get('components', []),
+                'total_count': cached_result.get('total_count', 0),
+                'api_time': api_time,
+                'companies': cached_result.get('companies', []),
+                'company_count': cached_result.get('company_count', 0),
+                'from_cache': True,
+                'per_page': per_page
+            })
+    
+    try:
+        # Get all components that match the search term in any field
+        # Use custom per_page limit based on request
+        components, total_count = data_access.get_components_from_database(search_term=query, limit=per_page)
+        logger.info(f"Found {len(components)} total components matching '{query}'")
+        
+        # Normalize component keys to avoid template issues with spaces in key names
+        normalized_components = []
+        for comp in components:
+            normalized_comp = {}
+            # Map keys with spaces to keys without spaces
+            if 'CMU ID' in comp:
+                normalized_comp['cmu_id'] = comp['CMU ID']
+            if 'Company Name' in comp:
+                normalized_comp['company_name'] = comp['Company Name'] 
+            if 'Location and Post Code' in comp:
+                normalized_comp['location'] = comp['Location and Post Code']
+            if 'Description of CMU Components' in comp:
+                normalized_comp['description'] = comp['Description of CMU Components']
+            
+            # Copy all other fields directly
+            for key, value in comp.items():
+                if key not in ['CMU ID', 'Company Name', 'Location and Post Code', 'Description of CMU Components']:
+                    normalized_comp[key] = value
+            
+            normalized_components.append(normalized_comp)
+        
+        # Use normalized components for the rest of the function
+        components = normalized_components
+        
+        # Debug: Analyze and log what fields match the search term
+        field_match_stats = {
+            'company_name': 0,
+            'cmu_id': 0,
+            'location': 0,
+            'description': 0,
+            'no_match': 0
+        }
+        
+        # For debug mode: collect components that don't have the search term in any field
+        suspicious_components = []
+        
+        # Calculate relevance score for each component based on how well it matches the search term
+        strictly_matching_components = []
+        no_match_components = []
+        
+        for comp in components:
+            relevance_score = 0
+            has_any_match = False
+            field_matches = []
+            
+            # Highest relevance: Company name contains search term
+            company_name = comp.get('Company Name', '')
+            if company_name and query.lower() in company_name.lower():
+                relevance_score += 100
+                has_any_match = True
+                field_match_stats['company_name'] += 1
+                field_matches.append('company_name')
+                # Exact company name match gets even higher score
+                if query.lower() == company_name.lower():
+                    relevance_score += 50
+            
+            # High relevance: CMU ID contains search term
+            cmu_id = comp.get('CMU ID', '')
+            if cmu_id and query.lower() in cmu_id.lower():
+                relevance_score += 80
+                has_any_match = True
+                field_match_stats['cmu_id'] += 1
+                field_matches.append('cmu_id')
+            
+            # Medium relevance: Location contains search term
+            location = comp.get('Location and Post Code', '') or comp.get('location', '')
+            if location and query.lower() in location.lower():
+                relevance_score += 60
+                has_any_match = True
+                field_match_stats['location'] += 1
+                field_matches.append('location')
+            
+            # Lower relevance: Description contains search term
+            description = comp.get('Description of CMU Components', '') or comp.get('description', '')
+            if description and query.lower() in description.lower():
+                relevance_score += 40
+                has_any_match = True
+                field_match_stats['description'] += 1
+                field_matches.append('description')
+                
+            # Add the score to the component
+            comp['relevance_score'] = relevance_score
+            
+            # For debugging: add which fields matched 
+            if debug_mode:
+                comp['debug_matched_fields'] = field_matches
+            
+            # Separate components into ones that actually match the query text and ones that don't
+            if has_any_match:
+                strictly_matching_components.append(comp)
+            else:
+                # This is a problem - these components don't match our search!
+                no_match_components.append(comp)
+                field_match_stats['no_match'] += 1
+                
+                # For debugging: collect a sample of suspicious components
+                if debug_mode and len(suspicious_components) < 5:
+                    suspicious_components.append({
+                        'id': comp.get('_id', ''),
+                        'company': comp.get('Company Name', ''),
+                        'location': comp.get('Location and Post Code', '')[:50],
+                        'description': comp.get('Description of CMU Components', '')[:50]
+                    })
+        
+        # Log problem components for debugging
+        if no_match_components:
+            logger.warning(f"Found {len(no_match_components)} components that DON'T match '{query}' in any field")
+            # Log a few examples
+            for i, comp in enumerate(no_match_components[:3]):
+                logger.warning(f"No-match component {i+1}: Company={comp.get('Company Name', '')}, Location={comp.get('Location and Post Code', '')[:30]}")
+        
+        if debug_mode:
+            logger.info(f"Search '{query}' match stats: {field_match_stats}")
+        
+        # When in debug mode, we can choose to keep all components to see what might be filtered
+        if debug_mode and request.GET.get('strict_filter', '').lower() != 'true':
+            logger.info(f"Debug mode: showing all {len(components)} components without strict filtering")
+            filtered_components = components
+        else:
+            # For 'vital' search, ONLY include components from VITAL ENERGI company and nothing else
+            if query.lower() == 'vital':
+                # Find all components from VITAL ENERGI solutions limited
+                vital_components = [comp for comp in components if 'VITAL ENERGI' in comp.get('Company Name', '')]
+                # Use ONLY VITAL ENERGI components - ignore all others
+                filtered_components = vital_components
+                logger.info(f"Vital search: found {len(vital_components)} VITAL ENERGI components")
+            else:
+                # Normal mode: Only use components that actually match the search term
+                filtered_components = strictly_matching_components
+                logger.info(f"Filtered to {len(filtered_components)} components that actually contain '{query}' in at least one field")
+        
+        # Sort components by relevance score (descending)
+        filtered_components = sorted(filtered_components, key=lambda x: x.get('relevance_score', 0), reverse=True)
+        
+        # Group components by company
+        companies = {}
+        for comp in filtered_components:
+            company_name = comp.get('Company Name', '')
+            if not company_name:
+                continue
+                
+            if company_name not in companies:
+                companies[company_name] = {
+                    'name': company_name,
+                    'component_count': 0,
+                    'cmu_ids': set(),
+                    'relevance_score': comp.get('relevance_score', 0)  # Initialize with first component score
+                }
+            else:
+                # Update company relevance with highest component score
+                companies[company_name]['relevance_score'] = max(
+                    companies[company_name]['relevance_score'], 
+                    comp.get('relevance_score', 0)
+                )
+            
+            companies[company_name]['component_count'] += 1
+            cmu_id = comp.get('CMU ID', '')
+            if cmu_id:
+                companies[company_name]['cmu_ids'].add(cmu_id)
+        
+        # Process companies for display
+        company_list = []
+        for name, data in companies.items():
+            # Convert set to list for template
+            cmu_ids = list(data['cmu_ids'])
+            # Limit display to first 3 CMU IDs with "and X more" text
+            if len(cmu_ids) > 3:
+                cmu_ids_display = f"{', '.join(cmu_ids[:3])} and {len(cmu_ids) - 3} more"
+            else:
+                cmu_ids_display = ', '.join(cmu_ids)
+                
+            company_list.append({
+                'name': name,
+                'component_count': data['component_count'],
+                'cmu_ids': cmu_ids,
+                'cmu_ids_display': cmu_ids_display,
+                'relevance_score': data['relevance_score']
+            })
+            
+        # Sort companies by relevance score (descending) and then by component count
+        company_list = sorted(company_list, 
+                             key=lambda x: (-x['relevance_score'], -x['component_count']))
+        
+        api_time = time.time() - start_time
+        
+        # IMPORTANT DEBUG LOG: Print the number of components and companies being rendered
+        logger.info(f"SEARCH DEBUG: Rendering view with {len(filtered_components)} components, {len(company_list)} companies for '{query}'")
+        logger.info(f"SEARCH DEBUG: The per_page value is {per_page}")
+        
+        # Extra logging specifically for 'vital' search
+        if query.lower() == 'vital':
+            logger.info("DETAILED VITAL SEARCH DEBUG:")
+            logger.info(f"Total components from DB: {len(components)}")
+            logger.info(f"Strictly matching components: {len(strictly_matching_components)}")
+            logger.info(f"No-match components: {len(no_match_components)}")
+            logger.info(f"Filtered components: {len(filtered_components)}")
+            
+            # Add company names to help understand what companies are represented
+            company_names = [comp.get('Company Name', 'Unknown') for comp in filtered_components[:20]]
+            logger.info(f"First 20 component companies: {company_names}")
+        
+        # Calculate API time
+        api_time = time.time() - start_time
+        logger.info(f"Search for '{query}' completed in {api_time:.2f} seconds")
+        
+        # Prepare result
+        result = {
+            'query': query,
+            'components': filtered_components,
+            'total_count': total_count,  # Show original count for context
+            'filtered_count': len(filtered_components),  # Add filtered count
+            'api_time': api_time,
+            'companies': company_list,
+            'company_count': len(company_list),
+            'debug_mode': debug_mode,
+            'per_page': per_page
+        }
+        
+        # Add debug info if requested
+        if debug_mode:
+            result.update({
+                'field_match_stats': field_match_stats,
+                'suspicious_components': suspicious_components,
+                'has_filtered': len(filtered_components) < len(components),
+                'filtered_out': len(components) - len(filtered_components),
+                'original_component_count': len(components)
+            })
+        
+        # Save to cache for future use (only if not in debug mode)
+        if not debug_mode and normalized_query:
+            # Cache the results for future use
+            cache_data = {
+                'components': filtered_components,
+                'total_count': total_count,
+                'companies': company_list,
+                'company_count': len(company_list),
+                'original_time': api_time
+            }
+            
+            # Cache for different durations based on query complexity
+            # Common company name searches - cache longer (10 minutes)
+            if len(normalized_query) >= 4 and any(normalized_query in company['name'].lower() for company in company_list):
+                cache.set(cache_key, cache_data, 600)  # 10 minutes
+            else:
+                # General search queries - cache for 5 minutes
+                cache.set(cache_key, cache_data, 300)  # 5 minutes
+        
+        return render(request, 'checker/search_results.html', result)
+        
+    except Exception as e:
+        logger.exception(f"Error in search: {str(e)}")
+        return render(request, 'checker/search_results.html', {
+            'query': query,
+            'error': f"An error occurred while searching: {str(e)}",
+            'api_time': time.time() - start_time,
+            'debug_mode': debug_mode
         })

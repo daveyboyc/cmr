@@ -72,14 +72,20 @@ def search_components_service(request, return_data_only=False):
     start_time = time.time()
     
     # Check cache first
-    cache_key = get_cache_key("search_results", query.lower())
+    cache_key_base = get_cache_key("search_results", query.lower())
+    cache_key = f"{cache_key_base}_p{page}_s{per_page}_sort{sort_order}"
     cached_results = cache.get(cache_key)
-    if cached_results:
-        logger.info(f"Using cached results for query '{query}'")
+    
+    # Also try to get the total count from cache
+    total_count_cache_key = f"{cache_key_base}_total_count"
+    cached_total_count = cache.get(total_count_cache_key)
+    
+    if cached_results and cached_total_count:
+        logger.info(f"Using cached results for query '{query}' (page {page})")
         note = "Using cached results"
         component_results_dict = cached_results
-        total_component_count = sum(len(matches) for matches in cached_results.values())
-        displayed_component_count = min(per_page, total_component_count)
+        total_component_count = cached_total_count
+        displayed_component_count = min(per_page, len(component_results_dict.get(query, [])))
         api_time = 0
     else:
         # STEP 1: Search for matching companies (using dataframe approach)
@@ -109,26 +115,23 @@ def search_components_service(request, return_data_only=False):
         components_list = []
         try:
             # First try location-based search since it's faster
-            components_list = get_components_from_database(location=query, page=page, per_page=per_page)
+            components_list, total_component_count = get_components_from_database(location=query, page=page, per_page=per_page, sort_order=sort_order)
             
             if not components_list:
                 # If no location matches, try company name search
-                components_list = get_components_from_database(company_name=query, page=page, per_page=per_page)
+                components_list, total_component_count = get_components_from_database(company_name=query, page=page, per_page=per_page, sort_order=sort_order)
             
             if not components_list:
                 # Finally, try CMU ID search
-                components_list = get_components_from_database(cmu_id=query, page=page, per_page=per_page)
+                components_list, total_component_count = get_components_from_database(cmu_id=query, page=page, per_page=per_page, sort_order=sort_order)
             
-            # Get total count for pagination
-            total_component_count = len(components_list)
             displayed_component_count = len(components_list)
             debug_info["data_source"] = "database"
             
-            logger.info(f"Fetched {len(components_list)} components for '{query}' page {page}")
+            logger.info(f"Fetched {displayed_component_count} components (total: {total_component_count}) for '{query}' page {page}")
             
-            # Cache the results
-            if components_list:
-                cache.set(cache_key, {query: components_list}, 3600)  # Cache for 1 hour
+            # Cache the total count separately (it doesn't change between pages)
+            cache.set(total_count_cache_key, total_component_count, 3600)  # Cache for 1 hour
             
         except Exception as e:
             error_msg = f"Error fetching component data: {str(e)}"
@@ -147,7 +150,9 @@ def search_components_service(request, return_data_only=False):
             
             if formatted_components:
                 component_results_dict[query] = formatted_components
-                logger.info(f"Formatted {len(formatted_components)} component records for display.")
+                # Cache the formatted results for this specific page
+                cache.set(cache_key, component_results_dict, 3600)  # Cache for 1 hour
+                logger.info(f"Formatted and cached {len(formatted_components)} component records for display.")
 
     # STEP 4: Calculate final pagination variables
     if total_component_count > 0 and per_page > 0:
@@ -179,7 +184,7 @@ def search_components_service(request, return_data_only=False):
         "displayed_component_count": displayed_component_count,
         "error": error_message,
         "api_time": api_time,
-        "sort_order": sort_order,
+        "comp_sort": sort_order,  # Use comp_sort to match template
         "debug_info": debug_info,
         "page": page,
         "per_page": per_page,
@@ -195,6 +200,10 @@ def search_components_service(request, return_data_only=False):
 
 def format_component_record(record, cmu_to_company_mapping):
     """Format a component record for display with proper company badge"""
+    # Check if this is already formatted HTML (might be from cache)
+    if isinstance(record, str) and "<div class" in record:
+        return record
+        
     # Get base fields with null checks
     loc = record.get("Location and Post Code", "N/A")
     if loc is None:
