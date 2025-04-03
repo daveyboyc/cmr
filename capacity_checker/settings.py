@@ -32,7 +32,7 @@ SECRET_KEY = "django-insecure-8hwucxzsrxcdtvd(kwfeh@ej-+936cfg%9b8ymh78w%%dl7(06
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True  # Set to False in production
 
-ALLOWED_HOSTS = ['neso-cmr-search-da0169863eae.herokuapp.com', 'localhost', '127.0.0.1', 'capacitymarket.co.uk', 'www.capacitymarket.co.uk']
+ALLOWED_HOSTS = ['neso-cmr-search-da0169863eae.herokuapp.com', 'localhost', '127.0.0.1', '.capacitymarket.co.uk', 'www.capacitymarket.co.uk']
 
 
 # Application definition
