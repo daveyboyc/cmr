@@ -1,0 +1,172 @@
+{# This is a partial template included in search.html, NOT a complete page #}
+{% load static %}
+
+<style>
+    .component-record {
+        opacity: 0;
+        transition: opacity 0.3s ease-in-out;
+    }
+    
+    /* Loading indicator styling */
+    #loading-spinner {
+        transition: all 0.3s ease;
+    }
+    
+    /* Highlight the results count message */
+    .results-count-message {
+        font-size: 1.1rem;
+        padding: 10px;
+        background-color: #e9f5ff;
+        border-radius: 5px;
+        margin-bottom: 15px;
+    }
+    
+    /* Make show all button stand out */
+    .btn-show-all {
+        background-color: #0d6efd;
+        color: white;
+        font-weight: bold;
+    }
+</style>
+
+{# Content starts here - no block tags needed #}
+<div class="container mt-4 mb-5">
+
+    {% if error %}
+        <div class="alert alert-danger">Error: {{ error }}</div>
+    {% endif %}
+
+    {# --- Conditional Search Summary --- #}
+    {% if query %}
+        {% if not is_cmu_list_view %}
+            {# Full Search Summary #}
+            <div class="search-summary mb-3 p-3 bg-light border rounded">
+                <h5>Search Results for: "{{ query }}"</h5>
+                <div class="d-flex justify-content-between align-items-center">
+                    <span>
+                        Displaying {{ components|length }} of {{ total_count|default:0 }} matching components.
+                        Found {{ company_count|default:0 }} matching companies.
+                    </span>
+                    <span class="text-muted small">Query time: {{ api_time|floatformat:2 }}s {% if from_cache %}(from cache){% endif %}</span>
+                </div>
+                {% comment %} Optional Debug Info can go here later {% endcomment %}
+            </div>
+        {% else %}
+            {# Simple CMU List Summary #}
+            <div class="search-summary mb-3 p-3 bg-light border rounded">
+                <h5>{{ page_title|default:"Component List" }}</h5>
+                <div class="d-flex justify-content-between align-items-center">
+                    <span>Displaying {{ components|length }} components.</span>
+                    <span class="text-muted small">Query time: {{ api_time|floatformat:2 }}s</span>
+                </div>
+            </div>
+        {% endif %}
+    {% endif %}
+    {# --- End Conditional Summary --- #}
+
+    {# --- Conditional Company Results --- #}
+    {% if not is_cmu_list_view and companies %}
+        <div class="company-results mb-4">
+            <h4>Matching Companies ({{ company_count }})</h4>
+            <div class="alert alert-info small"><i class="bi bi-info-circle"></i> Click on company names to view details and components.</div>
+            <ul class="list-group">
+                {% for company in companies %}
+                <li class="list-group-item">
+                    <h5><a href="{% url 'company_detail' company_id=company.name|slugify %}">{{ company.name }}</a></h5>
+                    <p class="mb-1 small">
+                        CMU IDs: {{ company.cmu_ids_display }}
+                    </p>
+                    <p class="mb-0 small">
+                        {{ company.component_count }} components across {{ company.cmu_ids|length }} CMU IDs
+                    </p>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        <hr class="my-4">
+    {% endif %}
+    {# --- End Company Results --- #}
+
+    {# --- Component Results (Always Display if components exist) --- #}
+    {% if components %}
+        <div class="component-results">
+            {# Conditional Header for Components #}
+            {% if not is_cmu_list_view %}
+                <h4>Matching Components ({{ components|length }})</h4> {# Use actual length here #}
+            {% endif %}
+
+            {# Conditional Sorting Controls #}
+            {% if not is_cmu_list_view %}
+                <div class="sorting-controls mb-2">
+                     <span class="small me-2">Sort by:</span>
+                     <a href="?q={{ query }}&page={{ request.GET.page|default:1 }}&per_page={{ per_page }}&comp_sort=desc" 
+                        class="btn btn-sm {% if request.GET.comp_sort != 'asc' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+                        Newest First
+                     </a>
+                     <a href="?q={{ query }}&page={{ request.GET.page|default:1 }}&per_page={{ per_page }}&comp_sort=asc" 
+                        class="btn btn-sm {% if request.GET.comp_sort == 'asc' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+                        Oldest First
+                     </a>
+                </div>
+            {% endif %}
+
+            {# Component List Itself #}
+            <div class="results-list">
+                 {% for component_html in components %}
+                    <div class="result-item">
+                        {{ component_html|safe }}
+                    </div>
+                {% empty %}
+                     <p>No components to display.</p>
+                {% endfor %}
+            </div>
+
+            {# Conditional Pagination Controls (Placeholder) #}
+            {% if not is_cmu_list_view %}
+                {# Add pagination logic here later if needed #}
+            {% endif %}
+
+        </div>
+    {% elif query and not error %}
+        <div class="alert alert-warning">No matching components found for "{{ query }}".</div>
+    {% endif %}
+    {# --- End Component Results --- #}
+
+</div>
+<script>
+    function toggleDetails(id) {
+        var detailsDiv = document.getElementById(id);
+        if (detailsDiv.style.display === "none") {
+            detailsDiv.style.display = "block";
+        } else {
+            detailsDiv.style.display = "none";
+        }
+    }
+    
+    // Show loading spinner when search form is submitted
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchForm = document.querySelector('form');
+        const resultsContainer = document.getElementById('results-container');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        
+        // Show results container if we have results
+        {% if components or error %}
+        resultsContainer.style.display = 'block';
+        loadingSpinner.style.display = 'none';
+        {% endif %}
+        
+        searchForm.addEventListener('submit', function() {
+            loadingSpinner.style.display = 'block';
+            resultsContainer.style.display = 'none';
+        });
+        
+        // Add fade-in effect for search results
+        const componentRecords = document.querySelectorAll('.component-record');
+        componentRecords.forEach((record, index) => {
+            // Add slight delay for each component to create a cascade effect
+            setTimeout(() => {
+                record.style.opacity = '1';
+            }, index * 50); // 50ms delay per item
+        });
+    });
+</script> 
