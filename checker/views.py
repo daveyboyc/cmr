@@ -7,6 +7,7 @@ import os
 import json
 import glob
 from django.db.models import Count
+from django.urls import reverse
 # Remove Component import from here
 # Remove unused checker import
 # from capacity_checker import checker 
@@ -278,13 +279,14 @@ def htmx_auction_components(request, company_id, year, auction_name):
                     <div class="card cmu-card">
                         <div class="card-header bg-light">
                             <div class="d-flex justify-content-between align-items-center">
-                                <span>CMU ID: <strong>{cmu_id}</strong></span>
-                                <a href="/components/?q={cmu_id}" class="btn btn-sm btn-info">View Components</a>
+                                <a href="{reverse('cmu_component_list', kwargs={'cmu_id': cmu_id})}" title="Click to view all with this CMU ID" class="badge bg-info text-dark text-decoration-none">
+                                    CMU ID: <strong>{cmu_id}</strong>
+                                </a>
+                                <span class="small text-muted">Components: {len(cmu_components)}</span>
                             </div>
-                            <div class="small text-muted mt-1">Found {len(cmu_components)} components</div>
                         </div>
                         <div class="card-body">
-                            <p><strong>Components:</strong> {len(cmu_components)}</p>
+                            {f"<p><strong>Components:</strong> {len(cmu_components)}</p>" if len(cmu_components) > 1 else ""}
                 """
                 
                 # Check timeout
@@ -302,11 +304,14 @@ def htmx_auction_components(request, company_id, year, auction_name):
                     
                     for location, location_components in sorted(locations.items()):
                         # Format location as plain text, not a link
-                        location_html = location
+                        location_html = location # Plain text location
+                        
+                        # Conditionally create the component count text for the location
+                        location_count_text = f' <span class="text-muted">({len(location_components)} components)</span>' if len(location_components) > 1 else ''
                         
                         cmu_html += f"""
                             <li class="mb-2">
-                                <strong>{location_html}</strong> <span class="text-muted">({len(location_components)} components)</span>
+                                <strong>{location_html}</strong>{location_count_text}
                                 <ul class="ms-3">
                         """
                         
@@ -328,26 +333,15 @@ def htmx_auction_components(request, company_id, year, auction_name):
                             # Create badges
                             badges = []
                             
-                            # ID badge (using DB ID)
-                            if db_id:
-                                badges.append(f'<span class="badge bg-secondary me-1">ID: {db_id}</span>')
+                            # REMOVED ID badge (using DB ID)
+                            # if db_id:
+                            #     badges.append(f'<span class="badge bg-secondary me-1">ID: {db_id}</span>')
                             
-                            # Auction type badge
-                            auction_badge_class = "bg-secondary"
-                            if "T-1" in auction:
-                                auction_badge_class = "bg-warning"
-                            elif "T-4" in auction:
-                                auction_badge_class = "bg-info"
-                            elif "T-3" in auction:
-                                auction_badge_class = "bg-success"
+                            # REMOVED Delivery year badge
+                            # if delivery_year:
+                            #     badges.append(f'<span class="badge bg-secondary me-1">Year: {delivery_year}</span>')
                             
-                            if auction:
-                                badges.append(f'<span class="badge {auction_badge_class} me-1">{auction}</span>')
-                            
-                            # Delivery year badge
-                            if delivery_year:
-                                badges.append(f'<span class="badge bg-secondary me-1">Year: {delivery_year}</span>')
-                            
+                            # Keep only necessary badges (can be empty if none were added)
                             badges_html = " ".join(badges)
 
                             # Check for potential duplicates in the same location
@@ -375,15 +369,27 @@ def htmx_auction_components(request, company_id, year, auction_name):
                                 component_id_display = f", <strong>Comp ID (source _id?):</strong> {component.component_id}"
                             # --- END FIX ---
                                 
+                            # --- Prepare conditional strings (Cleanly) --- 
+                            auction_str = f", <strong>Auction:</strong> {auction}" if auction else ""
+                            cmu_id_str = f", <strong>CMU ID:</strong> {component.cmu_id}" if component.cmu_id else ""
+                            delivery_year_str = f", <strong>Year:</strong> {delivery_year}" if delivery_year else "" # ADDED Delivery Year string
+                            # --- End prepare --- 
+                            
+                            # --- Construct Details Line Separately --- 
+                            details_line_content = f"<strong>DB ID:</strong> {db_id}{component_id_display}{auction_str}{cmu_id_str}{delivery_year_str}"
+                            # --- End Construct Details --- 
+                            
+                            # --- Prepare Technology Badge --- 
+                            tech_badge_html = f'<span class="badge bg-success mt-1">{tech}</span>' if tech else ""
+                            # --- End Prepare Tech Badge ---
+                            
                             cmu_html += f"""
                                 <li>
                                     <div class="mb-1">{badges_html}</div>
-                                    <i><a href="{detail_url}">{desc}</a></i>{f" - {tech}" if tech else ""}
+                                    <i><a href="{detail_url}">{desc}</a></i>
+                                    <div>{tech_badge_html}</div>
                                     <div class="small text-muted">
-                                        <strong>DB ID:</strong> {db_id}
-                                        {component_id_display} 
-                                        {f", <strong>Location:</strong> {component.location}" if component.location else ""}
-                                        {f", <strong>CMU ID:</strong> {component.cmu_id}" if component.cmu_id else ""}
+                                        {details_line_content} 
                                     </div>
                                     {duplicate_warning}
                                 </li>
@@ -1168,11 +1174,13 @@ def search(request):
         else:
             # For 'vital' search, ONLY include components from VITAL ENERGI company and nothing else
             if query.lower() == 'vital':
-                # Find all components from VITAL ENERGI solutions limited
-                vital_components = [comp for comp in components if 'VITAL ENERGI' in comp.get('Company Name', '')]
+                # Find all components from VITAL ENERGI solutions limited and exclude Leeds components
+                vital_components = [comp for comp in components 
+                                  if 'VITAL ENERGI' in comp.get('Company Name', '') 
+                                  and 'Leeds' not in comp.get('Location and Post Code', '')]
                 # Use ONLY VITAL ENERGI components - ignore all others
                 filtered_components = vital_components
-                logger.info(f"Vital search: found {len(vital_components)} VITAL ENERGI components")
+                logger.info(f"Vital search: found {len(vital_components)} VITAL ENERGI components (excluding Leeds)")
             else:
                 # Normal mode: Only use components that actually match the search term
                 filtered_components = strictly_matching_components
@@ -1304,3 +1312,125 @@ def search(request):
             'api_time': time.time() - start_time,
             'debug_mode': debug_mode
         })
+
+def index_info(request):
+    """Display database indexes information"""
+    from django.db import connection
+    import json
+    
+    # Get DB version
+    cursor = connection.cursor()
+    cursor.execute("SELECT version();")
+    db_info = cursor.fetchone()[0]
+    
+    # Get indexes on the Component table
+    cursor.execute("""
+    SELECT
+        i.relname as index_name,
+        a.attname as column_name,
+        am.amname as index_type
+    FROM
+        pg_class t,
+        pg_class i,
+        pg_index ix,
+        pg_attribute a,
+        pg_am am
+    WHERE
+        t.oid = ix.indrelid
+        and i.oid = ix.indexrelid
+        and a.attrelid = t.oid
+        and a.attnum = ANY(ix.indkey)
+        and t.relkind = 'r'
+        and t.relname = 'checker_component'
+        and i.relam = am.oid
+    ORDER BY
+        t.relname,
+        i.relname;
+    """)
+    
+    indexes = cursor.fetchall()
+    
+    # Check for pg_trgm extension
+    cursor.execute("SELECT * FROM pg_extension WHERE extname = 'pg_trgm';")
+    has_pg_trgm = bool(cursor.fetchone())
+    
+    # Check database statistics
+    cursor.execute("SELECT reltuples::bigint AS row_count FROM pg_class WHERE relname = 'checker_component';")
+    row_count = cursor.fetchone()[0]
+    
+    # Format the results
+    index_list = []
+    for idx_name, column, idx_type in indexes:
+        index_list.append({
+            'name': idx_name,
+            'column': column,
+            'type': idx_type
+        })
+    
+    # Count GIN indexes
+    gin_indexes = [idx for idx in index_list if idx['type'] == 'gin']
+    
+    report = {
+        'database_info': db_info,
+        'total_indexes': len(indexes),
+        'indexes': index_list,
+        'gin_indexes_count': len(gin_indexes),
+        'has_pg_trgm': has_pg_trgm,
+        'estimated_row_count': row_count
+    }
+    
+    return HttpResponse(json.dumps(report, indent=2), content_type='application/json')
+
+# --- NEW VIEW: List all components for a specific CMU ID --- 
+def cmu_component_list(request, cmu_id):
+    """Display all components associated with a single CMU ID."""
+    import time
+    start_time = time.time()
+    logger = logging.getLogger(__name__)
+    # --- Add Detailed Logging --- 
+    logger.critical(f"--- ENTERING cmu_component_list view for CMU ID: {cmu_id} ---")
+    # --- End Logging ---
+    logger.info(f"Fetching all components for CMU ID: {cmu_id}")
+
+    try:
+        # Fetch ALL components for this CMU ID, disabling limit/pagination
+        components, total_count = data_access.get_components_from_database(
+            cmu_id=cmu_id, 
+            limit=None, # Disable limit
+            page=None, # Disable pagination
+            per_page=None # Disable pagination
+        )
+        
+        api_time = time.time() - start_time
+        logger.info(f"Found {len(components)} components for CMU ID {cmu_id} in {api_time:.2f}s")
+
+        # --- DEBUG: Pass simple component strings --- 
+        debug_components = [
+            f"Component DB ID: {comp.get('_id', 'N/A')} - {comp.get('Description of CMU Components', 'No Desc')[:50]}" 
+            for comp in components
+        ]
+        # --- End DEBUG ---
+
+        context = {
+            'query': cmu_id, # Use CMU ID as the 'query' for title purposes
+            'components': debug_components, # Pass DEBUG strings
+            'is_cmu_list_view': True, # Flag to simplify the template display
+            'total_count': total_count,
+            'api_time': api_time,
+            'page_title': f"Components for CMU ID: {cmu_id}" # Set a specific title
+        }
+        
+        # --- Add Detailed Logging --- 
+        logger.critical(f"Context passed to template for CMU {cmu_id}: {context}")
+        # --- End Logging ---
+        
+        # Reuse the main search results template, but simplify its display using the flag
+        return render(request, 'checker/search_results.html', context)
+
+    except Exception as e:
+        logger.exception(f"Error fetching components for CMU ID {cmu_id}: {str(e)}")
+        return render(request, 'checker/error.html', {
+            'error': f"Could not retrieve components for CMU ID {cmu_id}.",
+            'suggestion': str(e)
+        })
+# --- END NEW VIEW --- 

@@ -114,16 +114,15 @@ def search_components_service(request, return_data_only=False):
         debug_info["component_search_attempted"] = True
         components_list = []
         try:
-            # First try location-based search since it's faster
-            components_list, total_component_count = get_components_from_database(location=query, page=page, per_page=per_page, sort_order=sort_order)
-            
-            if not components_list:
-                # If no location matches, try company name search
-                components_list, total_component_count = get_components_from_database(company_name=query, page=page, per_page=per_page, sort_order=sort_order)
-            
-            if not components_list:
-                # Finally, try CMU ID search
-                components_list, total_component_count = get_components_from_database(cmu_id=query, page=page, per_page=per_page, sort_order=sort_order)
+            # --- MODIFIED: Use search_term primarily --- 
+            logger.info(f"Performing component search using search_term='{query}'")
+            components_list, total_component_count = get_components_from_database(
+                search_term=query, 
+                page=page, 
+                per_page=per_page, 
+                sort_order=sort_order
+            )
+            # --- END MODIFICATION ---
             
             displayed_component_count = len(components_list)
             debug_info["data_source"] = "database"

@@ -56,4 +56,10 @@ urlpatterns = [
     # Debug URLs
     path('debug/duplicates/<str:cmu_id>/', debug_component_duplicates, name='debug_duplicates'),
     path('statistics/', views.statistics_view, name='statistics'),
+    
+    # Index information endpoint
+    path('debug/indexes/', views.index_info, name='index_info'),
+
+    # New URL for listing all components for a specific CMU ID
+    path('cmu/<str:cmu_id>/', views.cmu_component_list, name='cmu_component_list'),
 ]

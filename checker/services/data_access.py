@@ -8,10 +8,17 @@ from django.core.cache import cache
 import logging
 import glob
 from django.db.models import Q, Count
+from django.db import connection
 import re
+import traceback
+import sys
 
 from ..utils import normalize, get_cache_key, get_json_path, ensure_directory_exists
 from ..models import Component
+
+# Import the postcode/area helper functions correctly
+from .data import get_all_postcodes_for_area, get_area_for_any_postcode
+logger = logging.getLogger(__name__)
 
 
 # CMU DATA ACCESS FUNCTIONS
@@ -944,12 +951,23 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
     from .data import get_all_postcodes_for_area, get_area_for_any_postcode
     logger = logging.getLogger(__name__)
     
+    # Try importing PostgreSQL specific tools
+    try:
+        from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
+        using_postgres = True
+    except ImportError:
+        using_postgres = False
+        logger.warning("PostgreSQL specific search features not available. Falling back to basic icontains.")
+
     logger.info(f"DB Query: cmu={cmu_id}, comp={component_id}, loc={location}, company={company_name}, term={search_term}, page={page}, per_page={per_page}, sort={sort_order}")
     
     # Build the query
     query_set = Component.objects.all()
     filters = Q()
     has_filter = False
+    vector = None # Initialize vector here
+    query = None # Initialize query here
+    rank_annotation = None # Initialize rank_annotation here
 
     if cmu_id:
         filters &= Q(cmu_id__iexact=cmu_id)
@@ -1018,51 +1036,68 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
     # actually contain the search term in at least one field
     if search_term:
         search_term_lower = search_term.lower().strip()
-        search_terms = [term for term in search_term_lower.split() if len(term) >= 3]
         
-        # For single-term searches, be more precise in matching
-        if len(search_terms) == 1 and len(search_term_lower) >= 3:
-            term = search_term_lower
-            logger.info(f"Using precise single-term search for: '{term}'")
-            
-            # Create a filter that ensures the term appears as a distinct word or part
-            # This helps prevent matches where the term is just part of another word
-            # (but still allows partial matches at beginning/end of words)
-            term_filter = (
-                Q(company_name__icontains=term) | 
-                Q(location__icontains=term) | 
-                Q(description__icontains=term) |
-                Q(cmu_id__icontains=term)
-            )
-            filters &= term_filter
-            has_filter = True
-        
-        # For multi-term searches, use the original approach with improvements
-        elif len(search_terms) > 1:
-            logger.info(f"Using multi-term search for: {search_terms}")
-            
-            # Create term-specific filters
-            term_filters = Q()
-            for term in search_terms:
-                # Only use terms with at least 3 characters for meaningful search
-                if len(term) >= 3:
-                    single_term_filter = (
-                        Q(company_name__icontains=term) | 
-                        Q(location__icontains=term) | 
-                        Q(description__icontains=term) |
-                        Q(cmu_id__icontains=term)
-                    )
-                    # Combine with OR - any field can match any term
-                    term_filters |= single_term_filter
-            
-            if term_filters:
-                filters &= term_filters
-                has_filter = True
-                
-        # If search_term is too short or has no valid terms, log a warning
+        # Special handling for "vital" search - we want to prioritize VITAL ENERGI and exclude locations in Leeds
+        if search_term_lower == "vital":
+            logger.info("Applying strict 'vital' search filter (VITAL ENERGI, exclude Leeds)")
+            # ALWAYS apply this specific filter for 'vital', overwriting any previous general search filters
+            filters = Q(company_name__icontains="VITAL ENERGI") & ~Q(location__icontains="Leeds")
+            has_filter = True # Ensure we mark that a filter has been applied
         else:
-            logger.warning(f"Search term '{search_term}' is too short or has no valid terms")
+            # --- MODIFIED: Integrate location expansion and RANKING into general search --- 
+            logger.info(f"Applying general search for: '{search_term_lower}'")
+            
+            # Initialize filters
+            filters = Q() 
+            location_expansion_filter = Q() # Separate for clarity
+            
+            # Try to expand location based on search term using helper functions
+            try:
+                related_postcodes = get_all_postcodes_for_area(search_term_lower)
+                if related_postcodes:
+                    limited_postcodes = related_postcodes[:10] # Limit for performance
+                    logger.info(f"Expanding search with {len(limited_postcodes)} related postcodes for area: {search_term_lower}")
+                    for postcode in limited_postcodes:
+                        location_expansion_filter |= (
+                            Q(location__iregex=f"\\b{postcode}\\b") | 
+                            Q(location__iregex=f"\\b{postcode}[0-9A-Z]") | 
+                            Q(location__icontains=f" {postcode},") | 
+                            Q(location__icontains=f" {postcode} ")
+                        )
+                
+                related_area = get_area_for_any_postcode(search_term_lower)
+                if related_area:
+                    logger.info(f"Expanding search with related area: {related_area}")
+                    location_expansion_filter |= Q(location__iregex=f"\\b{related_area}\\b")
 
+            except Exception as e:
+                logger.error(f"Error during location expansion for term '{search_term_lower}': {e}")
+                # Continue without expansion if helpers fail
+
+            # --- Ranking Logic --- 
+            if using_postgres:
+                # Define search vector and query for ranking
+                vector = SearchVector('company_name', 'location', 'description', config='english')
+                query = SearchQuery(search_term_lower, config='english')
+                # --- ANNOTATE FIRST --- 
+                query_set = query_set.annotate(searchvector=vector)
+                # Filter based on search query OR location expansion
+                filters = Q(searchvector=query) | location_expansion_filter
+                # Annotate for ranking
+                rank_annotation = SearchRank(vector, query)
+            else:
+                # Fallback for non-PostgreSQL: standard icontains OR location expansion
+                base_text_filter = (
+                    Q(company_name__icontains=search_term_lower) | 
+                    Q(location__icontains=search_term_lower) | 
+                    Q(description__icontains=search_term_lower) | 
+                    Q(cmu_id__icontains=search_term_lower)
+                )
+                filters = base_text_filter | location_expansion_filter
+
+            has_filter = True
+            # --- END MODIFICATION ---
+            
     # Only apply filters if any were added
     if has_filter:
         query_set = query_set.filter(filters)
@@ -1081,14 +1116,21 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
     logger.info(f"Total matching records: {total_count}")
     
     # Apply ordering based on sort_order
-    if sort_order == "asc":
-        # Oldest first - ascending delivery year
-        query_set = query_set.order_by('delivery_year')
-        logger.info("Sorting by delivery year (oldest first)")
+    # --- Modified Ordering: Prioritize Rank if available --- 
+    if rank_annotation:
+        logger.info(f"Ordering by relevance rank, then delivery year ({sort_order})")
+        if sort_order == "asc":
+            query_set = query_set.annotate(rank=rank_annotation).order_by('-rank', 'delivery_year')
+        else:
+            query_set = query_set.annotate(rank=rank_annotation).order_by('-rank', '-delivery_year')
     else:
-        # Newest first - descending delivery year (default)
-        query_set = query_set.order_by('-delivery_year')
-        logger.info("Sorting by delivery year (newest first)")
+        # Fallback ordering if not using ranking
+        logger.info(f"Ordering by delivery year only ({sort_order})")
+        if sort_order == "asc":
+            query_set = query_set.order_by('delivery_year')
+        else:
+            query_set = query_set.order_by('-delivery_year')
+    # --- End Modified Ordering ---
 
     # Apply pagination if provided
     if page is not None and per_page is not None:
