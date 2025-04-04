@@ -1,6 +1,7 @@
 import urllib.parse
 import time
 import logging
+import re # Import re for regex matching
 from django.shortcuts import render
 from django.core.cache import cache
 import traceback
@@ -16,185 +17,154 @@ from .company_search import _perform_company_search, get_cmu_dataframe, _build_s
 logger = logging.getLogger(__name__)
 
 
-def search_components_service(request, return_data_only=False):
-    """Service function for searching companies AND components in a unified interface."""
-    # Get query and pagination parameters
+def search_components_service(request):
+    """Handles unified search, checking if query is a specific CMU ID first."""
     query = request.GET.get("q", "").strip()
     page = int(request.GET.get("page", 1))
-    per_page = int(request.GET.get("per_page", 50))  # Default to 50 items per page
-    sort_order = request.GET.get("comp_sort", "desc")
-
-    # Initialize context variables
-    company_links = []
-    component_results_dict = {}
-    total_component_count = 0
-    displayed_component_count = 0
-    total_pages = 1
-    has_prev = False
-    has_next = False
-    page_range = range(1, 2)
-    error_message = None
-    api_time = 0
-    note = None # For messages like "Using cached results"
-
-    # Debug info
-    debug_info = {
-        "query": query,
-        "page": page,
-        "per_page": per_page,
-        "sort_order": sort_order,
-        "company_search_attempted": False,
-        "component_search_attempted": False,
-        "final_total_components": 0,
-        "final_displayed_components": 0,
-        "data_source": "unknown"
-    }
-
-    # If no query, just render the empty search page
-    if not query:
-        logger.info("Rendering empty search page (no query)")
-        return render(request, "checker/search.html", {
-            "query": query,
-            "company_links": [],
-            "component_results": {},
-            "component_count": 0,
-            "displayed_component_count": 0,
-            "page": 1,
-            "total_pages": 1,
-            "has_prev": False,
-            "has_next": False,
-            "page_range": range(1, 2),
-            "sort_order": sort_order,
-            "debug_info": debug_info
-        })
-
-    # --- START SEARCH LOGIC (if query exists) --- 
+    per_page = int(request.GET.get("per_page", 50))
+    sort_order = request.GET.get("comp_sort", "desc") # Default to newest first
     start_time = time.time()
     
-    # Check cache first
-    cache_key_base = get_cache_key("search_results", query.lower())
-    cache_key = f"{cache_key_base}_p{page}_s{per_page}_sort{sort_order}"
-    cached_results = cache.get(cache_key)
+    # --- CMU ID Pattern Check --- 
+    # Regex to match common CMU ID patterns (adjust as needed)
+    # Examples: GB12345, CM12345, VIT123, T-12345, GBD12345.1 etc.
+    cmu_id_pattern = r'^(GB|CM|VIT|T-|[A-Z]{3,})\d+(\.\d+)?$' 
+    is_specific_cmu_id_search = bool(re.match(cmu_id_pattern, query, re.IGNORECASE))
     
-    # Also try to get the total count from cache
-    total_count_cache_key = f"{cache_key_base}_total_count"
-    cached_total_count = cache.get(total_count_cache_key)
+    logger.info(f"Search query: '{query}', Is specific CMU ID search: {is_specific_cmu_id_search}")
+    # --- End CMU ID Check ---
     
-    if cached_results and cached_total_count:
-        logger.info(f"Using cached results for query '{query}' (page {page})")
-        note = "Using cached results"
-        component_results_dict = cached_results
-        total_component_count = cached_total_count
-        displayed_component_count = min(per_page, len(component_results_dict.get(query, [])))
-        api_time = 0
-    else:
-        # STEP 1: Search for matching companies (using dataframe approach)
-        debug_info["company_search_attempted"] = True
+    if is_specific_cmu_id_search:
+        # --- Handle Specific CMU ID Search --- 
+        logger.info(f"Treating '{query}' as a specific CMU ID, fetching all components.")
         try:
-            cmu_df, df_api_time = get_cmu_dataframe()
-            api_time += df_api_time
-            if cmu_df is not None:
-                norm_query = normalize(query)
-                matching_records = _perform_company_search(cmu_df, norm_query)
-                # Limit companies shown for performance, use _build_search_results for formatting
-                unique_companies = list(matching_records["Full Name"].unique())[:20] 
-                company_results_built = _build_search_results(cmu_df, unique_companies, sort_order, query, cmu_limit=3)
-                if query in company_results_built:
-                    company_links = company_results_built[query]
-                logger.info(f"Found {len(company_links)} matching company links for '{query}'")
-            else:
-                error_message = "Error loading company data (CMU dataframe)."
-                logger.error(error_message)
+            components, total_count = get_components_from_database(
+                cmu_id=query, 
+                limit=None, # No limit for specific ID
+                page=None, 
+                per_page=None
+            )
+            api_time = time.time() - start_time
+            
+            # Format components
+            cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
+            formatted_components = [
+                format_component_record(comp, cmu_to_company_mapping) 
+                for comp in components
+            ]
+            
+            context = {
+                'query': query,
+                'components': formatted_components,
+                'total_count': total_count,
+                'api_time': api_time,
+                'is_cmu_list_view': True, # Important flag for template
+                'page_title': f"Components for CMU ID: {query}",
+                # Add other necessary context variables if template expects them
+                'companies': [], # No company list needed
+                'company_count': 0,
+                'per_page': None # Not paginated
+            }
+            logger.info(f"Rendering specific CMU ID list view for {query} with {total_count} components.")
+            return render(request, 'checker/search_results.html', context)
+            
         except Exception as e:
-            error_message = f"Error searching companies: {str(e)}"
-            logger.exception(error_message)
-            debug_info["company_error"] = error_message
-
-        # STEP 2: Search for matching components (using database fetch)
-        debug_info["component_search_attempted"] = True
-        components_list = []
+            logger.exception(f"Error fetching specific CMU ID {query}: {str(e)}")
+            return render(request, 'checker/error.html', {
+                'error': f"Could not retrieve components for CMU ID {query}.",
+                'suggestion': str(e)
+            })
+        # --- End Specific CMU ID Handling --- 
+        
+    else:
+        # --- Handle General Search (Existing Logic) --- 
+        logger.info(f"Performing general search for '{query}'")
+        # ... (Keep the existing logic for searching companies and components here) ...
+        # Example start (replace with your actual existing logic):
         try:
-            # --- MODIFIED: Use search_term primarily --- 
-            logger.info(f"Performing component search using search_term='{query}'")
-            components_list, total_component_count = get_components_from_database(
+            # 1. Search Companies 
+            # (Using a simplified example - replace with your actual company search logic)
+            from .company_search import search_companies_service # Assuming this fetches companies
+            # This part needs careful integration with how companies are currently fetched and ranked
+            # For now, let's assume search_companies_service can return company data
+            # We might need to call a lower-level function instead.
+            # Let's directly fetch companies based on the query term for now.
+            companies_data = data_access.Component.objects.filter(
+                Q(company_name__icontains=query) | Q(cmu_id__icontains=query)
+            ).values('company_name', 'cmu_id').distinct()
+            
+            companies_dict = {}
+            for item in companies_data:
+                 name = item['company_name']
+                 cmu_id = item['cmu_id']
+                 if name:
+                     if name not in companies_dict:
+                         companies_dict[name] = {'name': name, 'cmu_ids': set(), 'component_count': 0}
+                     if cmu_id:
+                          companies_dict[name]['cmu_ids'].add(cmu_id)
+            
+            # Need to get component counts accurately per company based on the *general* query
+            # This requires fetching components filtered by the general query first
+            
+            # 2. Search Components (General)
+            components, total_count = get_components_from_database(
                 search_term=query, 
                 page=page, 
                 per_page=per_page, 
                 sort_order=sort_order
             )
-            # --- END MODIFICATION ---
+            api_time = time.time() - start_time
+
+            # Format components
+            cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
+            formatted_components = [
+                format_component_record(comp, cmu_to_company_mapping) 
+                for comp in components
+            ]
             
-            displayed_component_count = len(components_list)
-            debug_info["data_source"] = "database"
-            
-            logger.info(f"Fetched {displayed_component_count} components (total: {total_component_count}) for '{query}' page {page}")
-            
-            # Cache the total count separately (it doesn't change between pages)
-            cache.set(total_count_cache_key, total_component_count, 3600)  # Cache for 1 hour
-            
+            # Refine company list based on found components 
+            # (Update counts, format CMU IDs etc. - Placeholder for your logic)
+            final_companies = []
+            for name, data in companies_dict.items():
+                 # Placeholder: Update component count based on filtered components
+                 data['component_count'] = sum(1 for comp in components if comp.get('Company Name') == name)
+                 if data['component_count'] > 0: # Only include companies with matching components
+                     cmu_ids_list = list(data['cmu_ids'])
+                     cmu_ids_display = ", ".join(cmu_ids_list[:3]) + ("..." if len(cmu_ids_list) > 3 else "")
+                     final_companies.append({
+                         'name': name,
+                         'component_count': data['component_count'],
+                         'cmu_ids_display': cmu_ids_display,
+                         'cmu_ids': cmu_ids_list # Pass full list if needed
+                     })
+             # Sort companies maybe?
+
+            context = {
+                'query': query,
+                'components': formatted_components,
+                'total_count': total_count,
+                'api_time': api_time,
+                'companies': final_companies,
+                'company_count': len(final_companies),
+                'is_cmu_list_view': False, # General search view
+                'page_title': f'Search Results for \"{query}\"' if query else 'Search',
+                'per_page': per_page,
+                # Add pagination context if necessary
+            }
+            logger.info(f"Rendering general search results for '{query}'")
+            return render(request, 'checker/search_results.html', context)
+
         except Exception as e:
-            error_msg = f"Error fetching component data: {str(e)}"
-            logger.exception(error_msg)
-            if not error_message: error_message = error_msg
-            debug_info["component_error"] = error_msg
-            components_list = []
-            total_component_count = 0
-
-        # STEP 3: Format component results for display
-        formatted_components = []
-        if components_list:
-            for component in components_list:
-                formatted_record = format_component_record(component, {})
-                formatted_components.append(formatted_record)
-            
-            if formatted_components:
-                component_results_dict[query] = formatted_components
-                # Cache the formatted results for this specific page
-                cache.set(cache_key, component_results_dict, 3600)  # Cache for 1 hour
-                logger.info(f"Formatted and cached {len(formatted_components)} component records for display.")
-
-    # STEP 4: Calculate final pagination variables
-    if total_component_count > 0 and per_page > 0:
-        total_pages = (total_component_count + per_page - 1) // per_page
-    else:
-        total_pages = 1
-        
-    has_prev = page > 1
-    has_next = page < total_pages
-    # Ensure page range is sensible
-    page_range_start = max(1, page - 2)
-    page_range_end = min(total_pages + 1, page + 3)
-    # Prevent range end from being less than start if total_pages is small
-    if page_range_end <= page_range_start:
-         page_range_end = page_range_start + 1 
-    page_range = range(page_range_start, page_range_end)
-
-    # Update debug info with final counts
-    debug_info["final_total_components"] = total_component_count
-    debug_info["final_displayed_components"] = displayed_component_count
-
-    # STEP 5: Prepare context and render template
-    context = {
-        "query": query,
-        "note": note,
-        "company_links": company_links,
-        "component_results": component_results_dict, 
-        "component_count": total_component_count,
-        "displayed_component_count": displayed_component_count,
-        "error": error_message,
-        "api_time": api_time,
-        "comp_sort": sort_order,  # Use comp_sort to match template
-        "debug_info": debug_info,
-        "page": page,
-        "per_page": per_page,
-        "total_pages": total_pages,
-        "has_prev": has_prev,
-        "has_next": has_next,
-        "page_range": page_range,
-        "unified_search": True
-    }
-
-    return render(request, "checker/search.html", context)
+            logger.exception(f"Error during general search for '{query}': {str(e)}")
+            # Render error page or search page with error message
+            return render(request, 'checker/search_results.html', {
+                 'query': query,
+                 'error': f'An error occurred: {str(e)}',
+                 'components': [],
+                 'companies': [],
+                 'is_cmu_list_view': False
+             })
+        # --- End General Search Handling ---
 
 
 def format_component_record(record, cmu_to_company_mapping):

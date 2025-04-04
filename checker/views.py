@@ -1404,27 +1404,25 @@ def cmu_component_list(request, cmu_id):
         api_time = time.time() - start_time
         logger.info(f"Found {len(components)} components for CMU ID {cmu_id} in {api_time:.2f}s")
 
-        # --- DEBUG: Pass simple component strings --- 
-        debug_components = [
-            f"Component DB ID: {comp.get('_id', 'N/A')} - {comp.get('Description of CMU Components', 'No Desc')[:50]}" 
+        # --- Restore original formatting --- 
+        cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
+        from .services.component_search import format_component_record 
+        formatted_components = [
+            format_component_record(comp, cmu_to_company_mapping) 
             for comp in components
         ]
-        # --- End DEBUG ---
+        # --- End original formatting ---
 
         context = {
             'query': cmu_id, # Use CMU ID as the 'query' for title purposes
-            'components': debug_components, # Pass DEBUG strings
+            'components': formatted_components, # Pass Formatted HTML
             'is_cmu_list_view': True, # Flag to simplify the template display
             'total_count': total_count,
             'api_time': api_time,
             'page_title': f"Components for CMU ID: {cmu_id}" # Set a specific title
         }
         
-        # --- Add Detailed Logging --- 
-        logger.critical(f"Context passed to template for CMU {cmu_id}: {context}")
-        # --- End Logging ---
-        
-        # Reuse the main search results template, but simplify its display using the flag
+        # Reuse the main search results template...
         return render(request, 'checker/search_results.html', context)
 
     except Exception as e:
