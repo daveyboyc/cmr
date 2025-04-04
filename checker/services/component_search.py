@@ -18,26 +18,38 @@ logger = logging.getLogger(__name__)
 
 def search_components_service(request):
     """Handles ONLY the general search logic (companies + components)."""
-    query = request.GET.get("q", "").strip()
-    page = int(request.GET.get("page", 1))
-    per_page = int(request.GET.get("per_page", 50))
-    sort_order = request.GET.get("comp_sort", "desc") 
+    # Initialize variables with defaults in case of errors
+    query = ""
+    page = 1
+    per_page = 50
+    sort_order = "desc"
     start_time = time.time()
     logger = logging.getLogger(__name__)
     
-    # --- REMOVED CMU ID Check --- 
-    # (The routing is now handled by search_companies view)
+    try:
+        # Safe parameter extraction
+        query = request.GET.get("q", "").strip()
+        page = int(request.GET.get("page", 1))
+        per_page = int(request.GET.get("per_page", 50))
+        sort_order = request.GET.get("comp_sort", "desc") 
+    except ValueError as e:
+        logger.warning(f"Parameter parsing error: {str(e)}, using defaults")
     
     # --- Handle General Search (Existing Logic from previous ELSE block) --- 
     logger.info(f"[search_components_service] Performing general search for '{query}'")
     try:
         # 1. Search Companies (Placeholder - Adapt based on actual requirements)
-        companies_qs = Component.objects.filter(
-            Q(company_name__icontains=query) | Q(cmu_id__icontains=query)
-        ).values_list('company_name', flat=True).distinct()
-        
-        matching_company_names = list(companies_qs[:20]) 
-        company_count = len(matching_company_names)
+        try:
+            companies_qs = Component.objects.filter(
+                Q(company_name__icontains=query) | Q(cmu_id__icontains=query)
+            ).values_list('company_name', flat=True).distinct()
+            
+            matching_company_names = list(companies_qs[:20]) 
+            company_count = len(matching_company_names)
+        except Exception as company_error:
+            logger.error(f"Error querying companies: {str(company_error)}")
+            matching_company_names = []
+            company_count = 0
         
         # 2. Search Components (General)
         try:
@@ -52,37 +64,48 @@ def search_components_service(request):
             # Create a fallback empty result if data_access fails
             components = []
             total_component_count = 0
+        
         api_time = time.time() - start_time
 
         # 3. Format Components
-        cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
-        formatted_components = [
-            format_component_record(comp, cmu_to_company_mapping) 
-            for comp in components
-        ]
+        formatted_components = []
+        try:
+            cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
+            formatted_components = [
+                format_component_record(comp, cmu_to_company_mapping) 
+                for comp in components
+            ]
+        except Exception as format_error:
+            logger.error(f"Error formatting components: {str(format_error)}")
+            # Use raw components if formatting fails
+            formatted_components = []
         
         # 4. Prepare Company List for Display (Placeholder logic)
         final_companies = []
-        if matching_company_names:
-             company_details_qs = Component.objects.filter(
-                 company_name__in=matching_company_names
-             ).values('company_name', 'cmu_id')
-             company_summary = {}
-             for detail in company_details_qs:
-                 name = detail['company_name']
-                 cmu_id = detail['cmu_id']
-                 if name not in company_summary:
-                     company_summary[name] = {'name': name, 'cmu_ids': set()}
-                 if cmu_id:
-                     company_summary[name]['cmu_ids'].add(cmu_id)
-             for name in company_summary:
-                 approx_comp_count = Component.objects.filter(company_name=name).count()
-                 company_summary[name]['component_count'] = approx_comp_count
-                 cmu_ids_list = sorted(list(company_summary[name]['cmu_ids']))
-                 company_summary[name]['cmu_ids_display'] = ", ".join(cmu_ids_list[:3]) + (f" and {len(cmu_ids_list) - 3} more" if len(cmu_ids_list) > 3 else "")
-                 company_summary[name]['cmu_ids'] = cmu_ids_list 
-                 final_companies.append(company_summary[name])
-        final_companies.sort(key=lambda x: x['name']) # Example sort
+        try:
+            if matching_company_names:
+                company_details_qs = Component.objects.filter(
+                    company_name__in=matching_company_names
+                ).values('company_name', 'cmu_id')
+                company_summary = {}
+                for detail in company_details_qs:
+                    name = detail['company_name']
+                    cmu_id = detail['cmu_id']
+                    if name not in company_summary:
+                        company_summary[name] = {'name': name, 'cmu_ids': set()}
+                    if cmu_id:
+                        company_summary[name]['cmu_ids'].add(cmu_id)
+                for name in company_summary:
+                    approx_comp_count = Component.objects.filter(company_name=name).count()
+                    company_summary[name]['component_count'] = approx_comp_count
+                    cmu_ids_list = sorted(list(company_summary[name]['cmu_ids']))
+                    company_summary[name]['cmu_ids_display'] = ", ".join(cmu_ids_list[:3]) + (f" and {len(cmu_ids_list) - 3} more" if len(cmu_ids_list) > 3 else "")
+                    company_summary[name]['cmu_ids'] = cmu_ids_list 
+                    final_companies.append(company_summary[name])
+                final_companies.sort(key=lambda x: x['name']) # Example sort
+        except Exception as company_process_error:
+            logger.error(f"Error processing company data: {str(company_process_error)}")
+            final_companies = []
 
         # 5. Build Context for General Search
         context = {
@@ -95,33 +118,26 @@ def search_components_service(request):
             'is_cmu_list_view': False, # ALWAYS False for general search
             'page_title': f'Search Results for "{query}"' if query else 'Search',
             'per_page': per_page,
-            # Add pagination context if needed by search_results.html
         }
-        logger.info(f"[search_components_service] Rendering general search results for '{query}'")
-        # IMPORTANT: This service function should ideally render search_results.html directly,
-        # OR return context to the calling view (search_companies) which then renders search.html.
-        # Given search_companies now calls this, let's have it return context to be safe.
-        # Returning context for search_companies to render:
-        # return context 
-        # Let's stick to rendering search_results.html for now, assuming search_companies handles the base template
-        # If search_companies delegates rendering, this should render search.html
-        # Let's assume search_companies renders the final page, so this service call is just part of its logic
-        # **** Correction: The calling view (`search_companies`) *is* rendering `search.html`. ****
-        # **** This function *is* called by `search_companies`. ****
-        # **** It should just prepare and return the context needed by `search.html`/`search_results.html`. **** 
-        # Let's return context for clarity.
+        
+        logger.info(f"[search_components_service] Completed search for '{query}'")
         return context # Return context dictionary
 
     except Exception as e:
-        logger.exception(f"[search_components_service] Error during general search for '{query}': {str(e)}")
-        # Return error context
+        logger.exception(f"[search_components_service] Critical error during search for '{query}': {str(e)}")
+        # Return a valid error context dictionary
         return {
-             'query': query,
-             'error': f'An error occurred: {str(e)}',
-             'components': [],
-             'companies': [],
-             'is_cmu_list_view': False
-         }
+            'query': query,
+            'error': f'An error occurred: {str(e)}',
+            'components': [],
+            'companies': [],
+            'is_cmu_list_view': False,
+            'total_count': 0,
+            'api_time': time.time() - start_time,
+            'company_count': 0,
+            'page_title': 'Search Error',
+            'per_page': per_page
+        }
     # --- End General Search Handling --- 
 
 
