@@ -6,165 +6,123 @@ from django.shortcuts import render
 from django.core.cache import cache
 import traceback
 from django.urls import reverse
+from django.db.models import Q # Import Q for general search
+from . import data_access # Ensure data_access is imported
+from ..utils import normalize, get_cache_key # Import normalize/cache key if needed
+from ..models import Component # <<< ADD MODEL IMPORT HERE
 
-from ..utils import normalize, get_cache_key
-from .data_access import (
-    fetch_components_for_cmu_id, 
-    get_components_from_database
-)
 from .company_search import _perform_company_search, get_cmu_dataframe, _build_search_results
 
 logger = logging.getLogger(__name__)
 
 
 def search_components_service(request):
-    """Handles unified search, checking if query is a specific CMU ID first."""
+    """Handles ONLY the general search logic (companies + components)."""
     query = request.GET.get("q", "").strip()
     page = int(request.GET.get("page", 1))
     per_page = int(request.GET.get("per_page", 50))
-    sort_order = request.GET.get("comp_sort", "desc") # Default to newest first
+    sort_order = request.GET.get("comp_sort", "desc") 
     start_time = time.time()
+    logger = logging.getLogger(__name__)
     
-    # --- CMU ID Pattern Check --- 
-    # Regex to match common CMU ID patterns (adjust as needed)
-    # Examples: GB12345, CM12345, VIT123, T-12345, GBD12345.1 etc.
-    cmu_id_pattern = r'^(GB|CM|VIT|T-|[A-Z]{3,})\d+(\.\d+)?$' 
-    is_specific_cmu_id_search = bool(re.match(cmu_id_pattern, query, re.IGNORECASE))
+    # --- REMOVED CMU ID Check --- 
+    # (The routing is now handled by search_companies view)
     
-    logger.info(f"Search query: '{query}', Is specific CMU ID search: {is_specific_cmu_id_search}")
-    # --- End CMU ID Check ---
-    
-    if is_specific_cmu_id_search:
-        # --- Handle Specific CMU ID Search --- 
-        logger.info(f"Treating '{query}' as a specific CMU ID, fetching all components.")
-        try:
-            components, total_count = get_components_from_database(
-                cmu_id=query, 
-                limit=None, # No limit for specific ID
-                page=None, 
-                per_page=None
-            )
-            api_time = time.time() - start_time
-            
-            # Format components
-            cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
-            formatted_components = [
-                format_component_record(comp, cmu_to_company_mapping) 
-                for comp in components
-            ]
-            
-            context = {
-                'query': query,
-                'components': formatted_components,
-                'total_count': total_count,
-                'api_time': api_time,
-                'is_cmu_list_view': True, # Important flag for template
-                'page_title': f"Components for CMU ID: {query}",
-                # Add other necessary context variables if template expects them
-                'companies': [], # No company list needed
-                'company_count': 0,
-                'per_page': None # Not paginated
-            }
-            logger.info(f"Rendering specific CMU ID list view for {query} with {total_count} components.")
-            return render(request, 'checker/search_results.html', context)
-            
-        except Exception as e:
-            logger.exception(f"Error fetching specific CMU ID {query}: {str(e)}")
-            return render(request, 'checker/error.html', {
-                'error': f"Could not retrieve components for CMU ID {query}.",
-                'suggestion': str(e)
-            })
-        # --- End Specific CMU ID Handling --- 
+    # --- Handle General Search (Existing Logic from previous ELSE block) --- 
+    logger.info(f"[search_components_service] Performing general search for '{query}'")
+    try:
+        # 1. Search Companies (Placeholder - Adapt based on actual requirements)
+        companies_qs = Component.objects.filter(
+            Q(company_name__icontains=query) | Q(cmu_id__icontains=query)
+        ).values_list('company_name', flat=True).distinct()
         
-    else:
-        # --- Handle General Search (Existing Logic) --- 
-        logger.info(f"Performing general search for '{query}'")
-        # ... (Keep the existing logic for searching companies and components here) ...
-        # Example start (replace with your actual existing logic):
+        matching_company_names = list(companies_qs[:20]) 
+        company_count = len(matching_company_names)
+        
+        # 2. Search Components (General)
         try:
-            # 1. Search Companies 
-            # (Using a simplified example - replace with your actual company search logic)
-            from .company_search import search_companies_service # Assuming this fetches companies
-            # This part needs careful integration with how companies are currently fetched and ranked
-            # For now, let's assume search_companies_service can return company data
-            # We might need to call a lower-level function instead.
-            # Let's directly fetch companies based on the query term for now.
-            companies_data = data_access.Component.objects.filter(
-                Q(company_name__icontains=query) | Q(cmu_id__icontains=query)
-            ).values('company_name', 'cmu_id').distinct()
-            
-            companies_dict = {}
-            for item in companies_data:
-                 name = item['company_name']
-                 cmu_id = item['cmu_id']
-                 if name:
-                     if name not in companies_dict:
-                         companies_dict[name] = {'name': name, 'cmu_ids': set(), 'component_count': 0}
-                     if cmu_id:
-                          companies_dict[name]['cmu_ids'].add(cmu_id)
-            
-            # Need to get component counts accurately per company based on the *general* query
-            # This requires fetching components filtered by the general query first
-            
-            # 2. Search Components (General)
-            components, total_count = get_components_from_database(
+            components, total_component_count = data_access.get_components_from_database(
                 search_term=query, 
                 page=page, 
                 per_page=per_page, 
                 sort_order=sort_order
             )
-            api_time = time.time() - start_time
-
-            # Format components
-            cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
-            formatted_components = [
-                format_component_record(comp, cmu_to_company_mapping) 
-                for comp in components
-            ]
-            
-            # Refine company list based on found components 
-            # (Update counts, format CMU IDs etc. - Placeholder for your logic)
-            final_companies = []
-            for name, data in companies_dict.items():
-                 # Placeholder: Update component count based on filtered components
-                 data['component_count'] = sum(1 for comp in components if comp.get('Company Name') == name)
-                 if data['component_count'] > 0: # Only include companies with matching components
-                     cmu_ids_list = list(data['cmu_ids'])
-                     cmu_ids_display = ", ".join(cmu_ids_list[:3]) + ("..." if len(cmu_ids_list) > 3 else "")
-                     final_companies.append({
-                         'name': name,
-                         'component_count': data['component_count'],
-                         'cmu_ids_display': cmu_ids_display,
-                         'cmu_ids': cmu_ids_list # Pass full list if needed
-                     })
-             # Sort companies maybe?
-
-            context = {
-                'query': query,
-                'components': formatted_components,
-                'total_count': total_count,
-                'api_time': api_time,
-                'companies': final_companies,
-                'company_count': len(final_companies),
-                'is_cmu_list_view': False, # General search view
-                'page_title': f'Search Results for \"{query}\"' if query else 'Search',
-                'per_page': per_page,
-                # Add pagination context if necessary
-            }
-            logger.info(f"Rendering general search results for '{query}'")
-            return render(request, 'checker/search_results.html', context)
-
         except Exception as e:
-            logger.exception(f"Error during general search for '{query}': {str(e)}")
-            # Render error page or search page with error message
-            return render(request, 'checker/search_results.html', {
-                 'query': query,
-                 'error': f'An error occurred: {str(e)}',
-                 'components': [],
-                 'companies': [],
-                 'is_cmu_list_view': False
-             })
-        # --- End General Search Handling ---
+            logger.error(f"Error calling data_access.get_components_from_database: {str(e)}")
+            # Create a fallback empty result if data_access fails
+            components = []
+            total_component_count = 0
+        api_time = time.time() - start_time
+
+        # 3. Format Components
+        cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
+        formatted_components = [
+            format_component_record(comp, cmu_to_company_mapping) 
+            for comp in components
+        ]
+        
+        # 4. Prepare Company List for Display (Placeholder logic)
+        final_companies = []
+        if matching_company_names:
+             company_details_qs = Component.objects.filter(
+                 company_name__in=matching_company_names
+             ).values('company_name', 'cmu_id')
+             company_summary = {}
+             for detail in company_details_qs:
+                 name = detail['company_name']
+                 cmu_id = detail['cmu_id']
+                 if name not in company_summary:
+                     company_summary[name] = {'name': name, 'cmu_ids': set()}
+                 if cmu_id:
+                     company_summary[name]['cmu_ids'].add(cmu_id)
+             for name in company_summary:
+                 approx_comp_count = Component.objects.filter(company_name=name).count()
+                 company_summary[name]['component_count'] = approx_comp_count
+                 cmu_ids_list = sorted(list(company_summary[name]['cmu_ids']))
+                 company_summary[name]['cmu_ids_display'] = ", ".join(cmu_ids_list[:3]) + (f" and {len(cmu_ids_list) - 3} more" if len(cmu_ids_list) > 3 else "")
+                 company_summary[name]['cmu_ids'] = cmu_ids_list 
+                 final_companies.append(company_summary[name])
+        final_companies.sort(key=lambda x: x['name']) # Example sort
+
+        # 5. Build Context for General Search
+        context = {
+            'query': query,
+            'components': formatted_components,
+            'total_count': total_component_count,
+            'api_time': api_time,
+            'companies': final_companies,
+            'company_count': len(final_companies),
+            'is_cmu_list_view': False, # ALWAYS False for general search
+            'page_title': f'Search Results for "{query}"' if query else 'Search',
+            'per_page': per_page,
+            # Add pagination context if needed by search_results.html
+        }
+        logger.info(f"[search_components_service] Rendering general search results for '{query}'")
+        # IMPORTANT: This service function should ideally render search_results.html directly,
+        # OR return context to the calling view (search_companies) which then renders search.html.
+        # Given search_companies now calls this, let's have it return context to be safe.
+        # Returning context for search_companies to render:
+        # return context 
+        # Let's stick to rendering search_results.html for now, assuming search_companies handles the base template
+        # If search_companies delegates rendering, this should render search.html
+        # Let's assume search_companies renders the final page, so this service call is just part of its logic
+        # **** Correction: The calling view (`search_companies`) *is* rendering `search.html`. ****
+        # **** This function *is* called by `search_companies`. ****
+        # **** It should just prepare and return the context needed by `search.html`/`search_results.html`. **** 
+        # Let's return context for clarity.
+        return context # Return context dictionary
+
+    except Exception as e:
+        logger.exception(f"[search_components_service] Error during general search for '{query}': {str(e)}")
+        # Return error context
+        return {
+             'query': query,
+             'error': f'An error occurred: {str(e)}',
+             'components': [],
+             'companies': [],
+             'is_cmu_list_view': False
+         }
+    # --- End General Search Handling --- 
 
 
 def format_component_record(record, cmu_to_company_mapping):
