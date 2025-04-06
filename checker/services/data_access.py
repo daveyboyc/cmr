@@ -17,17 +17,7 @@ from ..utils import normalize, get_cache_key, get_json_path, ensure_directory_ex
 from ..models import Component
 
 # Import the postcode/area helper functions correctly
-try:
-    from .data import get_all_postcodes_for_area, get_area_for_any_postcode
-except ImportError:
-    # Define fallback stub functions if the module cannot be imported
-    def get_all_postcodes_for_area(area_code):
-        """Stub function for getting all postcodes for a given area code."""
-        return []
-
-    def get_area_for_any_postcode(postcode):
-        """Stub function for getting area code from a postcode."""
-        return None
+from .data import get_all_postcodes_for_area, get_area_for_any_postcode
 logger = logging.getLogger(__name__)
 
 
@@ -1087,7 +1077,7 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
             # --- Ranking Logic --- 
             if using_postgres:
                 # Define search vector and query for ranking
-                vector = SearchVector('company_name', 'location', 'description', config='english')
+                vector = SearchVector('company_name', 'location', 'description', 'cmu_id', config='english')
                 query = SearchQuery(search_term_lower, config='english')
                 # --- ANNOTATE FIRST --- 
                 query_set = query_set.annotate(searchvector=vector)

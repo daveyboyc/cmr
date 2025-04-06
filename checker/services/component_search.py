@@ -4,322 +4,233 @@ import logging
 from django.shortcuts import render
 from django.core.cache import cache
 import traceback
+from django.urls import reverse
 
-from ..utils import normalize
-from .data_access import fetch_components_for_cmu_id, get_component_data_from_json
-from .company_search import _perform_company_search, get_cmu_dataframe
+from ..utils import normalize, get_cache_key
+from .data_access import (
+    fetch_components_for_cmu_id, 
+    get_components_from_database
+)
+from .company_search import _perform_company_search, get_cmu_dataframe, _build_search_results
 
 logger = logging.getLogger(__name__)
 
 
 def search_components_service(request, return_data_only=False):
-    """Service function for searching components and companies in a unified interface"""
-    # Add pagination parameters
+    """Service function for searching companies AND components in a unified interface."""
+    # Get query and pagination parameters
+    query = request.GET.get("q", "").strip()
     page = int(request.GET.get("page", 1))
-    per_page = int(request.GET.get("per_page", 500))  # Default to 500 items per page
-    sort_order = request.GET.get("comp_sort", "desc")  # Sort for component results
+    per_page = int(request.GET.get("per_page", 50))  # Default to 50 items per page
+    sort_order = request.GET.get("comp_sort", "desc")
 
-    results = {}
+    # Initialize context variables
     company_links = []
+    component_results_dict = {}
+    total_component_count = 0
+    displayed_component_count = 0
+    total_pages = 1
+    has_prev = False
+    has_next = False
+    page_range = range(1, 2)
     error_message = None
     api_time = 0
-    query = request.GET.get("q", "").strip()
+    note = None # For messages like "Using cached results"
 
-    # Add debug flag to force company results to appear even if no search query
-    debug_company = request.GET.get("debug_company", "false") == "true"
-
-    # Debug info to collect
+    # Debug info
     debug_info = {
         "query": query,
+        "page": page,
+        "per_page": per_page,
+        "sort_order": sort_order,
         "company_search_attempted": False,
-        "cmu_df_loaded": False,
-        "cmu_df_rows": 0,
-        "matching_records": 0,
-        "unique_companies": [],
-        "error": None
+        "component_search_attempted": False,
+        "final_total_components": 0,
+        "final_displayed_components": 0,
+        "data_source": "unknown"
     }
 
-    if request.method == "GET":
-        if "search_results" in request.session and not query:
-            # Only use session results if no new query is provided
-            results = request.session.pop("search_results")
-            company_links = request.session.pop("company_links", [])
-            record_count = request.session.pop("record_count", None)
-            api_time = request.session.pop("api_time", 0)
-            last_query = request.session.pop("last_query", "")
+    # If no query, just render the empty search page
+    if not query:
+        logger.info("Rendering empty search page (no query)")
+        return render(request, "checker/search.html", {
+            "query": query,
+            "company_links": [],
+            "component_results": {},
+            "component_count": 0,
+            "displayed_component_count": 0,
+            "page": 1,
+            "total_pages": 1,
+            "has_prev": False,
+            "has_next": False,
+            "page_range": range(1, 2),
+            "sort_order": sort_order,
+            "debug_info": debug_info
+        })
 
-            if debug_company:
-                # Force some company links for testing
-                company_links.append(
-                    '<a href="/?q=Test%20Company%201" style="color: blue; text-decoration: underline;">Test Company 1</a>')
-                company_links.append(
-                    '<a href="/?q=Test%20Company%202" style="color: blue; text-decoration: underline;">Test Company 2</a>')
-                debug_info["forced_test_links"] = True
-                
-            if return_data_only:
-                return results
-
-            return render(request, "checker/search_components.html", {
-                "results": results,
-                "company_links": company_links,
-                "record_count": record_count,
-                "component_count": record_count,
-                "displayed_component_count": record_count,
-                "error": error_message,
-                "api_time": api_time,
-                "query": last_query,
-                "sort_order": sort_order,
-                "debug_info": debug_info,
-                # Pagination context
-                "page": page,
-                "total_pages": 1 if record_count == 0 else (record_count + per_page - 1) // per_page,
-                "has_prev": False,
-                "has_next": False,
-                "page_range": range(1, 2),
-            })
-        elif query or debug_company:
-            start_time = time.time()
-
-            # STEP 1: Search for matching companies
-            try:
-                debug_info["company_search_attempted"] = True
-                # Use the company search functionality to find matching companies
-                cmu_df, df_api_time = get_cmu_dataframe()
-                api_time += df_api_time
-
-                if cmu_df is not None:
-                    debug_info["cmu_df_loaded"] = True
-                    debug_info["cmu_df_rows"] = len(cmu_df)
-
-                    if query:
-                        norm_query = normalize(query)
-                        matching_records = _perform_company_search(cmu_df, norm_query)
-                        unique_companies = list(matching_records["Full Name"].unique())
-
-                        debug_info["matching_records"] = len(matching_records)
-                        debug_info["unique_companies"] = unique_companies
-
-                        # Filter out companies with no components
-                        companies_with_components = []
-                        for company in unique_companies:
-                            # Get all CMU IDs for this company
-                            company_records = cmu_df[cmu_df["Full Name"] == company]
-                            cmu_ids = company_records["CMU ID"].unique().tolist()
-                            
-                            # Check if any of these CMU IDs have components
-                            has_components = False
-                            for cmu_id in cmu_ids:
-                                components = get_component_data_from_json(cmu_id)
-                                if components and len(components) > 0:
-                                    has_components = True
-                                    break
-                            
-                            if has_components:
-                                companies_with_components.append(company)
-                        
-                        # Log the filtering results
-                        logger.info(f"DEBUG: Found {len(unique_companies)} companies, {len(companies_with_components)} have components")
-                        debug_info["companies_filtered_out"] = len(unique_companies) - len(companies_with_components)
-                        
-                        # Use only companies that have components
-                        unique_companies = companies_with_components
-
-                        # Create blue links for each company - TEMPORARILY point to company search page
-                        company_links = [
-                            f'<a href="/?q={urllib.parse.quote(company)}" style="color: blue; text-decoration: underline;">{company}</a>'
-                            for company in unique_companies
-                        ]
-
-                    # Alternative approach: show a random sample of companies for testing
-                    if debug_company and not company_links:
-                        sample_companies = cmu_df["Full Name"].sample(min(5, len(cmu_df))).tolist()
-                        debug_info["sample_companies"] = sample_companies
-                        company_links = [
-                            f'<a href="/?q={urllib.parse.quote(company)}" style="color: blue; text-decoration: underline;">{company}</a>'
-                            for company in sample_companies
-                        ]
-                else:
-                    debug_info["error"] = "CMU dataframe is None"
-                    company_links = []
-            except Exception as e:
-                error_msg = f"Error searching companies: {str(e)}"
-                logger.error(error_msg)
-                debug_info["error"] = error_msg
-                company_links = []
-
-            # Always force a test company link to appear (for debugging)
-            if debug_company:
-                company_links.append(
-                    '<a href="/?q=TestCompany" style="color: blue; text-decoration: underline;">Test Company (Forced)</a>')
-                debug_info["forced_test_link"] = True
-
-            # STEP 2: Get mapping of CMU IDs to company names from cache
-            cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
-            debug_info["cmu_mapping_entries"] = len(cmu_to_company_mapping)
-
-            # STEP 3: Search for matching components
-            components = []
-            total_component_count = 0
-            components_api_time = 0
-
-            try:
-                if query:  # Only search for components if there's a query
-                    # First try to get components directly from JSON
-                    logger.info(f"DEBUG: Searching for components with query: {query}")
-                    components = get_component_data_from_json(query) or []
-                    logger.info(f"DEBUG: Found {len(components)} components in JSON")
-                    debug_info["json_components_found"] = len(components)
-
-                    # If not found, try to fetch components by CMU ID
-                    if not components:
-                        logger.info(f"DEBUG: No components found in JSON, trying API with CMU ID: {query}")
-                        api_components, components_metadata = fetch_components_for_cmu_id(query, page=page, per_page=per_page)
-                        components = api_components or []
-                        
-                        # Get accurate total count from metadata
-                        if isinstance(components_metadata, dict):
-                            total_component_count = components_metadata.get("total_count", len(components))
-                            components_api_time = components_metadata.get("processing_time", 0)
-                            api_time += components_api_time
-                        else:
-                            total_component_count = len(components)
-                            
-                        logger.info(f"DEBUG: Found {len(components)} components via API (total: {total_component_count})")
-                        debug_info["api_components_found"] = len(components)
-                    else:
-                        # If we found components in JSON, use that count
-                        total_component_count = len(components)
-            except Exception as e:
-                import traceback
-                logger.error(f"DEBUG ERROR in component search: {str(e)}")
-                logger.error(traceback.format_exc())
-                error_msg = f"Error fetching component data: {str(e)}"
-                logger.error(error_msg)
-                error_message = error_msg
-                debug_info["component_error"] = error_msg
-                components = []
-                total_component_count = 0
-
-            # Set the displayed count based on how many we're showing on this page
-            displayed_component_count = len(components)
-
-            # Calculate pagination values if not already provided by the API
-            if total_component_count > 0:
-                total_pages = (total_component_count + per_page - 1) // per_page
-                has_prev = page > 1
-                has_next = page < total_pages
-                page_range = range(max(1, page - 2), min(total_pages + 1, page + 3))
-            else:
-                total_pages = 1
-                has_prev = False
-                has_next = False
-                page_range = range(1, 2)
-
-            # Add log to verify correct counts
-            logger.info(f"DEBUG: Displaying {displayed_component_count} of {total_component_count} total components (Page {page} of {total_pages})")
-
-            record_count = total_component_count
-            logger.info(f"DEBUG: Final component count: {record_count}")
-
-            # Format component results for display
-            sentences = []
-            
-            # Sort components based on comp_sort parameter
-            if components:
-                try:
-                    logger.info(f"DEBUG: Sorting components by Delivery Year, reverse={sort_order == 'desc'}")
-                    
-                    # Define a safe sorting key function that handles None values
-                    def safe_delivery_year_key(component):
-                        return component.get("Delivery Year", "") or ""
-                    
-                    components.sort(
-                        key=safe_delivery_year_key,
-                        reverse=(sort_order == "desc")
-                    )
-                except Exception as sort_error:
-                    logger.error(f"Error sorting components: {str(sort_error)}")
-                    debug_info["sort_error"] = str(sort_error)
-
-            # Format each component record
-            results = {}
-            for component in components:
-                formatted_record = format_component_record(component, cmu_to_company_mapping)
-                sentences.append(formatted_record)
-                
-            if sentences:
-                results[query] = sentences
-                logger.info(f"DEBUG: Added {len(sentences)} formatted component records to results[{query}]")
-            
-            elapsed_time = time.time() - start_time
-            api_time += elapsed_time
-
-            request.session["search_results"] = results
-            request.session["company_links"] = company_links
-            request.session["record_count"] = record_count
-            request.session["api_time"] = api_time
-            request.session["last_query"] = query
-            
-            if return_data_only:
-                return results
-
-            return render(request, "checker/search_components.html", {
-                "results": results,
-                "company_links": company_links,
-                "record_count": record_count,
-                "component_count": total_component_count,
-                "displayed_component_count": displayed_component_count,
-                "error": error_message,
-                "api_time": api_time,
-                "query": query,
-                "sort_order": sort_order,
-                "debug_info": debug_info,
-                # Pagination context
-                "page": page,
-                "total_pages": total_pages,
-                "has_prev": has_prev,
-                "has_next": has_next,
-                "page_range": page_range,
-            })
-        else:
-            # Clear session but keep query parameter in case it's needed
-            if "search_results" in request.session:
-                request.session.pop("search_results", None)
-            if "company_links" in request.session:
-                request.session.pop("company_links", None)
-            if "api_time" in request.session:
-                request.session.pop("api_time", None)
-                
-            if return_data_only:
-                return {}
-
-            return render(request, "checker/search_components.html", {
-                "results": {},
-                "company_links": [],
-                "api_time": api_time,
-                "query": query,
-            })
+    # --- START SEARCH LOGIC (if query exists) --- 
+    start_time = time.time()
     
-    if return_data_only:
-        return {}
+    # Check cache first
+    cache_key_base = get_cache_key("search_results", query.lower())
+    cache_key = f"{cache_key_base}_p{page}_s{per_page}_sort{sort_order}"
+    cached_results = cache.get(cache_key)
+    
+    # Also try to get the total count from cache
+    total_count_cache_key = f"{cache_key_base}_total_count"
+    cached_total_count = cache.get(total_count_cache_key)
+    
+    if cached_results and cached_total_count:
+        logger.info(f"Using cached results for query '{query}' (page {page})")
+        note = "Using cached results"
+        component_results_dict = cached_results
+        total_component_count = cached_total_count
+        displayed_component_count = min(per_page, len(component_results_dict.get(query, [])))
+        api_time = 0
+    else:
+        # STEP 1: Search for matching companies (using dataframe approach)
+        debug_info["company_search_attempted"] = True
+        try:
+            cmu_df, df_api_time = get_cmu_dataframe()
+            api_time += df_api_time
+            if cmu_df is not None:
+                norm_query = normalize(query)
+                matching_records = _perform_company_search(cmu_df, norm_query)
+                # Limit companies shown for performance, use _build_search_results for formatting
+                unique_companies = list(matching_records["Full Name"].unique())[:20] 
+                company_results_built = _build_search_results(cmu_df, unique_companies, sort_order, query, cmu_limit=3)
+                if query in company_results_built:
+                    company_links = company_results_built[query]
+                logger.info(f"Found {len(company_links)} matching company links for '{query}'")
+            else:
+                error_message = "Error loading company data (CMU dataframe)."
+                logger.error(error_message)
+        except Exception as e:
+            error_message = f"Error searching companies: {str(e)}"
+            logger.exception(error_message)
+            debug_info["company_error"] = error_message
 
-    return render(request, "checker/search_components.html", {
-        "results": {},
-        "company_links": [],
-        "api_time": api_time,
+        # STEP 2: Search for matching components (using database fetch)
+        debug_info["component_search_attempted"] = True
+        components_list = []
+        try:
+            # --- MODIFIED: Use search_term primarily --- 
+            logger.info(f"Performing component search using search_term='{query}'")
+            components_list, total_component_count = get_components_from_database(
+                search_term=query, 
+                page=page, 
+                per_page=per_page, 
+                sort_order=sort_order
+            )
+            # --- END MODIFICATION ---
+            
+            displayed_component_count = len(components_list)
+            debug_info["data_source"] = "database"
+            
+            logger.info(f"Fetched {displayed_component_count} components (total: {total_component_count}) for '{query}' page {page}")
+            
+            # Cache the total count separately (it doesn't change between pages)
+            cache.set(total_count_cache_key, total_component_count, 3600)  # Cache for 1 hour
+            
+        except Exception as e:
+            error_msg = f"Error fetching component data: {str(e)}"
+            logger.exception(error_msg)
+            if not error_message: error_message = error_msg
+            debug_info["component_error"] = error_msg
+            components_list = []
+            total_component_count = 0
+
+        # STEP 3: Format component results for display
+        formatted_components = []
+        if components_list:
+            for component in components_list:
+                formatted_record = format_component_record(component, {})
+                formatted_components.append(formatted_record)
+            
+            if formatted_components:
+                component_results_dict[query] = formatted_components
+                # Cache the formatted results for this specific page
+                cache.set(cache_key, component_results_dict, 3600)  # Cache for 1 hour
+                logger.info(f"Formatted and cached {len(formatted_components)} component records for display.")
+
+    # STEP 4: Calculate final pagination variables
+    if total_component_count > 0 and per_page > 0:
+        total_pages = (total_component_count + per_page - 1) // per_page
+    else:
+        total_pages = 1
+        
+    has_prev = page > 1
+    has_next = page < total_pages
+    # Ensure page range is sensible
+    page_range_start = max(1, page - 2)
+    page_range_end = min(total_pages + 1, page + 3)
+    # Prevent range end from being less than start if total_pages is small
+    if page_range_end <= page_range_start:
+         page_range_end = page_range_start + 1 
+    page_range = range(page_range_start, page_range_end)
+
+    # Update debug info with final counts
+    debug_info["final_total_components"] = total_component_count
+    debug_info["final_displayed_components"] = displayed_component_count
+
+    # STEP 5: Prepare context and render template
+    context = {
         "query": query,
-    })
+        "note": note,
+        "company_links": company_links,
+        "component_results": component_results_dict, 
+        "component_count": total_component_count,
+        "displayed_component_count": displayed_component_count,
+        "error": error_message,
+        "api_time": api_time,
+        "comp_sort": sort_order,  # Use comp_sort to match template
+        "debug_info": debug_info,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": total_pages,
+        "has_prev": has_prev,
+        "has_next": has_next,
+        "page_range": page_range,
+        "unified_search": True
+    }
+
+    return render(request, "checker/search.html", context)
 
 
 def format_component_record(record, cmu_to_company_mapping):
     """Format a component record for display with proper company badge"""
+    # Check if this is already formatted HTML (might be from cache)
+    if isinstance(record, str) and "<div class" in record:
+        return record
+        
+    # Get base fields with null checks
     loc = record.get("Location and Post Code", "N/A")
+    if loc is None:
+        loc = "N/A"
+        
     desc = record.get("Description of CMU Components", "N/A")
+    if desc is None:
+        desc = "N/A"
+        
     tech = record.get("Generating Technology Class", "N/A")
+    if tech is None:
+        tech = "N/A"
+        
     typ = record.get("Type", "N/A")
+    if typ is None:
+        typ = "N/A"
+        
     delivery_year = record.get("Delivery Year", "N/A")
+    if delivery_year is None:
+        delivery_year = "N/A"
+        
     auction = record.get("Auction Name", "N/A")
+    if auction is None:
+        auction = "N/A"
+        
     cmu_id = record.get("CMU ID", "N/A")
+    if cmu_id is None:
+        cmu_id = "N/A"
 
     # Get company name with multiple fallbacks
     company_name = ""
@@ -334,48 +245,108 @@ def format_component_record(record, cmu_to_company_mapping):
                     break
     if not company_name:
         try:
-            json_components = get_component_data_from_json(cmu_id)
-            if json_components:
-                for comp in json_components:
-                    if "Company Name" in comp and comp["Company Name"]:
-                        company_name = comp["Company Name"]
-                        cmu_to_company_mapping[cmu_id] = company_name
-                        cache.set("cmu_to_company_mapping", cmu_to_company_mapping, 3600)
-                        break
+            # DEPRECATED - Should rely on database fetch in calling function
+            # json_components = get_component_data_from_json(cmu_id)
+            # if json_components:
+            #     for comp in json_components:
+            #         if "Company Name" in comp and comp["Company Name"]:
+            #             company_name = comp["Company Name"]
+            #             cmu_to_company_mapping[cmu_id] = company_name
+            #             cache.set("cmu_to_company_mapping", cmu_to_company_mapping, 3600)
+            #             break
+            pass # Keep pass here as fallback logic removed
         except Exception as e:
-            logger.error(f"Error getting company name from JSON: {e}")
+            logger.error(f"Error getting company name: {e}")
 
-    # Create company badge - TEMPORARILY point to company search page
+    # Create company badge
     company_info = ""
     if company_name:
-        encoded_company_name = urllib.parse.quote(company_name)
-        # Generate the normalized company ID for the detail page
-        company_id = normalize(company_name)
-        # Link directly to company detail page instead of search
-        company_link = f'<a href="/company/{company_id}/" class="badge bg-success" style="font-size: 1rem; text-decoration: none;">{company_name}</a>'
+        company_id_normalized = normalize(company_name)
+        company_link = f'<a href="/company/{company_id_normalized}/" class="badge bg-success" style="font-size: 1rem; text-decoration: none;">{company_name}</a>'
         company_info = f'<div class="mt-2 mb-2">{company_link}</div>'
     else:
         company_info = f'<div class="mt-2 mb-2"><span class="badge bg-warning">No Company Found</span></div>'
 
-    # Create blue link for location pointing to component detail page
-    normalized_loc = normalize(loc)
-    component_id = f"{cmu_id}_{normalized_loc}"
-    encoded_component_id = urllib.parse.quote(component_id)
-    loc_link = f'<a href="/component/{encoded_component_id}/" style="color: blue; text-decoration: underline;">{loc}</a>'
+    # Get the database ID (pk) which is now stored in '_id'
+    db_id = record.get("_id", None)
+    # Get the string component ID (which might be the source _id)
+    component_id_str = record.get("component_id_str", "") 
+    # Get the actual component ID extracted from additional_data
+    actual_component_id = record.get("actual_component_id", "")
+    
+    # --- FIX: Generate correct link using db_id --- 
+    loc_link = loc # Default to plain text if no ID
+    if db_id is not None:
+        try:
+            # Use Django's reverse function if possible, otherwise fallback to hardcoded URL
+            detail_url = reverse('component_detail', kwargs={'pk': db_id})
+            loc_link = f'<a href="{detail_url}" style="color: blue; text-decoration: underline;">{loc}</a>'
+        except Exception as url_error:
+            logger.warning(f"Could not reverse URL for component_detail pk={db_id}: {url_error}. Falling back to hardcoded URL.")
+            # Fallback to hardcoded URL pattern if reverse fails
+            loc_link = f'<a href="/component/{db_id}/" style="color: blue; text-decoration: underline;">{loc}</a>'
+    # --- END FIX ---
 
-    # Format badges for type, delivery year, and CMU ID
-    type_badge = f'<span class="badge bg-info">{typ}</span>' if typ != "N/A" else ""
-    year_badge = f'<span class="badge bg-secondary">{delivery_year}</span>' if delivery_year != "N/A" else ""
-    cmu_badge = f'<span class="badge bg-primary">CMU ID: {cmu_id}</span>'
-    badges = " ".join(filter(None, [type_badge, year_badge, cmu_badge]))
-    badges_div = f'<div class="mb-2">{badges}</div>' if badges else ""
+    # Extract auction type for badge
+    auction_type = ""
+    auction_badge_class = "bg-secondary"
+    if auction and auction != "N/A":
+        if "T-1" in auction or "T1" in auction:
+            auction_type = "T-1"
+            auction_badge_class = "bg-warning"
+        elif "T-4" in auction or "T4" in auction:
+            auction_type = "T-4"
+            auction_badge_class = "bg-info"
+        elif "T-3" in auction or "T3" in auction:
+            auction_type = "T-3"
+            auction_badge_class = "bg-success"
+        elif "TR" in auction:
+            auction_type = "TR"
+            auction_badge_class = "bg-danger"
+        else:
+            auction_type = auction.split()[0] if " " in auction else auction
+
+    # Format badges with proper ordering and spacing
+    badges = []
+    
+    # Auction badge
+    if auction_type:
+        badges.append(f'<span class="badge {auction_badge_class} me-1">{auction_type}</span>')
+    
+    # Delivery year badge
+    if delivery_year != "N/A":
+        badges.append(f'<span class="badge bg-secondary me-1">Year: {delivery_year}</span>')
+    
+    # Technology badge
+    if tech != "N/A":
+        # Safe check for string length - tech is guaranteed to be a string not None at this point
+        tech_short = tech[:20] + "..." if len(tech) > 20 else tech
+        badges.append(f'<span class="badge bg-primary me-1">{tech_short}</span>')
+    
+    # Type badge (if different from auction type)
+    if typ != "N/A" and typ != auction_type:
+        badges.append(f'<span class="badge bg-dark me-1">{typ}</span>')
+    
+    # Add DB ID badge
+    if db_id is not None:
+        badges.append(f'<span class="badge bg-secondary me-1 small">DB ID: {str(db_id)}</span>')
+    
+    # Add actual Component ID badge if it exists
+    if actual_component_id:
+        badges.append(f'<span class="badge bg-dark me-1 small">Component ID: {actual_component_id}</span>')
+    # Fallback: if actual not found, show the one from the model field (if it exists and differs from CMU ID)
+    elif component_id_str and component_id_str != cmu_id:
+        badges.append(f'<span class="badge bg-dark me-1 small">Comp ID (from source _id?): {component_id_str}</span>')
+    
+    badges_html = " ".join(badges)
+    badges_div = f'<div class="mb-2">{badges_html}</div>' if badges_html else ""
 
     return f"""
     <div class="component-record">
         <strong>{loc_link}</strong>
         <div class="mt-1 mb-1"><i>{desc}</i></div>
-        <div>Technology: {tech} | <b>{auction}</b></div>
         {badges_div}
+        <div class="small text-muted">Full auction: <b>{auction}</b> | CMU ID: {cmu_id}</div>
         {company_info}
     </div>
     """

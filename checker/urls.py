@@ -59,7 +59,4 @@ urlpatterns = [
     
     # Index information endpoint
     path('debug/indexes/', views.index_info, name='index_info'),
-
-    # New URL for listing all components for a specific CMU ID
-    path('cmu/<str:cmu_id>/', views.cmu_component_list, name='cmu_component_list'),
 ]

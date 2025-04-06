@@ -1,6 +1,10 @@
-{# This is a partial template included in search.html, NOT a complete page #}
+{% extends "checker/base.html" %}
 {% load static %}
+{% load custom_filters %}
 
+{% block title %}Search Results{% endblock %}
+
+{% block extra_head %}
 <style>
     .component-record {
         opacity: 0;
@@ -28,111 +32,178 @@
         font-weight: bold;
     }
 </style>
+{% endblock %}
 
-{# Content starts here - no block tags needed #}
-<div class="container mt-4 mb-5">
+{% block content %}
+<div class="container mt-4">
+    <!-- Add loading spinner -->
+    <div id="loading-spinner" class="text-center my-5" style="display: none;">
+        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-2">Loading results, please wait...</p>
+    </div>
 
-    {% if error %}
-        <div class="alert alert-danger">Error: {{ error }}</div>
-    {% endif %}
-
-    {# --- Conditional Search Summary --- #}
-    {% if query %}
-        {% if not is_cmu_list_view %}
-            {# Full Search Summary #}
-            <div class="search-summary mb-3 p-3 bg-light border rounded">
-                <h5>Search Results for: "{{ query }}"</h5>
-                <div class="d-flex justify-content-between align-items-center">
-                    <span>
-                        Displaying {{ components|length }} of {{ total_count|default:0 }} matching components.
-                        Found {{ company_count|default:0 }} matching companies.
-                    </span>
-                    <span class="text-muted small">Query time: {{ api_time|floatformat:2 }}s {% if from_cache %}(from cache){% endif %}</span>
-                </div>
-                {% comment %} Optional Debug Info can go here later {% endcomment %}
-            </div>
+    <form method="get" action="{% url 'search' %}" class="mb-4">
+        <div class="input-group">
+            <input type="text" name="q" class="form-control" placeholder="Search by company name, location, CMU ID..." value="{{ query }}" required>
+            <input type="hidden" name="per_page" value="{{ per_page|default:'50' }}">
+            <button class="btn btn-primary" type="submit" id="search-button">Search</button>
+        </div>
+    </form>
+    
+    <div id="results-container" style="display: none;">
+        {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
         {% else %}
-            {# Simple CMU List Summary #}
-            <div class="search-summary mb-3 p-3 bg-light border rounded">
-                <h5>{{ page_title|default:"Component List" }}</h5>
+            <div class="results-meta mb-3">
                 <div class="d-flex justify-content-between align-items-center">
-                    <span>Displaying {{ components|length }} components.</span>
-                    <span class="text-muted small">Query time: {{ api_time|floatformat:2 }}s</span>
+                    <h3>Search Results for "{{ query }}"</h3>
+                    {% if from_cache %}
+                        <span class="badge bg-info text-dark">Cached Results</span>
+                    {% endif %}
+                </div>
+                <div class="text-muted">
+                    Found in {{ api_time|floatformat:2 }} seconds
                 </div>
             </div>
-        {% endif %}
-    {% endif %}
-    {# --- End Conditional Summary --- #}
-
-    {# --- Conditional Company Results --- #}
-    {% if not is_cmu_list_view and companies %}
-        <div class="company-results mb-4">
-            <h4>Matching Companies ({{ company_count }})</h4>
-            <div class="alert alert-info small"><i class="bi bi-info-circle"></i> Click on company names to view details and components.</div>
-            <ul class="list-group">
-                {% for company in companies %}
-                <li class="list-group-item">
-                    <h5><a href="{% url 'company_detail' company_id=company.name|slugify %}">{{ company.name }}</a></h5>
-                    <p class="mb-1 small">
-                        CMU IDs: {{ company.cmu_ids_display }}
-                    </p>
-                    <p class="mb-0 small">
-                        {{ company.component_count }} components across {{ company.cmu_ids|length }} CMU IDs
-                    </p>
-                </li>
-                {% endfor %}
-            </ul>
-        </div>
-        <hr class="my-4">
-    {% endif %}
-    {# --- End Company Results --- #}
-
-    {# --- Component Results (Always Display if components exist) --- #}
-    {% if components %}
-        <div class="component-results">
-            {# Conditional Header for Components #}
-            {% if not is_cmu_list_view %}
-                <h4>Matching Components ({{ components|length }})</h4> {# Use actual length here #}
-            {% endif %}
-
-            {# Conditional Sorting Controls #}
-            {% if not is_cmu_list_view %}
-                <div class="sorting-controls mb-2">
-                     <span class="small me-2">Sort by:</span>
-                     <a href="?q={{ query }}&page={{ request.GET.page|default:1 }}&per_page={{ per_page }}&comp_sort=desc" 
-                        class="btn btn-sm {% if request.GET.comp_sort != 'asc' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-                        Newest First
-                     </a>
-                     <a href="?q={{ query }}&page={{ request.GET.page|default:1 }}&per_page={{ per_page }}&comp_sort=asc" 
-                        class="btn btn-sm {% if request.GET.comp_sort == 'asc' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-                        Oldest First
-                     </a>
-                </div>
-            {% endif %}
-
-            {# Component List Itself #}
-            <div class="results-list">
-                 {% for component_html in components %}
-                    <div class="result-item">
-                        {{ component_html|safe }}
+            
+            {% if company_count > 0 %}
+                <div class="mb-4">
+                    <h4>Companies ({{ company_count }})</h4>
+                    <div class="list-group">
+                        {% for company in companies %}
+                            <div class="list-group-item">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-1">{{ company.name }}</h5>
+                                    <span class="badge bg-primary rounded-pill">{{ company.component_count }} components</span>
+                                </div>
+                                <p class="mb-1"><small>CMU IDs: {{ company.cmu_ids_display }}</small></p>
+                            </div>
+                        {% endfor %}
                     </div>
-                {% empty %}
-                     <p>No components to display.</p>
+                </div>
+            {% endif %}
+            
+            {% if components %}
+                <h4>Components ({{ total_count }})</h4>
+                
+                <!-- NEW: Results count message with prominent display -->
+                {% if total_count > components|length %}
+                <div class="results-count-message">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>Showing {{ components|length }} of {{ total_count }} matching components</strong>
+                        </div>
+                        <a href="?q={{ query }}&per_page={{ total_count }}" class="btn btn-show-all">
+                            Show All {{ total_count }} Results
+                        </a>
+                    </div>
+                </div>
+                {% endif %}
+                
+                {% for component in components %}
+                    <div class="card mb-3 component-record">
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                {% if component.cmu_id %}
+                                    {{ component.cmu_id }}
+                                {% elif component.CMU_ID %}
+                                    {{ component.CMU_ID }}
+                                {% else %}
+                                    {{ component.id }}
+                                {% endif %}
+                            </h5>
+                            <h6 class="card-subtitle mb-2 text-muted">
+                                {{ component.company_name }}
+                            </h6>
+                            
+                            <p class="card-text">
+                                <strong>Location: </strong>
+                                <a href="{% url 'component_detail' component_id=component._id %}" class="location-link text-primary">
+                                    {% if component.location %}
+                                        {{ component.location }}
+                                    {% else %}
+                                        Unknown Location
+                                    {% endif %}
+                                </a>
+                            </p>
+                            
+                            <p class="card-text">
+                                <strong>Description: </strong>
+                                {% if component.description %}
+                                    {{ component.description|truncatechars:150 }}
+                                {% else %}
+                                    No description available
+                                {% endif %}
+                            </p>
+                            
+                            {% if component.debug_matched_fields %}
+                            <div class="alert alert-info small">
+                                <strong>Debug:</strong> Matched in fields: {{ component.debug_matched_fields|join:", " }}
+                            </div>
+                            {% endif %}
+                            
+                            <button class="btn btn-sm btn-outline-primary" onclick="toggleDetails('component-{{ component.id|default:component._id }}')">
+                                Show Details
+                            </button>
+                            <div id="component-{{ component.id|default:component._id }}" class="mt-2 component-details" style="display: none;">
+                                <table class="table table-sm">
+                                    <tbody>
+                                        {% for key, value in component.items %}
+                                            {% if key != "Description_of_CMU_Components" and key != "description" and key != "Location_and_Post_Code" and key != "location" and key != "_id" and key != "debug_matched_fields" and key != "relevance_score" %}
+                                                <tr>
+                                                    <td><strong>{{ key }}</strong></td>
+                                                    <td>{{ value }}</td>
+                                                </tr>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
                 {% endfor %}
-            </div>
-
-            {# Conditional Pagination Controls (Placeholder) #}
-            {% if not is_cmu_list_view %}
-                {# Add pagination logic here later if needed #}
+                
+                {% if total_count > components|length %}
+                    <div class="alert alert-warning">
+                        <p><strong>Want to see more?</strong> You're currently viewing {{ components|length }} of {{ total_count }} total matching components.</p>
+                        <div class="btn-group" role="group">
+                            <a href="?q={{ query }}&per_page=100" class="btn btn-outline-primary">Show 100</a>
+                            <a href="?q={{ query }}&per_page=200" class="btn btn-outline-primary">Show 200</a>
+                            <a href="?q={{ query }}&per_page=500" class="btn btn-outline-primary">Show 500</a>
+                            <a href="?q={{ query }}&per_page={{ total_count }}" class="btn btn-primary">Show All {{ total_count }}</a>
+                        </div>
+                        <p class="small text-muted mt-2">Note: Loading more results may take longer</p>
+                    </div>
+                {% endif %}
+            {% else %}
+                <div class="alert alert-warning">No components found matching your search.</div>
             {% endif %}
 
-        </div>
-    {% elif query and not error %}
-        <div class="alert alert-warning">No matching components found for "{{ query }}".</div>
-    {% endif %}
-    {# --- End Component Results --- #}
-
+            {% if companies|length == 1 and components|length < total_count %}
+            <div class="alert alert-info mb-4">
+                <p>
+                    <strong>Showing {{ components|length }} of {{ total_count }} components for {{ companies.0.name }}</strong>
+                </p>
+                <p>To see more components, use the links below:</p>
+                <div class="mt-2">
+                    <a href="?q={{ query }}&per_page=100" class="btn btn-sm btn-primary">Show 100 components</a>
+                    {% if total_count > 100 %}
+                    <a href="?q={{ query }}&per_page=200" class="btn btn-sm btn-primary">Show 200 components</a>
+                    {% endif %}
+                    {% if total_count > 200 %}
+                    <a href="?q={{ query }}&per_page={{ total_count }}" class="btn btn-sm btn-primary">Show all {{ total_count }} components</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+        {% endif %}
+    </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
 <script>
     function toggleDetails(id) {
         var detailsDiv = document.getElementById(id);
@@ -169,4 +240,5 @@
             }, index * 50); // 50ms delay per item
         });
     });
-</script> 
+</script>
+{% endblock %} 

@@ -7,7 +7,6 @@ import os
 import json
 import glob
 from django.db.models import Count
-from django.urls import reverse
 # Remove Component import from here
 # Remove unused checker import
 # from capacity_checker import checker 
@@ -279,7 +278,7 @@ def htmx_auction_components(request, company_id, year, auction_name):
                     <div class="card cmu-card">
                         <div class="card-header bg-light">
                             <div class="d-flex justify-content-between align-items-center">
-                                <a href="{reverse('cmu_component_list', kwargs={'cmu_id': cmu_id})}" title="Click to view all with this CMU ID" class="badge bg-info text-dark text-decoration-none">
+                                <a href="/components/?q={cmu_id}" title="Click to view all with this CMU ID" class="badge bg-info text-dark text-decoration-none">
                                     CMU ID: <strong>{cmu_id}</strong>
                                 </a>
                                 <span class="small text-muted">Components: {len(cmu_components)}</span>
@@ -1380,55 +1379,3 @@ def index_info(request):
     }
     
     return HttpResponse(json.dumps(report, indent=2), content_type='application/json')
-
-# --- NEW VIEW: List all components for a specific CMU ID --- 
-def cmu_component_list(request, cmu_id):
-    """Display all components associated with a single CMU ID."""
-    import time
-    start_time = time.time()
-    logger = logging.getLogger(__name__)
-    # --- Add Detailed Logging --- 
-    logger.critical(f"--- ENTERING cmu_component_list view for CMU ID: {cmu_id} ---")
-    # --- End Logging ---
-    logger.info(f"Fetching all components for CMU ID: {cmu_id}")
-
-    try:
-        # Fetch ALL components for this CMU ID, disabling limit/pagination
-        components, total_count = data_access.get_components_from_database(
-            cmu_id=cmu_id, 
-            limit=None, # Disable limit
-            page=None, # Disable pagination
-            per_page=None # Disable pagination
-        )
-        
-        api_time = time.time() - start_time
-        logger.info(f"Found {len(components)} components for CMU ID {cmu_id} in {api_time:.2f}s")
-
-        # --- Restore original formatting --- 
-        cmu_to_company_mapping = cache.get("cmu_to_company_mapping", {})
-        from .services.component_search import format_component_record 
-        formatted_components = [
-            format_component_record(comp, cmu_to_company_mapping) 
-            for comp in components
-        ]
-        # --- End original formatting ---
-
-        context = {
-            'query': cmu_id, # Use CMU ID as the 'query' for title purposes
-            'components': formatted_components, # Pass Formatted HTML
-            'is_cmu_list_view': True, # Flag to simplify the template display
-            'total_count': total_count,
-            'api_time': api_time,
-            'page_title': f"Components for CMU ID: {cmu_id}" # Set a specific title
-        }
-        
-        # Reuse the main search results template...
-        return render(request, 'checker/search_results.html', context)
-
-    except Exception as e:
-        logger.exception(f"Error fetching components for CMU ID {cmu_id}: {str(e)}")
-        return render(request, 'checker/error.html', {
-            'error': f"Could not retrieve components for CMU ID {cmu_id}.",
-            'suggestion': str(e)
-        })
-# --- END NEW VIEW --- 
