@@ -1077,7 +1077,7 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
             # --- Ranking Logic --- 
             if using_postgres:
                 # Define search vector and query for ranking
-                vector = SearchVector('company_name', 'location', 'description', 'cmu_id', config='english')
+                vector = SearchVector('company_name', 'location', 'description', 'cmu_id', config='english') # Added cmu_id to vector
                 query = SearchQuery(search_term_lower, config='english')
                 # --- ANNOTATE FIRST --- 
                 query_set = query_set.annotate(searchvector=vector)
