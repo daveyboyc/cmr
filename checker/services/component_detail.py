@@ -47,7 +47,11 @@ def get_component_details(request, pk):
             "_id": target_component_obj.component_id # Keep original ID if needed
         }
         
-        # Add all additional data if available
+        # explicitly get the raw component data
+        raw_component_data = target_component_obj.additional_data or {}
+
+        # Add all additional data if available (This merging can be kept or removed, 
+        # but we now have the raw data separately anyway)
         if target_component_obj.additional_data:
             for key, value in target_component_obj.additional_data.items():
                 if key not in target_component:
@@ -145,7 +149,8 @@ def get_component_details(request, pk):
             "api_time": api_time,
             "cmu_id": cmu_id,
             "location": target_component.get("Location and Post Code", "N/A"),
-            "additional_cmu_data": additional_cmu_data,
+            "raw_component_data": raw_component_data,  # Pass raw component data
+            "raw_cmu_data": additional_cmu_data,      # Rename for clarity (was additional_cmu_data)
             "source": "database" 
         })
 

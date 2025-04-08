@@ -17,7 +17,7 @@ from ..utils import normalize, get_cache_key, get_json_path, ensure_directory_ex
 from ..models import Component
 
 # Import the postcode/area helper functions correctly
-from .data import get_all_postcodes_for_area, get_area_for_any_postcode
+from .postcode_helpers import get_all_postcodes_for_area, get_area_for_any_postcode
 logger = logging.getLogger(__name__)
 
 
@@ -848,7 +848,9 @@ def search_all_json_files(query, page=1, per_page=500, sort_order="desc"):
 
 def get_cmu_data_by_id(cmu_id):
     """
-    Fetch additional data from cmu_data.json for a specific CMU ID.
+    Fetch additional data for a specific CMU ID.
+    Prioritizes fetching the full raw data from cmu_data.json.
+    Falls back to basic details from the database if JSON fails.
     """
     logger = logging.getLogger(__name__)
     
@@ -862,39 +864,45 @@ def get_cmu_data_by_id(cmu_id):
     if cached_data:
         logger.info(f"Using cached CMU data for {cmu_id}")
         return cached_data
-    
-    # Try getting from database first
+        
+    # --- MODIFIED LOGIC: Prioritize JSON --- 
+    # Try getting full raw data from JSON first
+    all_cmu_data = get_cmu_data_from_json()
+    if all_cmu_data:
+        # Find the matching CMU ID
+        for cmu_data_item in all_cmu_data:
+            # Compare as strings for robustness
+            if str(cmu_data_item.get("CMU ID", "")) == str(cmu_id):
+                logger.info(f"Found matching raw CMU data for {cmu_id} in JSON")
+                # Cache the full result for future use (1 hour)
+                cache.set(cache_key, cmu_data_item, 3600)
+                return cmu_data_item # Return the full dictionary
+        logger.info(f"CMU ID {cmu_id} not found in cmu_data.json")
+    else:
+        logger.warning("No CMU data available from JSON file.")
+
+    # --- Fallback to Database if not found in JSON --- 
+    logger.info(f"Falling back to database lookup for basic CMU details for {cmu_id}")
     try:
         component = Component.objects.filter(cmu_id=cmu_id).first()
         if component:
-            logger.info(f"Found CMU data in database for {cmu_id}")
-            cmu_data = {
+            logger.info(f"Found basic CMU data in database for {cmu_id}")
+            # Construct limited dictionary as fallback
+            fallback_data = {
                 "CMU ID": cmu_id,
                 "Name of Applicant": component.company_name,
                 "Delivery Year": component.delivery_year,
-                "Auction Name": component.auction_name
+                "Auction Name": component.auction_name,
+                "_source_note": "Limited data from DB fallback"
             }
-            # Cache for future use
-            cache.set(cache_key, cmu_data, 3600)
-            return cmu_data
+            # Cache the limited fallback data
+            cache.set(cache_key, fallback_data, 3600) # Cache fallback for same duration
+            return fallback_data
     except Exception as db_e:
-        logger.warning(f"Error getting CMU data from database: {str(db_e)}")
+        logger.warning(f"Error during database fallback lookup for CMU {cmu_id}: {str(db_e)}")
     
-    # Fall back to JSON data
-    all_cmu_data = get_cmu_data_from_json()
-    if not all_cmu_data:
-        logger.warning("No CMU data available from JSON")
-        return None
-    
-    # Find the matching CMU ID
-    for cmu_data in all_cmu_data:
-        if str(cmu_data.get("CMU ID", "")) == str(cmu_id):
-            logger.info(f"Found matching CMU data for {cmu_id} in JSON")
-            # Cache the result for future use (1 hour)
-            cache.set(cache_key, cmu_data, 3600)
-            return cmu_data
-    
-    logger.warning(f"No matching CMU data found for {cmu_id}")
+    # If not found anywhere
+    logger.warning(f"No CMU data found for {cmu_id} in JSON or Database fallback.")
     return None
 
 
@@ -948,7 +956,7 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
     from django.db.models import Q
     
     # Import the enhanced postcode functions
-    from .data import get_all_postcodes_for_area, get_area_for_any_postcode
+    from .postcode_helpers import get_all_postcodes_for_area, get_area_for_any_postcode
     logger = logging.getLogger(__name__)
     
     # Try importing PostgreSQL specific tools

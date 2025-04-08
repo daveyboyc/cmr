@@ -189,35 +189,75 @@
                     {% endif %}
                 {% endfor %}
 
-                <!-- Raw Data Section (for developers) -->
+                <!-- Raw Component Data Section -->
                 <div class="detail-section">
                     <h3 class="detail-title">
-                        <a class="text-decoration-none" data-bs-toggle="collapse" href="#rawDataSection" role="button" aria-expanded="false">
+                        <a class="text-decoration-none" data-bs-toggle="collapse" href="#rawComponentDataSection" role="button" aria-expanded="false">
                             <span class="bi bi-code-square"></span> Raw Component Data
                         </a>
                     </h3>
-                    <div class="collapse" id="rawDataSection">
+                    <div class="collapse" id="rawComponentDataSection">
                         <div class="card card-body">
-                            <pre>{{ component|pprint }}</pre>
+                            <table class="table table-sm table-bordered table-striped small">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Field</th>
+                                        <th>Value</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for key, value in raw_component_data.items|dictsort %}
+                                        <tr>
+                                            <td style="word-break: break-all;">{{ key }}</td>
+                                            <td style="word-break: break-all;">
+                                                {% if value is dict or value is list %}
+                                                    <pre>{{ value|jsonify }}</pre>
+                                                {% else %}
+                                                    {{ value|default:"(empty)" }}
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
                 
-                <!-- Additional CMU Registry Data (for developers) -->
-                {% if additional_cmu_data %}
+                <!-- Raw CMU Data Section -->
                 <div class="detail-section">
                     <h3 class="detail-title">
                         <a class="text-decoration-none" data-bs-toggle="collapse" href="#rawCmuDataSection" role="button" aria-expanded="false">
-                            <span class="bi bi-code-square"></span> Raw CMU Registry Data
+                            <span class="bi bi-code-square"></span> Raw CMU Data
                         </a>
                     </h3>
                     <div class="collapse" id="rawCmuDataSection">
                         <div class="card card-body">
-                            <pre>{{ additional_cmu_data|pprint }}</pre>
+                            <table class="table table-sm table-bordered table-striped small">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Field</th>
+                                        <th>Value</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for key, value in raw_cmu_data.items|dictsort %}
+                                        <tr>
+                                            <td style="word-break: break-all;">{{ key }}</td>
+                                            <td style="word-break: break-all;">
+                                                {% if value is dict or value is list %}
+                                                    <pre>{{ value|jsonify }}</pre>
+                                                {% else %}
+                                                    {{ value|default:"(empty)" }}
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
-                {% endif %}
             </div>
         {% endif %}
 

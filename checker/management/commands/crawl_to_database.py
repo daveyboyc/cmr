@@ -6,7 +6,7 @@ import os
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.conf import settings
-from ...models import Component
+from checker.models import Component
 
 class Command(BaseCommand):
     help = 'Crawl component data directly into the database with resume capabilities'

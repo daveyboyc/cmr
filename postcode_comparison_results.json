@@ -1,0 +1,164 @@
+{
+  "clapham": {
+    "local": {
+      "count": 2,
+      "time": 0.0008518695831298828
+    },
+    "coordinates": {
+      "count": 2,
+      "time": 4.100799560546875e-05
+    },
+    "nominatim": {
+      "count": 21,
+      "time": 2.251329183578491
+    },
+    "combined": {
+      "count": 21,
+      "time": 7.605552673339844e-05
+    }
+  },
+  "battersea": {
+    "local": {
+      "count": 2,
+      "time": 3.0994415283203125e-05
+    },
+    "coordinates": {
+      "count": 2,
+      "time": 1.52587890625e-05
+    },
+    "nominatim": {
+      "count": 0,
+      "time": 10.795896768569946
+    },
+    "combined": {
+      "count": 2,
+      "time": 0.0005071163177490234
+    }
+  },
+  "brixton": {
+    "local": {
+      "count": 2,
+      "time": 7.677078247070312e-05
+    },
+    "coordinates": {
+      "count": 2,
+      "time": 2.09808349609375e-05
+    },
+    "nominatim": {
+      "count": 31,
+      "time": 1.906770944595337
+    },
+    "combined": {
+      "count": 31,
+      "time": 5.793571472167969e-05
+    }
+  },
+  "balham": {
+    "local": {
+      "count": 0,
+      "time": 2.4080276489257812e-05
+    },
+    "coordinates": {
+      "count": 0,
+      "time": 0.00011587142944335938
+    },
+    "nominatim": {
+      "count": 13,
+      "time": 1.2612040042877197
+    },
+    "combined": {
+      "count": 13,
+      "time": 2.9087066650390625e-05
+    }
+  },
+  "dulwich": {
+    "local": {
+      "count": 0,
+      "time": 1.2874603271484375e-05
+    },
+    "coordinates": {
+      "count": 0,
+      "time": 6.127357482910156e-05
+    },
+    "nominatim": {
+      "count": 23,
+      "time": 1.8013486862182617
+    },
+    "combined": {
+      "count": 23,
+      "time": 3.0994415283203125e-05
+    }
+  },
+  "peckham": {
+    "local": {
+      "count": 0,
+      "time": 1.1682510375976562e-05
+    },
+    "coordinates": {
+      "count": 0,
+      "time": 6.508827209472656e-05
+    },
+    "nominatim": {
+      "count": 34,
+      "time": 1.911168098449707
+    },
+    "combined": {
+      "count": 34,
+      "time": 5.412101745605469e-05
+    }
+  },
+  "islington": {
+    "local": {
+      "count": 0,
+      "time": 3.1948089599609375e-05
+    },
+    "coordinates": {
+      "count": 0,
+      "time": 9.608268737792969e-05
+    },
+    "nominatim": {
+      "count": 48,
+      "time": 2.6576502323150635
+    },
+    "combined": {
+      "count": 48,
+      "time": 7.033348083496094e-05
+    }
+  },
+  "hampstead": {
+    "local": {
+      "count": 1,
+      "time": 3.4809112548828125e-05
+    },
+    "coordinates": {
+      "count": 1,
+      "time": 1.621246337890625e-05
+    },
+    "nominatim": {
+      "count": 39,
+      "time": 2.2462809085845947
+    },
+    "combined": {
+      "count": 39,
+      "time": 4.887580871582031e-05
+    }
+  },
+  "chelsea": {
+    "local": {
+      "count": 2,
+      "time": 3.314018249511719e-05
+    },
+    "coordinates": {
+      "count": 2,
+      "time": 1.5974044799804688e-05
+    },
+    "nominatim": {
+      "count": 29,
+      "time": 1.825239896774292
+    },
+    "combined": {
+      "count": 29,
+      "time": 5.888938903808594e-05
+    }
+  }
+}

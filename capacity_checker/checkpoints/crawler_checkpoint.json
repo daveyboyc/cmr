@@ -1,0 +1,18 @@
+{
+  "stats": {
+    "cmu_ids_processed": 15938,
+    "cmu_ids_with_components": 2078,
+    "components_found": 8507,
+    "components_added": 0,
+    "components_skipped": 102478,
+    "errors": 137,
+    "total_cmus": 16028,
+    "start_time": 1744150256.03697,
+    "last_offset": 16028,
+    "last_cmu_id": "neucon",
+    "batches_processed": 161,
+    "resumed_at": 1744150448.3944662
+  },
+  "offset": 16028,
+  "timestamp": 1744151357.453172
+}
