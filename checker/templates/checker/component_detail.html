@@ -206,7 +206,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {% for key, value in raw_component_data.items|dictsort %}
+                                    {% for key, value in raw_component_data.items %}
                                         <tr>
                                             <td style="word-break: break-all;">{{ key }}</td>
                                             <td style="word-break: break-all;">
@@ -241,7 +241,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {% for key, value in raw_cmu_data.items|dictsort %}
+                                    {% for key, value in raw_cmu_data.items %}
                                         <tr>
                                             <td style="word-break: break-all;">{{ key }}</td>
                                             <td style="word-break: break-all;">
