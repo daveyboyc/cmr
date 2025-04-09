@@ -296,12 +296,21 @@ def format_component_record(record, cmu_to_company_mapping):
             encoded_loc = quote(loc)
             # Create Google Maps satellite view URL
             map_url = f"https://www.google.com/maps?q={encoded_loc}&t=k"
-            # Re-use map-button style from detail page (ensure CSS is available or copied)
+            # Define button styles
+            base_style = "margin-left: 10px; padding: 2px 6px; font-size: 0.8rem; color: white; vertical-align: top; text-decoration: none; border: none; border-radius: 4px; background-color: #5cb85c; transition: background-color 0.2s, transform 0.1s;"
+            hover_style = "background-color: #4cae4c;"
+            active_style = "background-color: #398439; transform: translateY(1px);"
+
             map_button_html = f'''
-                <a href="{map_url}" 
-                   target="_blank" 
-                   class="map-button btn btn-sm" 
-                   style="margin-left: 10px; padding: 2px 6px; font-size: 0.8rem;">
+                <a href="{map_url}"
+                   target="_blank"
+                   class="btn btn-sm" 
+                   style="{base_style}"
+                   onmouseover="this.style.backgroundColor='#4cae4c';" 
+                   onmouseout="this.style.backgroundColor='#5cb85c';"
+                   onmousedown="this.style.backgroundColor='#398439'; this.style.transform='translateY(1px)';"
+                   onmouseup="this.style.backgroundColor='#4cae4c'; this.style.transform='none';"
+                   >
                     <i class="bi bi-geo-alt-fill"></i> Map
                 </a>
             '''
