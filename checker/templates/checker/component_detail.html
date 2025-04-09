@@ -83,10 +83,15 @@
             font-weight: bold;
             margin-right: 15px;
         }
+        .badges-row {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
         .cmu-badge {
             margin-left: 0;
-            font-size: 1rem;
-            padding: 8px 15px;
+            font-size: 0.9rem;
+            padding: 6px 12px;
             font-weight: bold;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             transition: transform 0.2s, box-shadow 0.2s;
@@ -95,10 +100,10 @@
             vertical-align: middle;
         }
         .cmu-badge .cmu-label {
-            font-size: 0.8rem;
+            font-size: 0.7rem;
         }
         .cmu-badge .cmu-value {
-            font-size: 1.2rem;
+            font-size: 1.1rem;
             display: block;
             margin-top: 2px;
         }
@@ -110,11 +115,12 @@
             font-size: 1rem;
             padding: 6px 12px;
             font-weight: bold;
-            margin-left: 12px;
+            margin-left: 0;
             text-decoration: none;
             transition: transform 0.2s, box-shadow 0.2s;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             vertical-align: middle;
+            display: inline-block;
         }
         .company-badge:hover {
             transform: translateY(-2px);
@@ -147,13 +153,13 @@
         }
     </style>
     <div class="container">
-        <!-- Header -->
+        <!-- Header - Buttons Swapped -->
         <div class="page-header">
-            <a href="{% url 'search_companies' %}" class="btn btn-outline-primary">
-                <i class="bi bi-arrow-left"></i> Back to Search
-            </a>
             <a href="javascript:history.back()" class="btn btn-outline-secondary">
                  <i class="bi bi-arrow-return-left"></i> Back to Results
+            </a>
+            <a href="{% url 'search_companies' %}" class="btn btn-outline-primary">
+                <i class="bi bi-arrow-left"></i> Back to Search
             </a>
         </div>
 
@@ -167,6 +173,14 @@
                 <div class="location-header">
                     <span class="location-text">{{ component_detail.Location|default:"N/A" }}</span>
                     
+                    {% if component_detail.Location != "N/A" %}
+                        <a href="https://www.google.com/maps/search/?api=1&query={{ component_detail.Location|urlencode }}" target="_blank" class="map-button">
+                            <i class="bi bi-geo-alt-fill"></i> Map
+                        </a>
+                    {% endif %}
+                </div>
+                
+                <div class="badges-row mb-3">
                     {% with company_name=component_detail.Company|default:"Unknown" %}
                         {% if company_name != "Unknown" %}
                             <a href="{% url 'company_detail' company_id=company_name|normalize %}"
@@ -176,14 +190,6 @@
                         {% endif %}
                     {% endwith %}
                     
-                    {% if component_detail.Location != "N/A" %}
-                        <a href="https://www.google.com/maps/search/?api=1&query={{ component_detail.Location|urlencode }}" target="_blank" class="map-button">
-                            <i class="bi bi-geo-alt-fill"></i> Map
-                        </a>
-                    {% endif %}
-                </div>
-                
-                <div class="mb-3">
                     <a href="{% url 'search_companies' %}?q={{ cmu_id }}" class="badge bg-primary cmu-badge text-decoration-none">
                         <span class="cmu-label"><i class="bi bi-tag-fill me-1"></i> CMU ID:</span>
                         <span class="cmu-value">{{ cmu_id }}</span>
