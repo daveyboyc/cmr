@@ -287,6 +287,28 @@ def format_component_record(record, cmu_to_company_mapping):
             loc_link = f'<a href="/component/{db_id}/" style="color: blue; text-decoration: underline;">{loc}</a>'
     # --- END FIX ---
 
+    # --- START: Add Map Button Logic ---
+    map_button_html = ""
+    if loc and loc != "N/A":
+        try:
+            # URL encode the location for the query parameter
+            from urllib.parse import quote
+            encoded_loc = quote(loc)
+            # Create Google Maps satellite view URL
+            map_url = f"https://www.google.com/maps?q={encoded_loc}&t=k"
+            # Re-use map-button style from detail page (ensure CSS is available or copied)
+            map_button_html = f'''
+                <a href="{map_url}" 
+                   target="_blank" 
+                   class="map-button btn btn-sm" 
+                   style="margin-left: 10px; padding: 2px 6px; font-size: 0.8rem;">
+                    <i class="bi bi-geo-alt-fill"></i> Map
+                </a>
+            '''
+        except Exception as map_err:
+            logger.warning(f"Error creating map button for location '{loc}': {map_err}")
+    # --- END: Add Map Button Logic ---
+
     # Extract auction type for badge
     auction_type = ""
     auction_badge_class = "bg-secondary"
@@ -343,7 +365,7 @@ def format_component_record(record, cmu_to_company_mapping):
 
     return f"""
     <div class="component-record">
-        <strong>{loc_link}</strong>
+        <strong>{loc_link}{map_button_html}</strong>
         <div class="mt-1 mb-1"><i>{desc}</i></div>
         {badges_div}
         <div class="small text-muted">Full auction: <b>{auction}</b> | CMU ID: {cmu_id}</div>
