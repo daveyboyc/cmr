@@ -36,6 +36,14 @@
             align-items: center;
             margin-bottom: 20px;
         }
+        .back-link {
+            text-decoration: none;
+            color: #6c757d;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+            color: #5a6268;
+        }
         .component-card {
             background-color: #fff;
             border-radius: 8px;
@@ -91,7 +99,7 @@
         .cmu-badge {
             margin-left: 0;
             font-size: 0.9rem;
-            padding: 6px 12px;
+            padding: 6px 15px;
             font-weight: bold;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             transition: transform 0.2s, box-shadow 0.2s;
@@ -155,7 +163,7 @@
     <div class="container">
         <!-- Header - Buttons Swapped -->
         <div class="page-header">
-            <a href="javascript:history.back()" class="btn btn-outline-secondary">
+            <a href="javascript:history.back()" class="back-link">
                  <i class="bi bi-arrow-return-left"></i> Back to Results
             </a>
             <a href="{% url 'search_companies' %}" class="btn btn-outline-primary">
