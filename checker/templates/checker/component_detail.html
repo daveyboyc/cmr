@@ -98,25 +98,26 @@
         }
         .cmu-badge {
             margin-left: 0;
-            padding: 8px 15px;
+            padding: 6px 15px;
             font-weight: bold;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             transition: transform 0.2s, box-shadow 0.2s;
             text-align: center;
             display: inline-flex;
-            flex-direction: column;
+            align-items: center;
             justify-content: center;
             vertical-align: middle;
-            min-height: 50px;
+            min-height: 38px;
         }
         .cmu-badge .cmu-label {
-            font-size: 0.7rem;
+            font-size: 0.8rem;
             line-height: 1;
+            margin-right: 0.3em;
         }
         .cmu-badge .cmu-value {
             font-size: 1rem;
-            display: block;
-            margin-top: 1px;
+            display: inline;
+            margin-top: 0;
             line-height: 1.1;
         }
         .cmu-badge:hover {
@@ -125,7 +126,7 @@
         }
         .company-badge {
             font-size: 1rem;
-            padding: 8px 12px;
+            padding: 6px 12px;
             font-weight: bold;
             margin-left: 0;
             text-decoration: none;
@@ -136,7 +137,7 @@
             align-items: center;
             justify-content: center;
             line-height: 1.1;
-            min-height: 50px;
+            min-height: 38px;
         }
         .company-badge:hover {
             transform: translateY(-2px);
@@ -207,8 +208,7 @@
                     {% endwith %}
                     
                     <a href="{% url 'search_companies' %}?q={{ cmu_id }}" class="badge bg-primary cmu-badge text-decoration-none">
-                        <span class="cmu-label"><i class="bi bi-tag-fill me-1"></i> CMU ID:</span>
-                        <span class="cmu-value">{{ cmu_id }}</span>
+                        <span class="cmu-label"><i class="bi bi-tag-fill me-1"></i> CMU ID:</span><span class="cmu-value">{{ cmu_id }}</span>
                     </a>
                 </div>
 
