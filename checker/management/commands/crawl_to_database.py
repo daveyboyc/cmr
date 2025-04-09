@@ -7,6 +7,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.conf import settings
 from checker.models import Component
+from checker.models import CMURegistry
 
 class Command(BaseCommand):
     help = 'Crawl component data directly into the database with resume capabilities'
@@ -217,9 +218,16 @@ class Command(BaseCommand):
                         break
                     
                     # Process each CMU ID in this batch
+                    cmus_to_update_or_create = []
                     for record in cmu_records:
                         cmu_id = record.get("CMU ID")
                         if cmu_id:
+                            # Prepare data for update_or_create for CMURegistry
+                            cmus_to_update_or_create.append(
+                                CMURegistry(cmu_id=cmu_id, raw_data=record)
+                            )
+                            
+                            # --- Original component processing logic --- 
                             self.stats['last_cmu_id'] = cmu_id
                             self.crawl_single_cmu(cmu_id, record)
                         
@@ -227,7 +235,29 @@ class Command(BaseCommand):
                         if self.limit > 0 and self.stats['cmu_ids_processed'] >= self.limit:
                             self.stdout.write(f"\nReached limit of {self.limit} CMU IDs. Stopping crawl.")
                             continue_crawl = False
-                            break
+                            break # Exit inner loop (over records)
+                    
+                    # Bulk update or create CMURegistry entries for the batch
+                    if cmus_to_update_or_create:
+                        try:
+                            # Note: Django's bulk_update_or_create requires Django 4.1+
+                            # Using a loop with update_or_create for broader compatibility,
+                            # though less efficient than bulk operations.
+                            # If using Django 4.1+, consider:
+                            # CMURegistry.objects.bulk_update_or_create(cmus_to_update_or_create, ['raw_data'], match_field='cmu_id')
+                            with transaction.atomic():
+                                for cmu_obj in cmus_to_update_or_create:
+                                    CMURegistry.objects.update_or_create(
+                                        cmu_id=cmu_obj.cmu_id,
+                                        defaults={'raw_data': cmu_obj.raw_data}
+                                    )
+                            self.stdout.write(f"\nUpdated/Created {len(cmus_to_update_or_create)} CMU registry entries for batch.", ending='')
+                        except Exception as bulk_err:
+                            self.stderr.write(f"\nError updating/creating CMURegistry entries: {bulk_err}")
+                            # Optionally log this error without stopping the crawl
+
+                    if not continue_crawl:
+                        break # Exit outer loop (while continue_crawl)
                     
                     # Update offset for next batch
                     current_offset += len(cmu_records)

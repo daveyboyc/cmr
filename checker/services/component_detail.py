@@ -4,7 +4,7 @@ from django.shortcuts import render
 from django.core.cache import cache
 from ..utils import normalize
 from ..models import Component
-from .data_access import fetch_components_for_cmu_id, get_cmu_data_by_id
+from ..models import CMURegistry
 
 logger = logging.getLogger(__name__)
 
@@ -81,9 +81,14 @@ def get_component_details(request, pk):
             ]}
         }
 
-        # Fetch additional CMU data from cmu_data.json
-        additional_cmu_data = get_cmu_data_by_id(cmu_id)
-        logger.info(f"Additional CMU data found: {additional_cmu_data is not None}")
+        # Fetch additional CMU data from CMURegistry model
+        raw_cmu_data = None
+        cmu_registry_entry = CMURegistry.objects.filter(cmu_id=cmu_id).first()
+        if cmu_registry_entry:
+            raw_cmu_data = cmu_registry_entry.raw_data
+            logger.info(f"Raw CMU data found in CMURegistry for {cmu_id}")
+        else:
+            logger.warning(f"No entry found in CMURegistry for CMU ID: {cmu_id}")
 
         # Organize fields into categories for better display
         organized_data = {
@@ -110,7 +115,7 @@ def get_component_details(request, pk):
         }
         
         # Add a separate section for additional CMU data if available
-        if additional_cmu_data:
+        if raw_cmu_data:
             cmu_data_section = {}
             important_fields = [
                 "Auction", "Type", "Delivery Year", "Name of Applicant", 
@@ -121,8 +126,8 @@ def get_component_details(request, pk):
                 "Secondary Trading", "Price Cap (£/kW)", "Price Taker Threshold (£/kW)"
             ]
             for field in important_fields:
-                if field in additional_cmu_data and additional_cmu_data[field] not in ["", "N/A", None]:
-                    cmu_data_section[field] = additional_cmu_data[field]
+                if field in raw_cmu_data and raw_cmu_data[field] not in ["", "N/A", None]:
+                    cmu_data_section[field] = raw_cmu_data[field]
             if cmu_data_section:
                 organized_data["CMU Registry Data"] = cmu_data_section
 
@@ -149,8 +154,8 @@ def get_component_details(request, pk):
             "api_time": api_time,
             "cmu_id": cmu_id,
             "location": target_component.get("Location and Post Code", "N/A"),
-            "raw_component_data": raw_component_data,  # Pass raw component data
-            "raw_cmu_data": additional_cmu_data,      # Rename for clarity (was additional_cmu_data)
+            "raw_component_data": raw_component_data,
+            "raw_cmu_data": raw_cmu_data,
             "source": "database" 
         })
 

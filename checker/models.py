@@ -1,4 +1,5 @@
 from django.db import models
+from django.core.serializers.json import DjangoJSONEncoder
 
 # Create your models here.
 
@@ -16,7 +17,7 @@ class Component(models.Model):
     delivery_year = models.CharField(max_length=50, db_index=True, null=True, blank=True)  # Already indexed
     status = models.CharField(max_length=50, null=True, blank=True)
     type = models.CharField(max_length=50, null=True, blank=True)
-    additional_data = models.JSONField(null=True, blank=True)
+    additional_data = models.JSONField(default=dict, encoder=DjangoJSONEncoder)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -42,4 +43,14 @@ class Component(models.Model):
         ordering = ['-delivery_year']  # Default ordering
 
     def __str__(self):
-        return f"{self.cmu_id} - {self.location}"
+        return f"{self.cmu_id} - {self.component_id} ({self.location[:30]})"
+
+
+class CMURegistry(models.Model):
+    cmu_id = models.CharField(max_length=100, primary_key=True, unique=True)
+    raw_data = models.JSONField(default=dict, encoder=DjangoJSONEncoder)
+    last_updated = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        applicant = self.raw_data.get('Name of Applicant', 'Unknown')
+        return f"{self.cmu_id} ({applicant})"
