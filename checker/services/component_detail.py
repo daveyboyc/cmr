@@ -93,7 +93,6 @@ def get_component_details(request, pk):
         # Organize fields into categories for better display
         organized_data = {
             "Basic Information": {
-                "CMU ID": target_component.get("CMU ID", "N/A"),
                 "Location": target_component.get("Location and Post Code", "N/A"),
                 "Description": target_component.get("Description of CMU Components", "N/A"),
                 "Company": target_component.get("Company Name", "N/A"),

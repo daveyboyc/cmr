@@ -101,11 +101,14 @@
             align-items: center;
             gap: 6px;
             text-decoration: none;
-            transition: background-color 0.2s;
+            transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         .map-button:hover {
             background-color: #288941;
             color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
         }
         .map-button i {
             font-size: 16px;
@@ -130,7 +133,7 @@
                 <div class="location-header">
                     <h2 class="h5">{{ component_detail.Location|default:"N/A" }}</h2>
                     <a href="/components/?q={{ component_detail.CMU_ID }}" class="badge bg-primary cmu-badge text-decoration-none">
-                        <i class="bi bi-tag-fill me-1"></i> {{ component_detail.CMU_ID }}
+                        <i class="bi bi-tag-fill me-1"></i> CMU ID: {{ component_detail.CMU_ID }}
                     </a>
                     {% if component_detail.Location != "N/A" %}
                         <a href="https://www.google.com/maps/search/?api=1&query={{ component_detail.Location|urlencode }}" target="_blank" class="map-button">
