@@ -78,27 +78,49 @@
             align-items: center;
             margin-bottom: 16px;
         }
+        .location-header .location-text {
+            font-size: 1.4rem;
+            font-weight: bold;
+            margin-right: 15px;
+        }
         .cmu-badge {
             margin-left: 0;
-            font-size: 1.2rem;
-            padding: 10px 20px;
+            font-size: 1rem;
+            padding: 8px 15px;
             font-weight: bold;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             transition: transform 0.2s, box-shadow 0.2s;
             text-align: center;
             display: inline-block;
+            vertical-align: middle;
         }
         .cmu-badge .cmu-label {
-            font-size: 0.9rem;
+            font-size: 0.8rem;
         }
         .cmu-badge .cmu-value {
-            font-size: 1.5rem;
+            font-size: 1.2rem;
             display: block;
-            margin-top: 4px;
+            margin-top: 2px;
         }
         .cmu-badge:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .company-badge {
+            font-size: 1rem;
+            padding: 6px 12px;
+            font-weight: bold;
+            margin-left: 12px;
+            text-decoration: none;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            vertical-align: middle;
+        }
+        .company-badge:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            color: white;
+            text-decoration: none;
         }
         .map-button {
             background-color: #34a853;
@@ -127,9 +149,12 @@
     <div class="container">
         <!-- Header -->
         <div class="page-header">
-            <div class="nav-links">
-                <a href="{% url 'search_companies' %}">Home</a>
-            </div>
+            <a href="{% url 'search_companies' %}" class="btn btn-outline-primary">
+                <i class="bi bi-arrow-left"></i> Back to Search
+            </a>
+            <a href="javascript:history.back()" class="btn btn-outline-secondary">
+                 <i class="bi bi-arrow-return-left"></i> Back to Results
+            </a>
         </div>
 
         {% if error %}
@@ -140,7 +165,17 @@
         {% elif component %}
             <div class="component-card">
                 <div class="location-header">
-                    <h2 class="h5">{{ component_detail.Location|default:"N/A" }}</h2>
+                    <span class="location-text">{{ component_detail.Location|default:"N/A" }}</span>
+                    
+                    {% with company_name=component_detail.Company|default:"Unknown" %}
+                        {% if company_name != "Unknown" %}
+                            <a href="{% url 'company_detail' company_id=company_name|normalize %}"
+                               class="badge bg-success company-badge">
+                                <i class="bi bi-building"></i> {{ company_name }}
+                            </a>
+                        {% endif %}
+                    {% endwith %}
+                    
                     {% if component_detail.Location != "N/A" %}
                         <a href="https://www.google.com/maps/search/?api=1&query={{ component_detail.Location|urlencode }}" target="_blank" class="map-button">
                             <i class="bi bi-geo-alt-fill"></i> Map

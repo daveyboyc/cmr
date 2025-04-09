@@ -2,6 +2,7 @@ from django import template
 import json
 from django.utils.safestring import mark_safe
 from django.core.serializers.json import DjangoJSONEncoder
+from ..utils import normalize # Import normalize function
 
 
 register = template.Library()
@@ -65,3 +66,8 @@ def jsonify(obj):
 @register.filter(name='replace_underscores')
 def replace_underscores(value):
     return str(value).replace('_', ' ')
+
+@register.filter(name='normalize')
+def normalize_filter(value):
+    """Template filter to normalize a string (lowercase, remove punctuation/spaces)."""
+    return normalize(value)
