@@ -79,12 +79,22 @@
             margin-bottom: 16px;
         }
         .cmu-badge {
-            margin-left: 12px;
-            font-size: 1.1rem;
-            padding: 6px 12px;
+            margin-left: 0;
+            font-size: 1.2rem;
+            padding: 10px 20px;
             font-weight: bold;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             transition: transform 0.2s, box-shadow 0.2s;
+            text-align: center;
+            display: inline-block;
+        }
+        .cmu-badge .cmu-label {
+            font-size: 0.9rem;
+        }
+        .cmu-badge .cmu-value {
+            font-size: 1.5rem;
+            display: block;
+            margin-top: 4px;
         }
         .cmu-badge:hover {
             transform: translateY(-2px);
@@ -117,7 +127,6 @@
     <div class="container">
         <!-- Header -->
         <div class="page-header">
-            <h1 class="h3">{{ component_detail.Company|default:"Component" }}</h1>
             <div class="nav-links">
                 <a href="{% url 'search_companies' %}">Home</a>
             </div>
@@ -132,14 +141,18 @@
             <div class="component-card">
                 <div class="location-header">
                     <h2 class="h5">{{ component_detail.Location|default:"N/A" }}</h2>
-                    <a href="/components/?q={{ component_detail.CMU_ID }}" class="badge bg-primary cmu-badge text-decoration-none">
-                        <i class="bi bi-tag-fill me-1"></i> CMU ID: {{ component_detail.CMU_ID }}
-                    </a>
                     {% if component_detail.Location != "N/A" %}
                         <a href="https://www.google.com/maps/search/?api=1&query={{ component_detail.Location|urlencode }}" target="_blank" class="map-button">
                             <i class="bi bi-geo-alt-fill"></i> Map
                         </a>
                     {% endif %}
+                </div>
+                
+                <div class="mb-3">
+                    <a href="/components/?q={{ component_detail.CMU_ID }}" class="badge bg-primary cmu-badge text-decoration-none">
+                        <span class="cmu-label"><i class="bi bi-tag-fill me-1"></i> CMU ID:</span>
+                        <span class="cmu-value">{{ component_detail.CMU_ID }}</span>
+                    </a>
                 </div>
 
                 {% for section_title, section_data in organized_data.items %}
