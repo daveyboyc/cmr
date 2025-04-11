@@ -23,6 +23,7 @@ from .models import Component
 
 # Define logger after imports
 import logging
+import heapq # Import heapq for efficient top N selection
 logger = logging.getLogger(__name__)
 
 import time
@@ -955,41 +956,49 @@ def statistics_view(request):
                                  .annotate(count=Count('id')) \
                                  .order_by('delivery_year')  # Order by year ascending
     
-    # --- New: Get Top Components by De-rated Capacity --- 
+    # --- New: Get Top Components by De-Rated Capacity (Optimized) --- 
     top_derated_components = []
     try:
-        # Fetch components that might have the data. Filtering JSON is hard, so fetch candidates.
-        # Optimization: If you know components without additional_data are irrelevant, exclude them.
+        # Fetch only necessary fields for candidates
         candidate_components = Component.objects.exclude(additional_data__isnull=True).only(
             'id', 'location', 'company_name', 'additional_data'
-        ) 
+        ).iterator() # Use iterator to avoid loading all into memory at once
         
-        processed_components = []
+        top_components_heap = []
+        components_processed = 0
+        
         for comp in candidate_components:
+            components_processed += 1
             if comp.additional_data:
-                # Use the CORRECT key we identified earlier
                 capacity_str = comp.additional_data.get("De-Rated Capacity") 
                 if capacity_str is not None:
                     try:
-                        # Convert to float for sorting, ignore if conversion fails
                         capacity_float = float(capacity_str)
-                        processed_components.append({
+                        component_data = {
                             'id': comp.id,
                             'location': comp.location or "N/A",
                             'company_name': comp.company_name or "N/A",
                             'derated_capacity': capacity_float
-                        })
+                        }
+                        
+                        # Use heapq to maintain the top N items efficiently
+                        if len(top_components_heap) < DERATED_LIMIT:
+                            # Push tuple (capacity, data) - heapq sorts by the first element
+                            heapq.heappush(top_components_heap, (capacity_float, component_data))
+                        elif capacity_float > top_components_heap[0][0]: # Compare with the smallest capacity in the heap
+                            # Replace the smallest element with the new larger element
+                            heapq.heapreplace(top_components_heap, (capacity_float, component_data))
+                            
                     except (ValueError, TypeError):
-                        # Log problematic values if needed
-                        # logger.warning(f"Could not convert De-Rated Capacity '{capacity_str}' to float for component {comp.id}")
                         pass # Skip components with non-numeric capacity
                         
-        # Sort by capacity, descending
-        processed_components.sort(key=lambda x: x['derated_capacity'], reverse=True)
+        # The heap now contains the top N components, but sorted ascending by capacity.
+        # Extract the component data and sort descending for display.
+        top_derated_components = sorted([item[1] for item in top_components_heap], 
+                                       key=lambda x: x['derated_capacity'], 
+                                       reverse=True)
         
-        # Get the top N
-        top_derated_components = processed_components[:DERATED_LIMIT]
-        logger.info(f"Processed {len(processed_components)} components for de-rated capacity, showing top {len(top_derated_components)}")
+        logger.info(f"Processed {components_processed} components for de-rated capacity, found top {len(top_derated_components)}")
         
     except Exception as e:
         logger.error(f"Error processing de-rated capacity ranking: {e}")
