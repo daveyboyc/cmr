@@ -158,6 +158,47 @@
                 </div>
             {% endfor %}
         </div>
+
+        <!-- Existing Tech Distribution -->
+        <div class="card mb-4 stats-card">
+            <div class="card-header">Top {{ tech_distribution|length }} Technologies by Component Count</div>
+            <ul class="list-group list-group-flush">
+                {% for tech in tech_distribution %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        {{ tech.technology }}
+                        <div>
+                            <span class="badge bg-primary rounded-pill">{{ tech.count|intcomma }}</span>
+                            <span class="badge bg-light text-dark rounded-pill ms-1">{{ tech.percentage|floatformat:1 }}%</span>
+                        </div>
+                    </li>
+                {% empty %}
+                    <li class="list-group-item">No technology data available.</li>
+                {% endfor %}
+            </ul>
+        </div>
+        
+        <!-- New: Top Components by De-rated Capacity -->
+        <div class="card mb-4 stats-card">
+            <div class="card-header">Top {{ top_derated_components|length }} Components by De-rated Capacity (MW)</div>
+            <ul class="list-group list-group-flush">
+                {% for comp in top_derated_components %}
+                    <li class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <!-- Link to component detail page -->
+                            <a href="{% url 'component_detail' pk=comp.id %}" class="fw-bold text-decoration-none">
+                                {{ comp.location|truncatechars:60 }}
+                            </a>
+                            <span class="badge bg-info rounded-pill">{{ comp.derated_capacity|floatformat:3 }} MW</span>
+                        </div>
+                        <div class="small text-muted">
+                            {{ comp.company_name|truncatechars:50 }}
+                        </div>
+                    </li>
+                {% empty %}
+                    <li class="list-group-item">No de-rated capacity data available or processed.</li>
+                {% endfor %}
+            </ul>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>

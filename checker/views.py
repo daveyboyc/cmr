@@ -925,20 +925,28 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
 def statistics_view(request):
     """View function for displaying database statistics"""
     from .utils import normalize
+    from django.db.models import Count, Q # Ensure Q is imported if needed later
+    import logging # Add logging
+    logger = logging.getLogger(__name__)
+    
+    # Increase limits for existing lists
+    COMPANY_LIMIT = 50 # Increased from 20
+    TECH_LIMIT = 25    # Increased from 10
+    DERATED_LIMIT = 20 # Limit for the new list
     
     # Get top companies by component count, excluding empty company names
     top_companies = Component.objects.exclude(company_name__isnull=True) \
                              .exclude(company_name='') \
                              .values('company_name') \
                              .annotate(count=Count('id')) \
-                             .order_by('-count')[:20]  # Top 20 companies
+                             .order_by('-count')[:COMPANY_LIMIT] # Use COMPANY_LIMIT
     
     # Get technology distribution
     tech_distribution = Component.objects.exclude(technology__isnull=True) \
                                  .exclude(technology='') \
                                  .values('technology') \
                                  .annotate(count=Count('id')) \
-                                 .order_by('-count')[:10]  # Top 10 technologies
+                                 .order_by('-count')[:TECH_LIMIT] # Use TECH_LIMIT
     
     # Get delivery year distribution - include all years
     year_distribution = Component.objects.exclude(delivery_year__isnull=True) \
@@ -947,6 +955,46 @@ def statistics_view(request):
                                  .annotate(count=Count('id')) \
                                  .order_by('delivery_year')  # Order by year ascending
     
+    # --- New: Get Top Components by De-rated Capacity --- 
+    top_derated_components = []
+    try:
+        # Fetch components that might have the data. Filtering JSON is hard, so fetch candidates.
+        # Optimization: If you know components without additional_data are irrelevant, exclude them.
+        candidate_components = Component.objects.exclude(additional_data__isnull=True).only(
+            'id', 'location', 'company_name', 'additional_data'
+        ) 
+        
+        processed_components = []
+        for comp in candidate_components:
+            if comp.additional_data:
+                # Use the CORRECT key we identified earlier
+                capacity_str = comp.additional_data.get("De-Rated Capacity") 
+                if capacity_str is not None:
+                    try:
+                        # Convert to float for sorting, ignore if conversion fails
+                        capacity_float = float(capacity_str)
+                        processed_components.append({
+                            'id': comp.id,
+                            'location': comp.location or "N/A",
+                            'company_name': comp.company_name or "N/A",
+                            'derated_capacity': capacity_float
+                        })
+                    except (ValueError, TypeError):
+                        # Log problematic values if needed
+                        # logger.warning(f"Could not convert De-Rated Capacity '{capacity_str}' to float for component {comp.id}")
+                        pass # Skip components with non-numeric capacity
+                        
+        # Sort by capacity, descending
+        processed_components.sort(key=lambda x: x['derated_capacity'], reverse=True)
+        
+        # Get the top N
+        top_derated_components = processed_components[:DERATED_LIMIT]
+        logger.info(f"Processed {len(processed_components)} components for de-rated capacity, showing top {len(top_derated_components)}")
+        
+    except Exception as e:
+        logger.error(f"Error processing de-rated capacity ranking: {e}")
+    # --- End New Section --- 
+
     # Get total counts
     total_components = Component.objects.count()
     total_cmus = Component.objects.values('cmu_id').distinct().count()
@@ -956,20 +1004,29 @@ def statistics_view(request):
     
     # Calculate percentages for visual representation and add normalized company IDs
     for company in top_companies:
-        company['percentage'] = (company['count'] / total_components) * 100
-        # Add normalized company ID for URL
+        if total_components > 0:
+             company['percentage'] = (company['count'] / total_components) * 100
+        else:
+             company['percentage'] = 0
         company['company_id'] = normalize(company['company_name'])
         
     for tech in tech_distribution:
-        tech['percentage'] = (tech['count'] / total_components) * 100
+        if total_components > 0:
+            tech['percentage'] = (tech['count'] / total_components) * 100
+        else:
+             tech['percentage'] = 0
         
     for year in year_distribution:
-        year['percentage'] = (year['count'] / total_components) * 100
+        if total_components > 0:
+            year['percentage'] = (year['count'] / total_components) * 100
+        else:
+             year['percentage'] = 0
     
     context = {
         'top_companies': top_companies,
         'tech_distribution': tech_distribution,
         'year_distribution': year_distribution,
+        'top_derated_components': top_derated_components, # Add new list to context
         'total_components': total_components,
         'total_cmus': total_cmus,
         'total_companies': total_companies,
