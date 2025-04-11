@@ -14,6 +14,19 @@
         <div></div> <!-- Placeholder for alignment -->
     </div>
 
+    <!-- Add Sort Toggle Buttons -->
+    <div class="d-flex justify-content-end mb-3">
+        {% if sort_order == "desc" %}
+            <a href="?sort=asc" class="btn btn-outline-secondary btn-sm">
+                <span>↑</span> Sort: Smallest First
+            </a>
+        {% else %}
+            <a href="?sort=desc" class="btn btn-outline-secondary btn-sm">
+                <span>↓</span> Sort: Largest First
+            </a>
+        {% endif %}
+    </div>
+
     {% if error %}
         <div class="alert alert-danger">{{ error }}</div>
     {% endif %}
@@ -43,8 +56,8 @@
         <nav aria-label="Component navigation" class="pagination-nav">
             <ul class="pagination justify-content-center">
                 {% if page_obj.has_previous %}
-                    <li class="page-item"><a class="page-link" href="?page=1">First</a></li>
-                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">Previous</a></li>
+                    <li class="page-item"><a class="page-link" href="?page=1&sort={{ sort_order }}">First</a></li>
+                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}&sort={{ sort_order }}">Previous</a></li>
                 {% else %}
                     <li class="page-item disabled"><span class="page-link">First</span></li>
                     <li class="page-item disabled"><span class="page-link">Previous</span></li>
@@ -56,13 +69,13 @@
                     {% elif i == paginator.ELLIPSIS %}
                          <li class="page-item disabled"><span class="page-link">...</span></li>
                     {% else %}
-                        <li class="page-item"><a class="page-link" href="?page={{ i }}">{{ i }}</a></li>
+                        <li class="page-item"><a class="page-link" href="?page={{ i }}&sort={{ sort_order }}">{{ i }}</a></li>
                     {% endif %}
                 {% endfor %}
 
                 {% if page_obj.has_next %}
-                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">Next</a></li>
-                    <li class="page-item"><a class="page-link" href="?page={{ paginator.num_pages }}">Last</a></li>
+                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}&sort={{ sort_order }}">Next</a></li>
+                    <li class="page-item"><a class="page-link" href="?page={{ paginator.num_pages }}&sort={{ sort_order }}">Last</a></li>
                 {% else %}
                     <li class="page-item disabled"><span class="page-link">Next</span></li>
                     <li class="page-item disabled"><span class="page-link">Last</span></li>

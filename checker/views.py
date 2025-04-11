@@ -1560,6 +1560,11 @@ def derated_capacity_list(request):
     
     logger.info("Full De-rated Capacity list requested")
     page = request.GET.get("page", 1)
+    # --- Add sort parameter handling --- 
+    sort_order = request.GET.get("sort", "desc") # Default to descending (largest first)
+    if sort_order not in ["asc", "desc"]:
+        sort_order = "desc" # Fallback to default if invalid value
+    # --- End sort parameter handling ---
     per_page = 50
     start_time = time.time()
     
@@ -1586,9 +1591,10 @@ def derated_capacity_list(request):
                     except (ValueError, TypeError): 
                         pass # Skip non-numeric
                         
-        # Sort by capacity, descending
-        all_processed_components.sort(key=lambda x: x['derated_capacity'], reverse=True)
-        logger.info(f"Processed and sorted {len(all_processed_components)} components for de-rated capacity.")
+        # Sort by capacity based on sort_order
+        reverse_sort = (sort_order == "desc")
+        all_processed_components.sort(key=lambda x: x['derated_capacity'], reverse=reverse_sort)
+        logger.info(f"Processed and sorted {len(all_processed_components)} components for de-rated capacity ({sort_order}).")
         
     except Exception as e:
         logger.error(f"Error processing de-rated capacity list: {e}")
@@ -1613,6 +1619,7 @@ def derated_capacity_list(request):
         "total_count": len(all_processed_components),
         "api_time": api_time,
         "error": error_message,
+        "sort_order": sort_order, # Pass sort order to template
         # Add other necessary context variables if the template requires them
         "page": components_page.number, 
         "per_page": per_page,
