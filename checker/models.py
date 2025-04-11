@@ -18,6 +18,8 @@ class Component(models.Model):
     status = models.CharField(max_length=50, null=True, blank=True)
     type = models.CharField(max_length=50, null=True, blank=True)
     additional_data = models.JSONField(default=dict, encoder=DjangoJSONEncoder)
+    # New field for numeric de-rated capacity
+    derated_capacity_mw = models.FloatField(null=True, blank=True, db_index=True) 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

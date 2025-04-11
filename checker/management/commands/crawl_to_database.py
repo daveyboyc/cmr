@@ -367,6 +367,16 @@ class Command(BaseCommand):
                     if comp_company:
                         company_name = comp_company
                     
+                    # --- Calculate derated_capacity_mw --- 
+                    derated_capacity_mw = None
+                    capacity_str = component.get("De-Rated Capacity")
+                    if capacity_str is not None:
+                        try:
+                            derated_capacity_mw = float(capacity_str)
+                        except (ValueError, TypeError):
+                            pass # Keep as None if conversion fails
+                    # --- End calculation ---
+                    
                     # Create new component in database
                     Component.objects.create(
                         component_id=component_id,
@@ -379,7 +389,8 @@ class Command(BaseCommand):
                         delivery_year=delivery_year,
                         status=status,
                         type=type_value,
-                        additional_data=component  # Store all data as JSON
+                        additional_data=component,  # Store all data as JSON
+                        derated_capacity_mw=derated_capacity_mw # Set the new field
                     )
                     components_added += 1
                     

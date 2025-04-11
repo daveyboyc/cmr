@@ -691,6 +691,16 @@ def save_components_to_database(cmu_id, components):
         if component_id and component_id in existing_ids:
             continue
         
+        # --- Calculate derated_capacity_mw --- 
+        derated_capacity_mw = None
+        capacity_str = component.get("De-Rated Capacity")
+        if capacity_str is not None:
+            try:
+                derated_capacity_mw = float(capacity_str)
+            except (ValueError, TypeError):
+                pass # Keep as None if conversion fails
+        # --- End calculation ---
+        
         # Extract standard fields
         new_components.append(Component(
             component_id=component_id,
@@ -703,7 +713,8 @@ def save_components_to_database(cmu_id, components):
             delivery_year=component.get("Delivery Year", ""),
             status=component.get("Status", ""),
             type=component.get("Type", ""),
-            additional_data=component
+            additional_data=component,
+            derated_capacity_mw=derated_capacity_mw # Set the new field
         ))
     
     # Only do the bulk create if we have new components
