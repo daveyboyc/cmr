@@ -115,15 +115,18 @@
             {% endfor %}
         </div>
 
-        <!-- Technology Distribution Section -->
-        <div class="stats-card">
-            <h2>Technology Distribution</h2>
+        <!-- Technology Distribution Section - Reverted to Top N with links -->
+        <div class="stats-card mb-4">
+            <h2>Top {{ tech_distribution|length }} Technologies by Components</h2>
             <p class="text-muted">Distribution of components by technology type</p>
             
             {% for tech in tech_distribution %}
                 <div class="mb-3">
                     <div class="d-flex justify-content-between">
-                        <span>{{ tech.technology }}</span>
+                        <!-- Link to search results for this technology, sorted newest first -->
+                        <a href="{% url 'search_companies' %}?q={{ tech.technology|urlencode }}&comp_sort=desc" class="text-decoration-none">
+                            {{ tech.technology }}
+                        </a>
                         <span class="text-muted">{{ tech.count|intcomma }} ({{ tech.percentage|floatformat:1 }}%)</span>
                     </div>
                     <div class="progress">
@@ -134,6 +137,8 @@
                              aria-valuemax="100"></div>
                     </div>
                 </div>
+            {% empty %}
+                <div class="list-group-item">No technology data available.</div>
             {% endfor %}
         </div>
 
@@ -159,24 +164,6 @@
             {% endfor %}
         </div>
 
-        <!-- Existing Tech Distribution -->
-        <div class="card mb-4 stats-card">
-            <div class="card-header">Top {{ tech_distribution|length }} Technologies by Component Count</div>
-            <ul class="list-group list-group-flush">
-                {% for tech in tech_distribution %}
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        {{ tech.technology }}
-                        <div>
-                            <span class="badge bg-primary rounded-pill">{{ tech.count|intcomma }}</span>
-                            <span class="badge bg-light text-dark rounded-pill ms-1">{{ tech.percentage|floatformat:1 }}%</span>
-                        </div>
-                    </li>
-                {% empty %}
-                    <li class="list-group-item">No technology data available.</li>
-                {% endfor %}
-            </ul>
-        </div>
-        
         <!-- New: Top Components by De-rated Capacity -->
         <div class="card mb-4 stats-card">
             <div class="card-header">Top {{ top_derated_components|length }} Components by De-rated Capacity (MW)</div>

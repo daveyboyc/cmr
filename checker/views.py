@@ -941,12 +941,12 @@ def statistics_view(request):
                              .annotate(count=Count('id')) \
                              .order_by('-count')[:COMPANY_LIMIT] # Use COMPANY_LIMIT
     
-    # Get technology distribution
+    # Get technology distribution - Reverted to Top N by count
     tech_distribution = Component.objects.exclude(technology__isnull=True) \
                                  .exclude(technology='') \
                                  .values('technology') \
                                  .annotate(count=Count('id')) \
-                                 .order_by('-count')[:TECH_LIMIT] # Use TECH_LIMIT
+                                 .order_by('-count')[:TECH_LIMIT] # Order by count desc, use TECH_LIMIT
     
     # Get delivery year distribution - include all years
     year_distribution = Component.objects.exclude(delivery_year__isnull=True) \
@@ -1010,6 +1010,7 @@ def statistics_view(request):
              company['percentage'] = 0
         company['company_id'] = normalize(company['company_name'])
         
+    # Re-enable percentage calculation for tech distribution 
     for tech in tech_distribution:
         if total_components > 0:
             tech['percentage'] = (tech['count'] / total_components) * 100
