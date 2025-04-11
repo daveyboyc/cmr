@@ -956,52 +956,26 @@ def statistics_view(request):
                                  .annotate(count=Count('id')) \
                                  .order_by('delivery_year')  # Order by year ascending
     
-    # --- New: Get Top Components by De-Rated Capacity (Optimized) --- 
+    # --- New: Get Top Components by De-Rated Capacity (Using DB Field) --- 
     top_derated_components = []
     try:
-        # Fetch only necessary fields for candidates
-        candidate_components = Component.objects.exclude(additional_data__isnull=True).only(
-            'id', 'location', 'company_name', 'additional_data'
-        ).iterator() # Use iterator to avoid loading all into memory at once
+        # Fetch top N components directly from the database, ordered by the new field
+        # Exclude null values as they cannot be meaningfully ranked
+        top_derated_components = Component.objects.exclude(derated_capacity_mw__isnull=True) \
+                                            .order_by('-derated_capacity_mw') \
+                                            .values('id', 'location', 'company_name', 'derated_capacity_mw')[:DERATED_LIMIT]
         
-        top_components_heap = []
-        components_processed = 0
+        # Convert QuerySet to list of dicts (if needed for template consistency)
+        top_derated_components = list(top_derated_components)
         
-        for comp in candidate_components:
-            components_processed += 1
-            if comp.additional_data:
-                capacity_str = comp.additional_data.get("De-Rated Capacity") 
-                if capacity_str is not None:
-                    try:
-                        capacity_float = float(capacity_str)
-                        component_data = {
-                            'id': comp.id,
-                            'location': comp.location or "N/A",
-                            'company_name': comp.company_name or "N/A",
-                            'derated_capacity': capacity_float
-                        }
-                        
-                        # Use heapq to maintain the top N items efficiently
-                        if len(top_components_heap) < DERATED_LIMIT:
-                            # Push tuple (capacity, data) - heapq sorts by the first element
-                            heapq.heappush(top_components_heap, (capacity_float, component_data))
-                        elif capacity_float > top_components_heap[0][0]: # Compare with the smallest capacity in the heap
-                            # Replace the smallest element with the new larger element
-                            heapq.heapreplace(top_components_heap, (capacity_float, component_data))
-                            
-                    except (ValueError, TypeError):
-                        pass # Skip components with non-numeric capacity
-                        
-        # The heap now contains the top N components, but sorted ascending by capacity.
-        # Extract the component data and sort descending for display.
-        top_derated_components = sorted([item[1] for item in top_components_heap], 
-                                       key=lambda x: x['derated_capacity'], 
-                                       reverse=True)
-        
-        logger.info(f"Processed {components_processed} components for de-rated capacity, found top {len(top_derated_components)}")
+        # Rename key for template compatibility
+        for comp in top_derated_components:
+             comp['derated_capacity'] = comp.pop('derated_capacity_mw')
+            
+        logger.info(f"Fetched top {len(top_derated_components)} components by de-rated capacity using database field.")
         
     except Exception as e:
-        logger.error(f"Error processing de-rated capacity ranking: {e}")
+        logger.error(f"Error fetching de-rated capacity ranking using DB field: {e}")
     # --- End New Section --- 
 
     # Get total counts
@@ -1480,11 +1454,16 @@ def technology_search_results(request, technology_name_encoded):
     per_page = 50 # Or get from request if needed
     
     # Determine sort field for database query
+    db_sort_prefix = '-' if sort_order == 'desc' else ''
     if sort_field == "date":
-        db_sort_field = '-delivery_year' if sort_order == 'desc' else 'delivery_year'
+        db_sort_field = f'{db_sort_prefix}delivery_year'
+    elif sort_field == "derated_capacity":
+        db_sort_field = f'{db_sort_prefix}derated_capacity_mw' # Use the new DB field
+    elif sort_field == "mw":
+        # Still need to sort Connection Capacity in Python as it's not a DB field
+        db_sort_field = '-delivery_year' # Default sort for initial query
     else:
-        # For other fields, we'll sort in Python after fetching data
-        db_sort_field = '-delivery_year'  # Default sort for initial query
+        db_sort_field = '-delivery_year' # Default to date if sort_field is invalid
     
     start_time = time.time()
     components_list = []
@@ -1502,41 +1481,37 @@ def technology_search_results(request, technology_name_encoded):
         total_component_count = component_queryset.count()
         logger.info(f"Found {total_component_count} components for technology '{technology_name}'")
         
-        # Get all components for this technology
-        components_list = list(component_queryset)
-        
-        # Apply sorting for capacity fields if needed
-        if sort_field == "derated_capacity":
-            # Sort by de-rated capacity - handle components without this data
-            def get_derated_capacity(comp):
-                if comp.additional_data and "De-Rated Capacity" in comp.additional_data:
-                    try:
-                        return float(comp.additional_data["De-Rated Capacity"])
-                    except (ValueError, TypeError):
-                        return 0  # Default for invalid values
-                return 0  # Default for missing values
+        # Apply sorting
+        if sort_field in ["date", "derated_capacity"]:
+             # Apply DB sorting for indexed fields
+            component_queryset = component_queryset.order_by(db_sort_field)
+            logger.info(f"Applying DB sort: {db_sort_field}")
+            paginator = Paginator(component_queryset, per_page)
+        else:
+            # Fetch all components if sorting by non-indexed field (MW/Connection Capacity)
+            # This might still be slow for large technologies, consider adding Connection Capacity to DB too if needed.
+            logger.info(f"Fetching all {total_component_count} components for Python sort: {sort_field}")
+            all_components = list(component_queryset)
             
-            components_list.sort(
-                key=get_derated_capacity,
-                reverse=(sort_order == "desc")
-            )
-        elif sort_field == "mw":
-            # Sort by MW (Connection Capacity)
-            def get_connection_capacity(comp):
-                if comp.additional_data and "Connection Capacity" in comp.additional_data:
-                    try:
-                        return float(comp.additional_data["Connection Capacity"])
-                    except (ValueError, TypeError):
-                        return 0
-                return 0
+            if sort_field == "mw":
+                # Sort by MW (Connection Capacity) in Python
+                def get_connection_capacity(comp):
+                    if comp.additional_data and "Connection Capacity" in comp.additional_data:
+                        try:
+                            return float(comp.additional_data["Connection Capacity"])
+                        except (ValueError, TypeError):
+                            return 0 # Treat errors as 0
+                    return 0 # Treat missing as 0
+                
+                all_components.sort(
+                    key=get_connection_capacity,
+                    reverse=(sort_order == "desc")
+                )
+                logger.info(f"Applied Python sort for MW ({sort_order})")
+            # Apply pagination after Python sorting
+            paginator = Paginator(all_components, per_page)
             
-            components_list.sort(
-                key=get_connection_capacity,
-                reverse=(sort_order == "desc")
-            )
-            
-        # Apply pagination after sorting
-        paginator = Paginator(components_list, per_page)
+        # Apply pagination
         try:
             components_page = paginator.page(page)
         except PageNotAnInteger:
@@ -1544,6 +1519,7 @@ def technology_search_results(request, technology_name_encoded):
         except EmptyPage:
             components_page = paginator.page(paginator.num_pages)
             
+        # Get the object list for the current page
         components_list = list(components_page.object_list)
         
     except Exception as e:
@@ -1623,73 +1599,78 @@ def derated_capacity_list(request):
     
     logger.info("Full De-rated Capacity list requested")
     page = request.GET.get("page", 1)
-    # --- Add sort parameter handling --- 
-    sort_order = request.GET.get("sort", "desc") # Default to descending (largest first)
-    if sort_order not in ["asc", "desc"]:
-        sort_order = "desc" # Fallback to default if invalid value
-    # --- End sort parameter handling ---
+    sort_order_param = request.GET.get("sort", "desc") # Default to descending (largest first)
+    if sort_order_param not in ["asc", "desc"]:
+        sort_order_param = "desc" # Fallback to default if invalid value
+    
     per_page = 50
     start_time = time.time()
     
-    # --- Logic adapted from statistics_view --- 
+    # Determine database sort order based on parameter
+    db_sort_prefix = '-' if sort_order_param == 'desc' else ''
+    db_sort_field = f'{db_sort_prefix}derated_capacity_mw'
+    
     all_processed_components = []
     error_message = None
-    try:
-        candidate_components = Component.objects.exclude(additional_data__isnull=True).only(
-            'id', 'location', 'company_name', 'additional_data'
-        ) 
-        
-        for comp in candidate_components:
-            if comp.additional_data:
-                capacity_str = comp.additional_data.get("De-Rated Capacity") 
-                if capacity_str is not None:
-                    try:
-                        capacity_float = float(capacity_str)
-                        all_processed_components.append({
-                            'id': comp.id,
-                            'location': comp.location or "N/A",
-                            'company_name': comp.company_name or "N/A",
-                            'derated_capacity': capacity_float
-                        })
-                    except (ValueError, TypeError): 
-                        pass # Skip non-numeric
-                        
-        # Sort by capacity based on sort_order
-        reverse_sort = (sort_order == "desc")
-        all_processed_components.sort(key=lambda x: x['derated_capacity'], reverse=reverse_sort)
-        logger.info(f"Processed and sorted {len(all_processed_components)} components for de-rated capacity ({sort_order}).")
-        
-    except Exception as e:
-        logger.error(f"Error processing de-rated capacity list: {e}")
-        error_message = f"Error processing component list: {e}"
-        all_processed_components = [] # Ensure list is empty on error
-    # --- End adapted logic --- 
+    total_count = 0
+    components_page = None
     
-    # Apply pagination to the full sorted list
-    paginator = Paginator(all_processed_components, per_page)
     try:
-        components_page = paginator.page(page)
-    except PageNotAnInteger:
+        # Query the database directly using the new field, excluding nulls
+        component_queryset = Component.objects.exclude(derated_capacity_mw__isnull=True) \
+                                          .order_by(db_sort_field) \
+                                          .only('id', 'location', 'company_name', 'derated_capacity_mw')
+                                          
+        total_count = component_queryset.count()
+        logger.info(f"Found {total_count} components with de-rated capacity, sorting by {db_sort_field}")
+        
+        # Apply pagination directly to the queryset
+        paginator = Paginator(component_queryset, per_page)
+        try:
+            components_page = paginator.page(page)
+        except PageNotAnInteger:
+            components_page = paginator.page(1)
+        except EmptyPage:
+            components_page = paginator.page(paginator.num_pages)
+            
+        # Prepare data for the template (rename field)
+        all_processed_components = []
+        for comp in components_page.object_list:
+            all_processed_components.append({
+                'id': comp.id,
+                'location': comp.location or "N/A",
+                'company_name': comp.company_name or "N/A",
+                'derated_capacity': comp.derated_capacity_mw # Use the numeric value
+            })
+            
+    except Exception as e:
+        logger.error(f"Error processing de-rated capacity list using DB field: {e}")
+        error_message = f"Error processing component list: {e}"
+        # Ensure variables are in a safe state for the template
+        all_processed_components = []
+        total_count = 0
+        components_page = None 
+        paginator = Paginator([], per_page) # Empty paginator
         components_page = paginator.page(1)
-    except EmptyPage:
-        components_page = paginator.page(paginator.num_pages)
     
     api_time = time.time() - start_time
     
     context = {
+        # Use the processed list for the current page object
         "page_obj": components_page,
+        "object_list": all_processed_components, # Pass the formatted list
         "paginator": paginator,
-        "total_count": len(all_processed_components),
+        "total_count": total_count,
         "api_time": api_time,
         "error": error_message,
-        "sort_order": sort_order, # Pass sort order to template
+        "sort_order": sort_order_param, # Pass sort order to template
         # Add other necessary context variables if the template requires them
-        "page": components_page.number, 
+        "page": components_page.number if components_page else 1, 
         "per_page": per_page,
         "total_pages": paginator.num_pages,
-        "has_prev": components_page.has_previous(),
-        "has_next": components_page.has_next(),
-        "page_range": paginator.get_elided_page_range(number=components_page.number, on_each_side=1, on_ends=1)
+        "has_prev": components_page.has_previous() if components_page else False,
+        "has_next": components_page.has_next() if components_page else False,
+        "page_range": paginator.get_elided_page_range(number=components_page.number if components_page else 1, on_each_side=1, on_ends=1)
     }
 
-    return render(request, "checker/derated_capacity_list.html", context) # Use a new template
+    return render(request, "checker/derated_capacity_list.html", context)
