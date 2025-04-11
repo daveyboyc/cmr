@@ -71,3 +71,9 @@ def replace_underscores(value):
 def normalize_filter(value):
     """Template filter to normalize a string (lowercase, remove punctuation/spaces)."""
     return normalize(value)
+
+@register.filter(name='urlencode')
+def urlencode_filter(value):
+    """URL encodes a string, handling spaces and special characters."""
+    import urllib.parse
+    return urllib.parse.quote(str(value))

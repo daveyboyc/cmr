@@ -1437,3 +1437,113 @@ def index_info(request):
     }
     
     return HttpResponse(json.dumps(report, indent=2), content_type='application/json')
+
+@require_http_methods(["GET"])
+def technology_search_results(request, technology_name_encoded):
+    """Displays search results filtered specifically by technology name."""
+    from .services.component_search import format_component_record # Reuse formatter
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+    import urllib.parse
+    
+    logger.info(f"Technology search requested for encoded: {technology_name_encoded}")
+    
+    # Decode the technology name
+    try:
+        technology_name = urllib.parse.unquote(technology_name_encoded)
+        logger.info(f"Decoded technology name: {technology_name}")
+    except Exception as e:
+        logger.error(f"Error decoding technology name '{technology_name_encoded}': {e}")
+        # Handle error - perhaps render an error page or redirect
+        return render(request, "checker/search.html", {
+            "error": "Invalid technology name format.",
+            "component_results": {},
+            "component_count": 0,
+        })
+        
+    # Get sorting and pagination parameters
+    sort_order = request.GET.get("comp_sort", "desc") # Default newest first
+    page = request.GET.get("page", 1)
+    per_page = 50 # Or get from request if needed
+    
+    # Determine sort field for database query
+    db_sort_field = '-delivery_year' if sort_order == 'desc' else 'delivery_year'
+    
+    start_time = time.time()
+    components_list = []
+    total_component_count = 0
+    error_message = None
+    
+    try:
+        # Query components filtered by technology (case-insensitive)
+        component_queryset = Component.objects.filter(technology__iexact=technology_name)\
+                                          .order_by(db_sort_field)
+                                          
+        total_component_count = component_queryset.count()
+        logger.info(f"Found {total_component_count} components for technology '{technology_name}'")
+        
+        # Apply pagination
+        paginator = Paginator(component_queryset, per_page)
+        try:
+            components_page = paginator.page(page)
+        except PageNotAnInteger:
+            components_page = paginator.page(1)
+        except EmptyPage:
+            components_page = paginator.page(paginator.num_pages)
+            
+        components_list = list(components_page.object_list)
+        
+    except Exception as e:
+        error_message = f"Error fetching components for technology: {e}"
+        logger.exception(error_message)
+
+    # Format results for display (similar to search_components_service)
+    formatted_components = []
+    if components_list:
+        # Need to convert model objects to dicts expected by formatter
+        for comp in components_list:
+            comp_dict = {
+                "CMU ID": comp.cmu_id,
+                "Location and Post Code": comp.location or '',
+                "Description of CMU Components": comp.description or '',
+                "Generating Technology Class": comp.technology or '',
+                "Company Name": comp.company_name or '',
+                "Auction Name": comp.auction_name or '',
+                "Delivery Year": comp.delivery_year or '',
+                "Status": comp.status or '',
+                "Type": comp.type or '',
+                "_id": comp.id,  # Use database ID (pk)
+                "component_id_str": comp.component_id or ''
+            }
+            if comp.additional_data:
+                 comp_dict["De-Rated Capacity"] = comp.additional_data.get("De-Rated Capacity", "N/A")
+                 for key, value in comp.additional_data.items():
+                    if key not in comp_dict:
+                        comp_dict[key] = value
+            formatted_components.append(format_component_record(comp_dict, {}))
+
+    component_results_dict = {technology_name: formatted_components} if formatted_components else {}
+    api_time = time.time() - start_time
+    
+    context = {
+        "query": technology_name, # Use tech name as the effective query
+        "note": f"Showing components with technology: {technology_name}",
+        "company_links": [], # No company results on this page
+        "component_results": component_results_dict, 
+        "component_count": total_component_count,
+        "displayed_component_count": len(formatted_components),
+        "error": error_message,
+        "api_time": api_time,
+        "comp_sort": sort_order,
+        "is_technology_search": True, # Flag for the template if needed
+        # Pagination context
+        "page_obj": components_page, 
+        "paginator": paginator,
+        "page": components_page.number, 
+        "per_page": per_page,
+        "total_pages": paginator.num_pages,
+        "has_prev": components_page.has_previous(),
+        "has_next": components_page.has_next(),
+        "page_range": paginator.get_elided_page_range(number=components_page.number, on_each_side=1, on_ends=1)
+    }
+
+    return render(request, "checker/search.html", context) # Reuse search template

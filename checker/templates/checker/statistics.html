@@ -123,8 +123,8 @@
             {% for tech in tech_distribution %}
                 <div class="mb-3">
                     <div class="d-flex justify-content-between">
-                        <!-- Link to search results for this technology, sorted newest first -->
-                        <a href="{% url 'search_companies' %}?q={{ tech.technology|urlencode }}&comp_sort=desc" class="text-decoration-none">
+                        <!-- Link to dedicated technology search results page -->
+                        <a href="{% url 'technology_search' technology_name_encoded=tech.technology|urlencode %}" class="text-decoration-none">
                             {{ tech.technology }}
                         </a>
                         <span class="text-muted">{{ tech.count|intcomma }} ({{ tech.percentage|floatformat:1 }}%)</span>
