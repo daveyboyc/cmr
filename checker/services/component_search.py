@@ -371,6 +371,9 @@ def format_component_record(record, cmu_to_company_mapping):
     
     # --- Add De-rated Capacity Badge ---    
     derated_capacity = record.get("De-rated Capacity (MW)", "N/A")
+    # --- DEBUGGING: Log the value received --- 
+    logger.info(f"Component DB_ID {db_id}: Received De-rated Capacity = {derated_capacity!r}") 
+    # --- END DEBUGGING ---
     if derated_capacity != "N/A":
         # Attempt to format as number, fallback to string
         try:
