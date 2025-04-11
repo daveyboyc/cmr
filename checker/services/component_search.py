@@ -379,7 +379,7 @@ def format_component_record(record, cmu_to_company_mapping):
     formatted_capacity = "N/A MW" # Default display
     if derated_capacity != "N/A":
         try:
-            formatted_capacity = f"{float(derated_capacity):,.2f} MW"
+            formatted_capacity = f"{float(derated_capacity):,.3f} MW"
         except (ValueError, TypeError):
             # Keep original value if it's not a number but not N/A
             formatted_capacity = f"{derated_capacity} MW"
