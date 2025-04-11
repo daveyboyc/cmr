@@ -218,17 +218,48 @@
             <div class="component-results-section">
                 <div class="section-header mt-4">
                     <h3>Component Results ({{ component_count }})</h3>
-                    {% if request.GET.q %}
-                        {% if comp_sort == "desc" %}
-                            <a href="?q={{ request.GET.q }}&comp_sort=asc&page={{ page }}&per_page={{ per_page }}" class="sort-toggle">
-                                <span>↑</span> Sort Components: Oldest First
+                    <div class="d-flex">
+                        {% if is_technology_search %}
+                        <!-- Sort controls for technology search -->
+                        <div class="btn-group me-2">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                Sort by: {{ sort_description|default:"delivery year" }}
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item {% if sort_field == 'date' %}active{% endif %}" 
+                                      href="?sort_by=date&order={{ sort_order }}&page={{ page }}">Delivery Year</a></li>
+                                <li><a class="dropdown-item {% if sort_field == 'derated_capacity' %}active{% endif %}" 
+                                      href="?sort_by=derated_capacity&order={{ sort_order }}&page={{ page }}">De-rated Capacity</a></li>
+                                <li><a class="dropdown-item {% if sort_field == 'mw' %}active{% endif %}" 
+                                      href="?sort_by=mw&order={{ sort_order }}&page={{ page }}">Connection Capacity (MW)</a></li>
+                            </ul>
+                        </div>
+                        
+                        <!-- Order toggle (asc/desc) -->
+                        {% if sort_order == "desc" %}
+                            <a href="?sort_by={{ sort_field }}&order=asc&page={{ page }}" class="btn btn-sm btn-outline-secondary">
+                                <span>↑</span> Smallest First
                             </a>
                         {% else %}
-                            <a href="?q={{ request.GET.q }}&comp_sort=desc&page={{ page }}&per_page={{ per_page }}" class="sort-toggle">
-                                <span>↓</span> Sort Components: Newest First
+                            <a href="?sort_by={{ sort_field }}&order=desc&page={{ page }}" class="btn btn-sm btn-outline-secondary">
+                                <span>↓</span> Largest First
                             </a>
                         {% endif %}
-                    {% endif %}
+                        {% else %}
+                        <!-- Original sort toggle for regular search -->
+                        {% if request.GET.q %}
+                            {% if comp_sort == "desc" %}
+                                <a href="?q={{ request.GET.q }}&comp_sort=asc&page={{ page }}&per_page={{ per_page }}" class="sort-toggle">
+                                    <span>↑</span> Sort Components: Oldest First
+                                </a>
+                            {% else %}
+                                <a href="?q={{ request.GET.q }}&comp_sort=desc&page={{ page }}&per_page={{ per_page }}" class="sort-toggle">
+                                    <span>↓</span> Sort Components: Newest First
+                                </a>
+                            {% endif %}
+                        {% endif %}
+                        {% endif %}
+                    </div>
                 </div>
                 <div class="alert alert-info">
                     <span class="bi bi-info-circle"></span> Click on the blue location links to view component details
@@ -247,28 +278,58 @@
                 {% if component_count and total_pages > 1 %}
                     <nav aria-label="Component navigation" class="pagination-nav">
                         <ul class="pagination justify-content-center">
-                            {% if has_prev %}
-                                <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page=1&comp_sort={{ comp_sort }}&per_page={{ per_page }}">First</a></li>
-                                <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page={{ page|add:'-1' }}&comp_sort={{ comp_sort }}&per_page={{ per_page }}">Previous</a></li>
-                            {% else %}
-                                <li class="page-item disabled"><span class="page-link">First</span></li>
-                                <li class="page-item disabled"><span class="page-link">Previous</span></li>
-                            {% endif %}
-
-                            {% for i in page_range %}
-                                {% if i == page %}
-                                    <li class="page-item active" aria-current="page"><span class="page-link">{{ i }}</span></li>
+                            {% if is_technology_search %}
+                                <!-- Technology search pagination with sort params -->
+                                {% if has_prev %}
+                                    <li class="page-item"><a class="page-link" href="?sort_by={{ sort_field }}&order={{ sort_order }}&page=1">First</a></li>
+                                    <li class="page-item"><a class="page-link" href="?sort_by={{ sort_field }}&order={{ sort_order }}&page={{ page|add:'-1' }}">Previous</a></li>
                                 {% else %}
-                                    <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page={{ i }}&comp_sort={{ comp_sort }}&per_page={{ per_page }}">{{ i }}</a></li>
+                                    <li class="page-item disabled"><span class="page-link">First</span></li>
+                                    <li class="page-item disabled"><span class="page-link">Previous</span></li>
                                 {% endif %}
-                            {% endfor %}
 
-                            {% if has_next %}
-                                <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page={{ page|add:'1' }}&comp_sort={{ comp_sort }}&per_page={{ per_page }}">Next</a></li>
-                                <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page={{ total_pages }}&comp_sort={{ comp_sort }}&per_page={{ per_page }}">Last</a></li>
+                                {% for i in page_range %}
+                                    {% if i == page %}
+                                        <li class="page-item active" aria-current="page"><span class="page-link">{{ i }}</span></li>
+                                    {% elif i == paginator.ELLIPSIS %}
+                                        <li class="page-item disabled"><span class="page-link">...</span></li>
+                                    {% else %}
+                                        <li class="page-item"><a class="page-link" href="?sort_by={{ sort_field }}&order={{ sort_order }}&page={{ i }}">{{ i }}</a></li>
+                                    {% endif %}
+                                {% endfor %}
+
+                                {% if has_next %}
+                                    <li class="page-item"><a class="page-link" href="?sort_by={{ sort_field }}&order={{ sort_order }}&page={{ page|add:'1' }}">Next</a></li>
+                                    <li class="page-item"><a class="page-link" href="?sort_by={{ sort_field }}&order={{ sort_order }}&page={{ total_pages }}">Last</a></li>
+                                {% else %}
+                                    <li class="page-item disabled"><span class="page-link">Next</span></li>
+                                    <li class="page-item disabled"><span class="page-link">Last</span></li>
+                                {% endif %}
                             {% else %}
-                                <li class="page-item disabled"><span class="page-link">Next</span></li>
-                                <li class="page-item disabled"><span class="page-link">Last</span></li>
+                                <!-- Regular search pagination -->
+                                {% if has_prev %}
+                                    <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page=1&comp_sort={{ comp_sort }}&per_page={{ per_page }}">First</a></li>
+                                    <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page={{ page|add:'-1' }}&comp_sort={{ comp_sort }}&per_page={{ per_page }}">Previous</a></li>
+                                {% else %}
+                                    <li class="page-item disabled"><span class="page-link">First</span></li>
+                                    <li class="page-item disabled"><span class="page-link">Previous</span></li>
+                                {% endif %}
+
+                                {% for i in page_range %}
+                                    {% if i == page %}
+                                        <li class="page-item active" aria-current="page"><span class="page-link">{{ i }}</span></li>
+                                    {% else %}
+                                        <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page={{ i }}&comp_sort={{ comp_sort }}&per_page={{ per_page }}">{{ i }}</a></li>
+                                    {% endif %}
+                                {% endfor %}
+
+                                {% if has_next %}
+                                    <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page={{ page|add:'1' }}&comp_sort={{ comp_sort }}&per_page={{ per_page }}">Next</a></li>
+                                    <li class="page-item"><a class="page-link" href="?q={{ request.GET.q }}&page={{ total_pages }}&comp_sort={{ comp_sort }}&per_page={{ per_page }}">Last</a></li>
+                                {% else %}
+                                    <li class="page-item disabled"><span class="page-link">Next</span></li>
+                                    <li class="page-item disabled"><span class="page-link">Last</span></li>
+                                {% endif %}
                             {% endif %}
                         </ul>
                     </nav>

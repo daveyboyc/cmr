@@ -1465,12 +1465,17 @@ def technology_search_results(request, technology_name_encoded):
         })
         
     # Get sorting and pagination parameters
-    sort_order = request.GET.get("comp_sort", "desc") # Default newest first
+    sort_field = request.GET.get("sort_by", "date") # Default to date sorting
+    sort_order = request.GET.get("order", "desc") # Default newest first
     page = request.GET.get("page", 1)
     per_page = 50 # Or get from request if needed
     
     # Determine sort field for database query
-    db_sort_field = '-delivery_year' if sort_order == 'desc' else 'delivery_year'
+    if sort_field == "date":
+        db_sort_field = '-delivery_year' if sort_order == 'desc' else 'delivery_year'
+    else:
+        # For other fields, we'll sort in Python after fetching data
+        db_sort_field = '-delivery_year'  # Default sort for initial query
     
     start_time = time.time()
     components_list = []
@@ -1479,14 +1484,50 @@ def technology_search_results(request, technology_name_encoded):
     
     try:
         # Query components filtered by technology (case-insensitive)
-        component_queryset = Component.objects.filter(technology__iexact=technology_name)\
-                                          .order_by(db_sort_field)
+        component_queryset = Component.objects.filter(technology__iexact=technology_name)
+        
+        # Apply database sorting only for date field                                
+        if sort_field == "date":
+            component_queryset = component_queryset.order_by(db_sort_field)
                                           
         total_component_count = component_queryset.count()
         logger.info(f"Found {total_component_count} components for technology '{technology_name}'")
         
-        # Apply pagination
-        paginator = Paginator(component_queryset, per_page)
+        # Get all components for this technology
+        components_list = list(component_queryset)
+        
+        # Apply sorting for capacity fields if needed
+        if sort_field == "derated_capacity":
+            # Sort by de-rated capacity - handle components without this data
+            def get_derated_capacity(comp):
+                if comp.additional_data and "De-Rated Capacity" in comp.additional_data:
+                    try:
+                        return float(comp.additional_data["De-Rated Capacity"])
+                    except (ValueError, TypeError):
+                        return 0  # Default for invalid values
+                return 0  # Default for missing values
+            
+            components_list.sort(
+                key=get_derated_capacity,
+                reverse=(sort_order == "desc")
+            )
+        elif sort_field == "mw":
+            # Sort by MW (Connection Capacity)
+            def get_connection_capacity(comp):
+                if comp.additional_data and "Connection Capacity" in comp.additional_data:
+                    try:
+                        return float(comp.additional_data["Connection Capacity"])
+                    except (ValueError, TypeError):
+                        return 0
+                return 0
+            
+            components_list.sort(
+                key=get_connection_capacity,
+                reverse=(sort_order == "desc")
+            )
+            
+        # Apply pagination after sorting
+        paginator = Paginator(components_list, per_page)
         try:
             components_page = paginator.page(page)
         except PageNotAnInteger:
@@ -1520,6 +1561,7 @@ def technology_search_results(request, technology_name_encoded):
             }
             if comp.additional_data:
                  comp_dict["De-Rated Capacity"] = comp.additional_data.get("De-Rated Capacity", "N/A")
+                 comp_dict["Connection Capacity"] = comp.additional_data.get("Connection Capacity", "N/A")
                  for key, value in comp.additional_data.items():
                     if key not in comp_dict:
                         comp_dict[key] = value
@@ -1527,6 +1569,15 @@ def technology_search_results(request, technology_name_encoded):
 
     component_results_dict = {technology_name: formatted_components} if formatted_components else {}
     api_time = time.time() - start_time
+    
+    # Figure out sort description for the template
+    sort_description = ""
+    if sort_field == "date":
+        sort_description = "delivery year"
+    elif sort_field == "derated_capacity":
+        sort_description = "de-rated capacity"
+    elif sort_field == "mw":
+        sort_description = "connection capacity (MW)"
     
     context = {
         "query": technology_name, # Use tech name as the effective query
@@ -1538,8 +1589,11 @@ def technology_search_results(request, technology_name_encoded):
         "error": error_message,
         "api_time": api_time,
         "comp_sort": sort_order,
+        "sort_field": sort_field,
+        "sort_order": sort_order,
+        "sort_description": sort_description,
         "is_technology_search": True, # Flag for the template if needed
-        "unified_search": True, # <<< ADD THIS FLAG TO MATCH TEMPLATE CONDITION
+        "unified_search": True, # Keep this flag to match template condition
         # Pagination context
         "page_obj": components_page, 
         "paginator": paginator,
