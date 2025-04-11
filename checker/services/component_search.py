@@ -369,18 +369,22 @@ def format_component_record(record, cmu_to_company_mapping):
     elif component_id_str and component_id_str != cmu_id:
         badges.append(f'<span class="badge bg-dark me-1 small">Comp ID (from source _id?): {component_id_str}</span>')
     
-    # --- Add De-rated Capacity Badge ---    
+    # --- Add De-rated Capacity Badge (modified to always show) ---    
     derated_capacity = record.get("De-rated Capacity (MW)", "N/A")
     # --- DEBUGGING: Log the value received --- 
     logger.info(f"Component DB_ID {db_id}: Received De-rated Capacity = {derated_capacity!r}") 
     # --- END DEBUGGING ---
+    
+    # Always attempt to format and display
+    formatted_capacity = "N/A MW" # Default display
     if derated_capacity != "N/A":
-        # Attempt to format as number, fallback to string
         try:
             formatted_capacity = f"{float(derated_capacity):,.2f} MW"
         except (ValueError, TypeError):
+            # Keep original value if it's not a number but not N/A
             formatted_capacity = f"{derated_capacity} MW"
-        badges.append(f'<span class="badge bg-info me-1">De-rated: {formatted_capacity}</span>')
+            
+    badges.append(f'<span class="badge bg-info me-1">De-rated: {formatted_capacity}</span>')
     # --- End De-rated Capacity Badge ---
     
     badges_html = " ".join(badges)
