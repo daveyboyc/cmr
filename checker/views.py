@@ -1539,6 +1539,7 @@ def technology_search_results(request, technology_name_encoded):
         "api_time": api_time,
         "comp_sort": sort_order,
         "is_technology_search": True, # Flag for the template if needed
+        "unified_search": True, # <<< ADD THIS FLAG TO MATCH TEMPLATE CONDITION
         # Pagination context
         "page_obj": components_page, 
         "paginator": paginator,
