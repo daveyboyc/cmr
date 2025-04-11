@@ -185,6 +185,12 @@
                     <li class="list-group-item">No de-rated capacity data available or processed.</li>
                 {% endfor %}
             </ul>
+            <!-- Add Show More link -->
+            {% if top_derated_components %}
+            <div class="card-footer text-center">
+                <a href="{% url 'derated_capacity_list' %}">Show full list...</a>
+            </div>
+            {% endif %}
         </div>
     </div>
 

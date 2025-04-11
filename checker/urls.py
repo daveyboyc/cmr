@@ -62,4 +62,7 @@ urlpatterns = [
     
     # New URL for technology-specific search results - Reverted back to PATH
     path('technology/<path:technology_name_encoded>/', views.technology_search_results, name='technology_search'),
+
+    # New URL for full de-rated capacity list
+    path('components/by-derated-capacity/', views.derated_capacity_list, name='derated_capacity_list'),
 ]

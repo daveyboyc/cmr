@@ -1552,3 +1552,74 @@ def technology_search_results(request, technology_name_encoded):
     }
 
     return render(request, "checker/search.html", context) # Reuse search template
+
+@require_http_methods(["GET"])
+def derated_capacity_list(request):
+    """Displays a full, paginated list of components ranked by De-rated Capacity."""
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+    
+    logger.info("Full De-rated Capacity list requested")
+    page = request.GET.get("page", 1)
+    per_page = 50
+    start_time = time.time()
+    
+    # --- Logic adapted from statistics_view --- 
+    all_processed_components = []
+    error_message = None
+    try:
+        candidate_components = Component.objects.exclude(additional_data__isnull=True).only(
+            'id', 'location', 'company_name', 'additional_data'
+        ) 
+        
+        for comp in candidate_components:
+            if comp.additional_data:
+                capacity_str = comp.additional_data.get("De-Rated Capacity") 
+                if capacity_str is not None:
+                    try:
+                        capacity_float = float(capacity_str)
+                        all_processed_components.append({
+                            'id': comp.id,
+                            'location': comp.location or "N/A",
+                            'company_name': comp.company_name or "N/A",
+                            'derated_capacity': capacity_float
+                        })
+                    except (ValueError, TypeError): 
+                        pass # Skip non-numeric
+                        
+        # Sort by capacity, descending
+        all_processed_components.sort(key=lambda x: x['derated_capacity'], reverse=True)
+        logger.info(f"Processed and sorted {len(all_processed_components)} components for de-rated capacity.")
+        
+    except Exception as e:
+        logger.error(f"Error processing de-rated capacity list: {e}")
+        error_message = f"Error processing component list: {e}"
+        all_processed_components = [] # Ensure list is empty on error
+    # --- End adapted logic --- 
+    
+    # Apply pagination to the full sorted list
+    paginator = Paginator(all_processed_components, per_page)
+    try:
+        components_page = paginator.page(page)
+    except PageNotAnInteger:
+        components_page = paginator.page(1)
+    except EmptyPage:
+        components_page = paginator.page(paginator.num_pages)
+    
+    api_time = time.time() - start_time
+    
+    context = {
+        "page_obj": components_page,
+        "paginator": paginator,
+        "total_count": len(all_processed_components),
+        "api_time": api_time,
+        "error": error_message,
+        # Add other necessary context variables if the template requires them
+        "page": components_page.number, 
+        "per_page": per_page,
+        "total_pages": paginator.num_pages,
+        "has_prev": components_page.has_previous(),
+        "has_next": components_page.has_next(),
+        "page_range": paginator.get_elided_page_range(number=components_page.number, on_each_side=1, on_ends=1)
+    }
+
+    return render(request, "checker/derated_capacity_list.html", context) # Use a new template
