@@ -60,6 +60,6 @@ urlpatterns = [
     # Index information endpoint
     path('debug/indexes/', views.index_info, name='index_info'),
     
-    # New URL for technology-specific search results - USE STR INSTEAD OF PATH
-    path('technology/<str:technology_name_encoded>/', views.technology_search_results, name='technology_search'),
+    # New URL for technology-specific search results - Reverted back to PATH
+    path('technology/<path:technology_name_encoded>/', views.technology_search_results, name='technology_search'),
 ]

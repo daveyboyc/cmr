@@ -1450,7 +1450,11 @@ def technology_search_results(request, technology_name_encoded):
     # Decode the technology name
     try:
         technology_name = urllib.parse.unquote(technology_name_encoded)
-        logger.info(f"Decoded technology name: {technology_name}")
+        # --- ADDED: Strip trailing slash if present --- 
+        if technology_name.endswith('/'):
+            technology_name = technology_name[:-1]
+        # --- END ADDED --- 
+        logger.info(f"Decoded and stripped technology name: {technology_name}")
     except Exception as e:
         logger.error(f"Error decoding technology name '{technology_name_encoded}': {e}")
         # Handle error - perhaps render an error page or redirect
