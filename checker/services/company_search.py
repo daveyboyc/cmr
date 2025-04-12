@@ -966,20 +966,14 @@ def company_detail(request, company_id):
     
     try:
         # --- Find the primary company name from DB --- 
-        # This ensures we use the name stored in our Component table
-        company_record = Component.objects.filter(company_id_normalized=company_id).values('company_name').first()
-        if company_record and company_record['company_name']:
-            context['company_name'] = company_record['company_name']
-            logger.info(f"Found company name '{context['company_name']}' for id '{company_id}' from Component DB")
-        else:
-            # Fallback: Try to find any name variation (less reliable)
-            logger.warning(f"Could not find exact company name for id '{company_id}' via normalized field, attempting broader search...")
-            all_names = Component.objects.values_list('company_name', flat=True).distinct()
-            for name in all_names:
-                if name and normalize(name) == company_id:
-                    context['company_name'] = name
-                    logger.info(f"Found company name '{context['company_name']}' for id '{company_id}' via iteration.")
-                    break
+        # Use a direct approach to find company by normalized company_name
+        logger.info(f"Looking for company with normalized ID: '{company_id}'")
+        all_names = Component.objects.values_list('company_name', flat=True).distinct()
+        for name in all_names:
+            if name and normalize(name) == company_id:
+                context['company_name'] = name
+                logger.info(f"Found company name '{context['company_name']}' for id '{company_id}'")
+                break
         
         if not context['company_name']:
             context["error"] = f"Company with ID '{company_id}' not found in component data."
