@@ -3,9 +3,13 @@ import json
 from django.utils.safestring import mark_safe
 from django.core.serializers.json import DjangoJSONEncoder
 from ..utils import normalize # Import normalize function
+from django.utils.html import format_html
+from django.contrib.humanize.templatetags.humanize import intcomma
+import logging
 
 
 register = template.Library()
+logger = logging.getLogger(__name__)
 
 @register.filter(name='get_item')
 def get_item(dictionary, key):
@@ -52,28 +56,49 @@ def pretty_print(value):
     return pprint.pformat(value, indent=2)
 
 @register.filter(is_safe=True)
-def jsonify(obj):
-    """
-    Safely dump Python object to JSON string, suitable for <pre> tags.
-    """
+def jsonify(value):
+    """Converts a Python dict or list to a JSON string for <pre> display."""
     try:
-        # Use DjangoJSONEncoder to handle dates, decimals etc.
-        json_string = json.dumps(obj, cls=DjangoJSONEncoder, indent=2)
-        return mark_safe(json_string)
+        return json.dumps(value, indent=2, ensure_ascii=False)
     except Exception:
-        return "(Error converting to JSON)"    
+        return str(value) # Fallback
 
 @register.filter(name='replace_underscores')
 def replace_underscores(value):
-    return str(value).replace('_', ' ')
+    if isinstance(value, str):
+        return value.replace('_', ' ')
+    return value
 
 @register.filter(name='normalize')
 def normalize_filter(value):
-    """Template filter to normalize a string (lowercase, remove punctuation/spaces)."""
-    return normalize(value)
+    from ..utils import normalize # Local import to avoid circular dependency issues
+    if isinstance(value, str):
+        return normalize(value)
+    return value
 
 @register.filter(name='urlencode')
 def urlencode_filter(value):
     """URL encodes a string, handling spaces and special characters."""
     import urllib.parse
     return urllib.parse.quote(str(value))
+
+@register.filter(name='format_value')
+def format_value(value):
+    """Formats a value for display, handling numbers, None, and strings."""
+    if value is None or value == '':
+        return "N/A"
+    
+    # Try converting to float for formatting
+    try:
+        float_val = float(value)
+        # Check if it's effectively an integer
+        if float_val == int(float_val):
+            return intcomma(int(float_val))
+        else:
+            # Format as float with commas and reasonable precision (e.g., 2 decimal places)
+            # Use f-string formatting for precision control before intcomma
+            formatted_num = f"{float_val:,.2f}" 
+            return formatted_num
+    except (ValueError, TypeError):
+        # If it's not a number, return the original value as a string
+        return str(value)
