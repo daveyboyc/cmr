@@ -266,8 +266,34 @@
                 </div>
                 <div class="results-list">
                     {% for component in page_obj %}
-                        <div class="result-item mb-3"> {# Add bottom margin for spacing #}
-                            {% include "checker/_component_card.html" with component=component %}
+                        <div class="result-item mb-3 border-bottom pb-3"> {# Add border and padding #}
+                            {# Directly render component details #}
+                            <h5>
+                                <a href="{% url 'component_detail' pk=component.id %}" class="text-decoration-none">
+                                    <i class="bi bi-geo-alt-fill me-1"></i> {# Bootstrap icon #}
+                                    {{ component.location|default:"Location N/A" }}
+                                </a>
+                            </h5>
+                            <p class="mb-1">
+                                {{ component.description|default:"No description available."|truncatewords:30 }}
+                            </p>
+                            <div>
+                                {% if component.company_name %}
+                                    <span class="badge bg-success me-1">{{ component.company_name }}</span>
+                                {% endif %}
+                                {% if component.cmu_id %}
+                                    <span class="badge bg-secondary me-1">CMU: {{ component.cmu_id }}</span>
+                                {% endif %}
+                                {% if component.technology %}
+                                    <span class="badge bg-primary me-1">{{ component.technology }}</span>
+                                {% endif %}
+                                {% if component.display_capacity is not None %}
+                                    <span class="badge bg-info me-1" title="De-Rated Capacity">{{ component.display_capacity|floatformat:2 }} MW</span>
+                                {% else %}
+                                    <span class="badge bg-light text-dark me-1" title="De-Rated Capacity">N/A MW</span>
+                                {% endif %}
+                                {# You can add more badges or details here if needed #}
+                            </div>
                         </div>
                     {% empty %}
                         <div class="alert alert-warning">No components found matching your criteria for this page.</div>
