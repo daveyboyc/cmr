@@ -6,7 +6,7 @@ from django.conf import settings
 import os
 import json
 import glob
-from django.db.models import Count
+from django.db.models import Count, Q, Sum
 # Remove Component import from here
 # Remove unused checker import
 # from capacity_checker import checker 
@@ -926,7 +926,7 @@ def fetch_components_for_cmu_id(cmu_id, limit=None, page=1, per_page=100):
 def statistics_view(request):
     """View function for displaying database statistics"""
     from .utils import normalize
-    from django.db.models import Count, Q # Ensure Q is imported if needed later
+    from django.db.models import Count, Q, Sum # Ensure Sum is imported
     import logging # Add logging
     logger = logging.getLogger(__name__)
     
@@ -935,13 +935,44 @@ def statistics_view(request):
     TECH_LIMIT = 25    # Increased from 10
     DERATED_LIMIT = 20 # Limit for the new list
     
-    # Get top companies by component count, excluding empty company names
-    top_companies = Component.objects.exclude(company_name__isnull=True) \
-                             .exclude(company_name='') \
-                             .values('company_name') \
-                             .annotate(count=Count('id')) \
-                             .order_by('-count')[:COMPANY_LIMIT] # Use COMPANY_LIMIT
-    
+    # --- Determine Company Sort Method --- 
+    company_sort = request.GET.get('company_sort', 'count') # Default to count
+    if company_sort not in ['count', 'capacity']:
+        company_sort = 'count' # Fallback to default
+        
+    # --- Fetch Top Companies based on Sort Method --- 
+    top_companies_data = []
+    if company_sort == 'count':
+        # Sort by Component Count (Existing Logic)
+        top_companies_data = Component.objects.exclude(company_name__isnull=True) \
+                                 .exclude(company_name='') \
+                                 .values('company_name') \
+                                 .annotate(count=Count('id')) \
+                                 .order_by('-count')[:COMPANY_LIMIT]
+        # Add company_id and calculate percentage for display
+        total_components_for_pct = Component.objects.count() # Need total for percentage
+        for company in top_companies_data:
+            company['company_id'] = normalize(company['company_name'])
+            if total_components_for_pct > 0:
+                 company['percentage'] = (company['count'] / total_components_for_pct) * 100
+            else:
+                 company['percentage'] = 0
+        logger.info(f"Fetched top {len(top_companies_data)} companies sorted by count.")
+    else: 
+        # Sort by Total De-rated Capacity
+        top_companies_data = Component.objects.exclude(company_name__isnull=True) \
+                                 .exclude(company_name='') \
+                                 .exclude(derated_capacity_mw__isnull=True) \
+                                 .values('company_name') \
+                                 .annotate(total_capacity=Sum('derated_capacity_mw')) \
+                                 .order_by('-total_capacity')[:COMPANY_LIMIT]
+        # Add company_id for links
+        for company in top_companies_data:
+            company['company_id'] = normalize(company['company_name'])
+        logger.info(f"Fetched top {len(top_companies_data)} companies sorted by total capacity.")
+        
+    top_companies_data = list(top_companies_data) # Convert queryset to list
+
     # Get technology distribution - Reverted to Top N by count
     tech_distribution = Component.objects.exclude(technology__isnull=True) \
                                  .exclude(technology='') \
@@ -986,7 +1017,7 @@ def statistics_view(request):
                               .values('company_name').distinct().count()
     
     # Calculate percentages for visual representation and add normalized company IDs
-    for company in top_companies:
+    for company in top_companies_data:
         if total_components > 0:
              company['percentage'] = (company['count'] / total_components) * 100
         else:
@@ -1007,7 +1038,8 @@ def statistics_view(request):
              year['percentage'] = 0
     
     context = {
-        'top_companies': top_companies,
+        'top_companies_data': top_companies_data, # Use the fetched data
+        'company_sort': company_sort, # Pass sort method to template
         'tech_distribution': tech_distribution,
         'year_distribution': year_distribution,
         'top_derated_components': top_derated_components, # Add new list to context

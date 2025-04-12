@@ -1,199 +1,186 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Database Statistics</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
-    {% load static %}
-    <link rel="icon" type="image/png" href="{% static 'images/favicon.png' %}">
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f5f5f5;
-            padding: 20px;
-            color: #333;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background-color: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
-        }
-        .stats-card {
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        .progress {
-            height: 25px;
-            margin-bottom: 10px;
-        }
-        .company-bar { background-color: #0d6efd; }
-        .tech-bar { background-color: #20c997; }
-        .year-bar { background-color: #fd7e14; }
-        
-        .summary-numbers {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        .summary-item {
-            background-color: white;
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .summary-number {
-            font-size: 2.5rem;
-            font-weight: bold;
-            color: #0d6efd;
-        }
-        .summary-label {
-            font-size: 1rem;
-            color: #6c757d;
-        }
-    </style>
-</head>
-<body>
-    {% load humanize %}
-    <div class="container">
-        <!-- Header -->
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1>Database Statistics</h1>
-            <a href="{% url 'search_companies' %}" class="btn btn-outline-primary">
-                <span class="bi bi-arrow-left"></span> Back to Search
-            </a>
-        </div>
+{% extends "checker/base.html" %}
+{% load static %}
+{% load humanize %}
 
-        <!-- Summary Numbers -->
-        <div class="row summary-numbers">
-            <div class="col-md-4">
-                <div class="summary-item">
-                    <div class="summary-number">{{ total_components|intcomma }}</div>
-                    <div class="summary-label">Total Components</div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="summary-item">
-                    <div class="summary-number">{{ total_cmus|intcomma }}</div>
-                    <div class="summary-label">Unique CMUs</div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="summary-item">
-                    <div class="summary-number">{{ total_companies|intcomma }}</div>
-                    <div class="summary-label">Companies</div>
+{% block title %}Statistics - Capacity Market Checker{% endblock %}
+
+{% block content %}
+{% load checker_tags %}
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header">
+        <h1>Database Statistics</h1>
+        <a href="{% url 'search_companies' %}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-arrow-left"></i> Back to Search
+        </a>
+    </div>
+
+    <!-- Summary Numbers -->
+    <div class="row text-center mb-5 summary-numbers">
+        <div class="col-md-4">
+            <div class="card stats-card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-box-seam"></i> Total Components</h5>
+                    <p class="display-4 fw-bold">{{ total_components|intcomma }}</p>
                 </div>
             </div>
         </div>
-
-        <!-- Top Companies Section -->
-        <div class="stats-card">
-            <h2>Top Companies by Components</h2>
-            <p class="text-muted">Distribution of components across companies</p>
-            
-            {% for company in top_companies %}
-                <div class="mb-3">
-                    <div class="d-flex justify-content-between">
-                        <a href="{% url 'company_detail' company.company_id %}" class="text-decoration-none">
-                            {{ company.company_name }}
-                        </a>
-                        <span class="text-muted">{{ company.count|intcomma }} ({{ company.percentage|floatformat:1 }}%)</span>
-                    </div>
-                    <div class="progress">
-                        <div class="progress-bar company-bar" role="progressbar" 
-                             style="width: {{ company.percentage }}%" 
-                             aria-valuenow="{{ company.percentage }}" 
-                             aria-valuemin="0" 
-                             aria-valuemax="100"></div>
-                    </div>
+        <div class="col-md-4">
+            <div class="card stats-card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-archive"></i> Unique CMUs</h5>
+                    <p class="display-4 fw-bold">{{ total_cmus|intcomma }}</p>
                 </div>
-            {% endfor %}
-        </div>
-
-        <!-- Technology Distribution Section - Reverted to Top N with links -->
-        <div class="stats-card mb-4">
-            <h2>Top {{ tech_distribution|length }} Technologies by Components</h2>
-            <p class="text-muted">Distribution of components by technology type</p>
-            
-            {% for tech in tech_distribution %}
-                <div class="mb-3">
-                    <div class="d-flex justify-content-between">
-                        <!-- Link to dedicated technology search results page -->
-                        <a href="{% url 'technology_search' technology_name_encoded=tech.technology|urlencode %}" class="text-decoration-none">
-                            {{ tech.technology }}
-                        </a>
-                        <span class="text-muted">{{ tech.count|intcomma }} ({{ tech.percentage|floatformat:1 }}%)</span>
-                    </div>
-                    <div class="progress">
-                        <div class="progress-bar tech-bar" role="progressbar" 
-                             style="width: {{ tech.percentage }}%" 
-                             aria-valuenow="{{ tech.percentage }}" 
-                             aria-valuemin="0" 
-                             aria-valuemax="100"></div>
-                    </div>
-                </div>
-            {% empty %}
-                <div class="list-group-item">No technology data available.</div>
-            {% endfor %}
-        </div>
-
-        <!-- Delivery Year Distribution Section -->
-        <div class="stats-card">
-            <h2>Delivery Year Distribution</h2>
-            <p class="text-muted">Distribution of components by delivery year</p>
-            
-            {% for year in year_distribution %}
-                <div class="mb-3">
-                    <div class="d-flex justify-content-between">
-                        <span>{{ year.delivery_year }}</span>
-                        <span class="text-muted">{{ year.count|intcomma }} ({{ year.percentage|floatformat:1 }}%)</span>
-                    </div>
-                    <div class="progress">
-                        <div class="progress-bar year-bar" role="progressbar" 
-                             style="width: {{ year.percentage }}%" 
-                             aria-valuenow="{{ year.percentage }}" 
-                             aria-valuemin="0" 
-                             aria-valuemax="100"></div>
-                    </div>
-                </div>
-            {% endfor %}
-        </div>
-
-        <!-- New: Top Components by De-rated Capacity -->
-        <div class="card mb-4 stats-card">
-            <div class="card-header">Top {{ top_derated_components|length }} Components by De-rated Capacity (MW)</div>
-            <ul class="list-group list-group-flush">
-                {% for comp in top_derated_components %}
-                    <li class="list-group-item">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <!-- Link to component detail page -->
-                            <a href="{% url 'component_detail' pk=comp.id %}" class="fw-bold text-decoration-none">
-                                {{ comp.location|truncatechars:60 }}
-                            </a>
-                            <span class="badge bg-info rounded-pill">{{ comp.derated_capacity|floatformat:3 }} MW</span>
-                        </div>
-                        <div class="small text-muted">
-                            {{ comp.company_name|truncatechars:50 }}
-                        </div>
-                    </li>
-                {% empty %}
-                    <li class="list-group-item">No de-rated capacity data available or processed.</li>
-                {% endfor %}
-            </ul>
-            <!-- Add Show More link -->
-            {% if top_derated_components %}
-            <div class="card-footer text-center">
-                <a href="{% url 'derated_capacity_list' %}">Show full list...</a>
             </div>
-            {% endif %}
+        </div>
+        <div class="col-md-4">
+            <div class="card stats-card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-building"></i> Total Companies</h5>
+                    <p class="display-4 fw-bold">{{ total_companies|intcomma }}</p>
+                </div>
+            </div>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
+    <div class="row">
+        <!-- Left Column: Companies & Technologies -->
+        <div class="col-lg-6 mb-4">
+            <!-- Top Companies Section -->
+            <div class="stats-card mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h2>Top {{ top_companies_data|length }} Companies</h2>
+                    <!-- Sort Controls -->
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Sort companies by">
+                        <a href="?company_sort=count" class="btn {% if company_sort == 'count' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+                            By Component Count
+                        </a>
+                        <a href="?company_sort=capacity" class="btn {% if company_sort == 'capacity' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+                            By Total Capacity (MW)
+                        </a>
+                    </div>
+                </div>
+                <p class="text-muted">
+                    {% if company_sort == 'count' %}
+                        Showing companies ranked by the number of components they operate.
+                    {% else %}
+                        Showing companies ranked by their total de-rated capacity (MW).
+                    {% endif %}
+                </p>
+                
+                {% for company in top_companies_data %}
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between">
+                             <a href="{% url 'company_detail' company_id=company.company_id %}" class="text-decoration-none">
+                                {{ company.company_name|truncatechars:45 }}
+                            </a>
+                            <span class="text-muted">
+                                {% if company_sort == 'count' %}
+                                    {{ company.count|intcomma }} components
+                                {% else %}
+                                    {{ company.total_capacity|floatformat:2|intcomma }} MW
+                                {% endif %}
+                            </span>
+                        </div>
+                        {% if company_sort == 'count' %}
+                        <div class="progress mt-1" style="height: 5px;">
+                            <div class="progress-bar company-bar" role="progressbar" 
+                                 style="width: {{ company.percentage }}%" 
+                                 aria-valuenow="{{ company.percentage }}" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100"></div>
+                        </div>
+                        {% endif %}
+                    </div>
+                {% empty %}
+                    <div class="list-group-item">No company data available.</div>
+                {% endfor %}
+            </div>
+
+            <!-- Technology Distribution Section -->
+            <div class="stats-card mb-4">
+                <h2>Top {{ tech_distribution|length }} Technologies by Components</h2>
+                <p class="text-muted">Distribution of components by technology type</p>
+                
+                {% for tech in tech_distribution %}
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between">
+                            <!-- Link to dedicated technology search results page -->
+                            <a href="{% url 'technology_search' technology_name_encoded=tech.technology|urlencode %}" class="text-decoration-none">
+                                {{ tech.technology|truncatechars:45 }}
+                            </a>
+                            <span class="text-muted">{{ tech.count|intcomma }} ({{ tech.percentage|floatformat:1 }}%)</span>
+                        </div>
+                        <div class="progress mt-1" style="height: 5px;">
+                            <div class="progress-bar tech-bar" role="progressbar" 
+                                 style="width: {{ tech.percentage }}%" 
+                                 aria-valuenow="{{ tech.percentage }}" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100"></div>
+                        </div>
+                    </div>
+                {% empty %}
+                    <div class="list-group-item">No technology data available.</div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Right Column: Delivery Years & Top Capacity -->
+        <div class="col-lg-6">
+            <!-- Delivery Year Distribution Section -->
+            <div class="stats-card mb-4">
+                <h2>Delivery Year Distribution</h2>
+                <p class="text-muted">Distribution of components by delivery year</p>
+                
+                {% for year in year_distribution %}
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between">
+                            <span>{{ year.delivery_year }}</span>
+                            <span class="text-muted">{{ year.count|intcomma }} ({{ year.percentage|floatformat:1 }}%)</span>
+                        </div>
+                        <div class="progress mt-1" style="height: 5px;">
+                            <div class="progress-bar year-bar" role="progressbar" 
+                                 style="width: {{ year.percentage }}%" 
+                                 aria-valuenow="{{ year.percentage }}" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100"></div>
+                        </div>
+                    </div>
+                {% empty %}
+                    <div class="list-group-item">No delivery year data available.</div>
+                {% endfor %}
+            </div>
+
+            <!-- Top Components by De-rated Capacity -->
+            <div class="card mb-4 stats-card">
+                <div class="card-header">Top {{ top_derated_components|length }} Components by De-rated Capacity (MW)</div>
+                <ul class="list-group list-group-flush">
+                    {% for comp in top_derated_components %}
+                        <li class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <!-- Link to component detail page -->
+                                <a href="{% url 'component_detail' pk=comp.id %}" class="fw-bold text-decoration-none">
+                                    {{ comp.location|truncatechars:60 }}
+                                </a>
+                                <span class="badge bg-info rounded-pill">{{ comp.derated_capacity|floatformat:2|intcomma }} MW</span>
+                            </div>
+                            <div class="small text-muted">
+                                {{ comp.company_name|truncatechars:50 }}
+                            </div>
+                        </li>
+                    {% empty %}
+                        <li class="list-group-item">No de-rated capacity data available or processed.</li>
+                    {% endfor %}
+                </ul>
+                <!-- Add Show More link -->
+                {% if top_derated_components %}
+                <div class="card-footer text-center">
+                    <a href="{% url 'derated_capacity_list' %}">Show full list...</a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
