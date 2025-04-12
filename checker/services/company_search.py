@@ -1025,7 +1025,7 @@ def company_detail(request, company_id):
                 logger.warning(f"No records found in CMU registry for company name: {context['company_name']}")
             
             # Organize by year and auction
-            context['year_auction_data'] = _organize_year_data(company_records, 'desc') # Default sort desc for years here
+            context['year_auction_data'] = _organize_year_data(company_records, sort_order)
             logger.info(f"Organized data into {len(context['year_auction_data'])} years.")
             # --- End Year/Auction View Logic ---
             

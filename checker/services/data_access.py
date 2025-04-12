@@ -124,7 +124,7 @@ def get_cmu_dataframe():
         
         # Get data from database
         cmu_records = Component.objects.values(
-            'cmu_id', 'company_name', 'delivery_year'
+            'cmu_id', 'company_name', 'delivery_year', 'auction_name'
         ).distinct()
         
         # Convert to a DataFrame for backward compatibility
@@ -134,7 +134,8 @@ def get_cmu_dataframe():
                 "CMU ID": record['cmu_id'],
                 "Name of Applicant": record['company_name'],
                 "Full Name": record['company_name'],
-                "Delivery Year": record['delivery_year']
+                "Delivery Year": record['delivery_year'],
+                "Auction Name": record['auction_name']
             })
         
         cmu_df = pd.DataFrame(df_data)
