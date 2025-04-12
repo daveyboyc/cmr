@@ -264,15 +264,15 @@
                 <div class="alert alert-info">
                     <span class="bi bi-info-circle"></span> Click on the blue location links to view component details
                 </div>
-                {% for query, matches in component_results.items %}
-                    <div class="results-list">
-                        {% for match in matches %}
-                            <div class="result-item">
-                                {{ match|safe }}
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% endfor %}
+                <div class="results-list">
+                    {% for component in page_obj %}
+                        <div class="result-item mb-3"> {# Add bottom margin for spacing #}
+                            {% include "checker/_component_card.html" with component=component %}
+                        </div>
+                    {% empty %}
+                        <div class="alert alert-warning">No components found matching your criteria for this page.</div>
+                    {% endfor %}
+                </div>
 
                 <!-- Pagination for Components -->
                 {% if component_count and total_pages > 1 %}
