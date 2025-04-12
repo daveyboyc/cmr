@@ -224,8 +224,6 @@ def search_components_service(request, extra_context=None, return_data_only=Fals
                     components_for_template.append(comp_dict)
                 # --- END Prepare Components --- 
                 
-                # ... (rest of the function: prepare context, handle cache, render) ...
-                
                 # Update context preparation
                 context = {
                     "query": query,
@@ -253,9 +251,6 @@ def search_components_service(request, extra_context=None, return_data_only=Fals
                 
                 # ... (cache saving logic might need adjustment based on paginated data) ...
                 
-                # Render the main search results template
-                return render(request, "checker/search.html", context)
-
             except Exception as e:
                 logger.exception(f"Error in search_components_service: {str(e)}")
                 # Render error page or fallback
@@ -310,7 +305,8 @@ def search_components_service(request, extra_context=None, return_data_only=Fals
         "has_prev": has_prev,
         "has_next": has_next,
         "page_range": page_range,
-        "unified_search": True
+        "unified_search": True,
+        "page_obj": components_page, # Add the paginated components object here
     }
 
     return render(request, "checker/search.html", context)
