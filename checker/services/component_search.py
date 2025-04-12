@@ -202,8 +202,18 @@ def search_components_service(request, extra_context=None, return_data_only=Fals
                 for comp in page_components:
                     # Determine display capacity
                     display_capacity = comp.derated_capacity_mw
+                    registry_fallback_value = None # Initialize fallback value
                     if display_capacity is None:
-                        display_capacity = registry_capacity_map.get(comp.cmu_id)
+                        registry_fallback_value = registry_capacity_map.get(comp.cmu_id)
+                        display_capacity = registry_fallback_value # Assign fallback if DB was None
+                    
+                    # Log the capacity determination process
+                    logger.info(
+                        f"Capacity Check CMU {comp.cmu_id}: "
+                        f"DB={comp.derated_capacity_mw}, "
+                        f"RegistryFallback={registry_fallback_value}, "
+                        f"FinalDisplay={display_capacity}"
+                    )
                     
                     # Convert model object to dict and add display_capacity
                     # (Adapt this based on how _component_card.html expects data)
