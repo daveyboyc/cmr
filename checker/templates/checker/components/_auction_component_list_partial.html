@@ -3,12 +3,22 @@
 {% if components_by_cmu %}
   <ul class="list-group list-group-flush">
     {% for cmu_id, component_list in components_by_cmu.items %}
+      {% with first_component=component_list.0 %}{# Get the first component to access shared CMU data #}
       <li class="list-group-item">
         <div class="d-flex justify-content-between align-items-center mb-2">
-          <strong class="me-3">CMU ID: {{ cmu_id }}</strong>
-          <span class="badge bg-secondary rounded-pill">{{ component_list|length }} Component{{ component_list|length|pluralize }}</span>
+          {# Display CMU ID and its associated capacity badge #}
+          <div>
+            <strong class="me-3">CMU ID: {{ cmu_id }}</strong>
+            {% if first_component.display_capacity is not None %}
+                <span class="badge bg-info me-1" title="CMU De-Rated Capacity (Calculated)">{{ first_component.display_capacity|floatformat:2 }} MW</span>
+            {% else %}
+                <span class="badge bg-light text-dark me-1" title="CMU De-Rated Capacity (Calculated)">De-Rated N/A</span>
+            {% endif %}
+          </div>
+          <span class="badge bg-secondary rounded-pill">{{ component_list|length }} Component Record{{ component_list|length|pluralize }}</span>
         </div>
         <ul class="list-unstyled ms-3">
+          {# Loop through components for this CMU - NO capacity badge here #}
           {% for component in component_list %}
             <li class="mb-1">
               <a href="{% url 'component_detail' pk=component.id %}" class="text-decoration-none">
@@ -16,18 +26,16 @@
                 {{ component.location|default:"N/A" }} 
                 {% if component.description %}({{ component.description|truncatechars:50 }}){% endif %}
               </a>
-              {% if component.display_capacity is not None %}
-                <span class="badge bg-primary ms-2">{{ component.display_capacity|floatformat:2 }} MW</span>
-              {% else %}
-                <span class="badge bg-light text-dark ms-2">N/A MW</span>
-              {% endif %}
-              {% if component.technology %}
+              {# Removed capacity badge from individual component line #}
+              {# Add other relevant badges IF they differ per component record (e.g., maybe specific status?) #}
+               {% if component.technology %}
                  <span class="badge bg-info ms-2">{{ component.technology }}</span>
-              {% endif %}
+               {% endif %}
             </li>
           {% endfor %}
         </ul>
       </li>
+      {% endwith %}
     {% endfor %}
   </ul>
 {% else %}

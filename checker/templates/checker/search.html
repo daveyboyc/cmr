@@ -288,19 +288,19 @@
                                     <span class="badge bg-primary me-1">{{ component.technology }}</span>
                                 {% endif %}
                                 
-                                {# Calculated Display Capacity (current logic) #}
+                                {# Calculated Display Capacity (current logic) - Clarify it relates to CMU #}
                                 {% if component.display_capacity is not None %}
-                                    <span class="badge bg-info me-1" title="Display Capacity (Calculated)">{{ component.display_capacity|floatformat:2 }} MW</span>
+                                    <span class="badge bg-info me-1" title="CMU Display Capacity (Calculated)">{{ component.display_capacity|floatformat:2 }} MW</span>
                                 {% else %}
-                                    <span class="badge bg-light text-dark me-1" title="Display Capacity (Calculated)">De-Rated N/A</span>
+                                    <span class="badge bg-light text-dark me-1" title="CMU Display Capacity (Calculated)">CMU De-Rated N/A</span>
                                 {% endif %}
 
-                                {# Raw DB De-Rated Capacity (for debugging/comparison) #}
+                                {# Raw DB De-Rated Capacity (for debugging/comparison) - Clarify it relates to CMU #}
                                 {% if component.derated_capacity_mw is not None %}
-                                    <span class="badge bg-secondary me-1" title="DB De-Rated MW">DB: {{ component.derated_capacity_mw|floatformat:2 }} MW</span>
+                                    <span class="badge bg-secondary me-1" title="CMU DB De-Rated MW">CMU DB: {{ component.derated_capacity_mw|floatformat:2 }} MW</span>
                                 {% endif %}
                                 
-                                {# Auction Info #}
+                                {# Auction Info - Context for this specific component record #}
                                 {% if component.auction_name %}
                                     <span class="badge bg-warning text-dark me-1">{{ component.auction_name }}</span>
                                 {% endif %}
