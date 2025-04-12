@@ -208,7 +208,6 @@ def search_components_service(request, extra_context=None, return_data_only=Fals
                     # Convert model object to dict and add display_capacity
                     # (Adapt this based on how _component_card.html expects data)
                     comp_dict = {
-                        # ... copy necessary fields from comp object ...
                         'id': comp.id,
                         'location': comp.location,
                         'company_name': comp.company_name,
@@ -219,6 +218,8 @@ def search_components_service(request, extra_context=None, return_data_only=Fals
                         'derated_capacity_mw': comp.derated_capacity_mw, # Keep original for info
                         'display_capacity': display_capacity, # Use this for the badge
                         'additional_data': comp.additional_data, # Pass if needed by card
+                        'auction_name': comp.auction_name, # Add auction name
+                        'delivery_year': comp.delivery_year, # Add delivery year
                         # ... add other fields needed by _component_card.html ...
                     }
                     components_for_template.append(comp_dict)

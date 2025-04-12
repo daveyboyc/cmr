@@ -287,12 +287,26 @@
                                 {% if component.technology %}
                                     <span class="badge bg-primary me-1">{{ component.technology }}</span>
                                 {% endif %}
+                                
+                                {# Calculated Display Capacity (current logic) #}
                                 {% if component.display_capacity is not None %}
-                                    <span class="badge bg-info me-1" title="De-Rated Capacity">{{ component.display_capacity|floatformat:2 }} MW</span>
+                                    <span class="badge bg-info me-1" title="Display Capacity (Calculated)">{{ component.display_capacity|floatformat:2 }} MW</span>
                                 {% else %}
-                                    <span class="badge bg-light text-dark me-1" title="De-Rated Capacity">De-Rated N/A</span>
+                                    <span class="badge bg-light text-dark me-1" title="Display Capacity (Calculated)">De-Rated N/A</span>
                                 {% endif %}
-                                {# You can add more badges or details here if needed #}
+
+                                {# Raw DB De-Rated Capacity (for debugging/comparison) #}
+                                {% if component.derated_capacity_mw is not None %}
+                                    <span class="badge bg-secondary me-1" title="DB De-Rated MW">DB: {{ component.derated_capacity_mw|floatformat:2 }} MW</span>
+                                {% endif %}
+                                
+                                {# Auction Info #}
+                                {% if component.auction_name %}
+                                    <span class="badge bg-warning text-dark me-1">{{ component.auction_name }}</span>
+                                {% endif %}
+                                {% if component.delivery_year %}
+                                    <span class="badge bg-secondary me-1">{{ component.delivery_year }}</span>
+                                {% endif %}
                             </div>
                         </div>
                     {% empty %}
