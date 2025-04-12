@@ -937,18 +937,25 @@ def statistics_view(request):
     
     # --- Determine Company Sort Method --- 
     company_sort = request.GET.get('company_sort', 'count') # Default to count
+    company_order = request.GET.get('company_order', 'desc') # Default to descending
     if company_sort not in ['count', 'capacity']:
         company_sort = 'count' # Fallback to default
+    if company_order not in ['asc', 'desc']:
+        company_order = 'desc' # Fallback to default
+        
+    # Determine DB sort prefix
+    db_sort_prefix = '-' if company_order == 'desc' else ''
         
     # --- Fetch Top Companies based on Sort Method --- 
     top_companies_data = []
     if company_sort == 'count':
-        # Sort by Component Count (Existing Logic)
+        # Sort by Component Count
+        sort_field = f"{db_sort_prefix}count"
         top_companies_data = Component.objects.exclude(company_name__isnull=True) \
                                  .exclude(company_name='') \
                                  .values('company_name') \
                                  .annotate(count=Count('id')) \
-                                 .order_by('-count')[:COMPANY_LIMIT]
+                                 .order_by(sort_field)[:COMPANY_LIMIT]
         # Add company_id and calculate percentage for display
         total_components_for_pct = Component.objects.count() # Need total for percentage
         for company in top_companies_data:
@@ -957,19 +964,20 @@ def statistics_view(request):
                  company['percentage'] = (company['count'] / total_components_for_pct) * 100
             else:
                  company['percentage'] = 0
-        logger.info(f"Fetched top {len(top_companies_data)} companies sorted by count.")
+        logger.info(f"Fetched top {len(top_companies_data)} companies sorted by count ({company_order}).")
     else: 
         # Sort by Total De-rated Capacity
+        sort_field = f"{db_sort_prefix}total_capacity"
         top_companies_data = Component.objects.exclude(company_name__isnull=True) \
                                  .exclude(company_name='') \
                                  .exclude(derated_capacity_mw__isnull=True) \
                                  .values('company_name') \
                                  .annotate(total_capacity=Sum('derated_capacity_mw')) \
-                                 .order_by('-total_capacity')[:COMPANY_LIMIT]
+                                 .order_by(sort_field)[:COMPANY_LIMIT]
         # Add company_id for links
         for company in top_companies_data:
             company['company_id'] = normalize(company['company_name'])
-        logger.info(f"Fetched top {len(top_companies_data)} companies sorted by total capacity.")
+        logger.info(f"Fetched top {len(top_companies_data)} companies sorted by total capacity ({company_order}).")
         
     top_companies_data = list(top_companies_data) # Convert queryset to list
 
@@ -1036,6 +1044,7 @@ def statistics_view(request):
     context = {
         'top_companies_data': top_companies_data, # Use the fetched data
         'company_sort': company_sort, # Pass sort method to template
+        'company_order': company_order, # Pass sort order to template
         'tech_distribution': tech_distribution,
         'year_distribution': year_distribution,
         'top_derated_components': top_derated_components, # Add new list to context

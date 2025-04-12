@@ -52,11 +52,19 @@
                     <h2>Top {{ top_companies_data|length }} Companies</h2>
                     <!-- Sort Controls -->
                     <div class="btn-group btn-group-sm" role="group" aria-label="Sort companies by">
-                        <a href="?company_sort=count" class="btn {% if company_sort == 'count' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-                            By Component Count {% if company_sort == 'count' %}<i class="bi bi-arrow-down-short"></i>{% endif %}
+                        <a href="?company_sort=count&company_order={% if company_sort == 'count' and company_order == 'desc' %}asc{% else %}desc{% endif %}" 
+                           class="btn {% if company_sort == 'count' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+                            By Component Count 
+                            {% if company_sort == 'count' %}
+                                {% if company_order == 'desc' %}<i class="bi bi-arrow-down-short"></i>{% else %}<i class="bi bi-arrow-up-short"></i>{% endif %}
+                            {% endif %}
                         </a>
-                        <a href="?company_sort=capacity" class="btn {% if company_sort == 'capacity' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-                            By Total Capacity (MW) {% if company_sort == 'capacity' %}<i class="bi bi-arrow-down-short"></i>{% endif %}
+                        <a href="?company_sort=capacity&company_order={% if company_sort == 'capacity' and company_order == 'desc' %}asc{% else %}desc{% endif %}" 
+                           class="btn {% if company_sort == 'capacity' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+                            By Total Capacity (MW) 
+                            {% if company_sort == 'capacity' %}
+                                {% if company_order == 'desc' %}<i class="bi bi-arrow-down-short"></i>{% else %}<i class="bi bi-arrow-up-short"></i>{% endif %}
+                            {% endif %}
                         </a>
                     </div>
                 </div>
