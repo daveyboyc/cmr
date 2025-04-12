@@ -9,6 +9,7 @@ from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.template.loader import render_to_string
 from ..models import Component, CMURegistry
 import json
+from django.db.models import Q
 
 from ..utils import normalize, get_cache_key
 from .data_access import (
