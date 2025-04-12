@@ -33,6 +33,7 @@ from django.core.cache import cache
 
 from . import services
 from .services import data_access
+from django.template.loader import render_to_string
 
 # Clear all search caches for previously cached queries that might return irrelevant results
 # This is a one-time action when the server starts to ensure consistency
