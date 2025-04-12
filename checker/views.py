@@ -1711,3 +1711,88 @@ def derated_capacity_list(request):
     }
 
     return render(request, "checker/derated_capacity_list.html", context)
+
+@require_http_methods(["GET"])
+def company_capacity_list(request):
+    """Displays a full, paginated list of companies ranked by total De-rated Capacity."""
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+    from django.db.models import Sum
+    from .utils import normalize
+    
+    logger.info("Full Company list by Total Capacity requested")
+    page = request.GET.get("page", 1)
+    sort_order_param = request.GET.get("sort", "desc") # Default to descending (largest first)
+    if sort_order_param not in ["asc", "desc"]:
+        sort_order_param = "desc" # Fallback to default
+    
+    per_page = 50 # Companies per page
+    start_time = time.time()
+    
+    # Determine database sort order based on parameter
+    db_sort_prefix = '-' if sort_order_param == 'desc' else ''
+    db_sort_field = f'{db_sort_prefix}total_capacity'
+    
+    company_list = []
+    error_message = None
+    total_count = 0
+    companies_page = None
+    paginator = None
+    
+    try:
+        # Query companies ranked by total capacity (similar to statistics view)
+        company_queryset = Component.objects.exclude(company_name__isnull=True) \
+                                    .exclude(company_name='') \
+                                    .exclude(derated_capacity_mw__isnull=True) \
+                                    .values('company_name') \
+                                    .annotate(total_capacity=Sum('derated_capacity_mw')) \
+                                    .order_by(db_sort_field)
+                                    
+        total_count = company_queryset.count()
+        logger.info(f"Found {total_count} companies with de-rated capacity, sorting by {db_sort_field}")
+        
+        # Apply pagination directly to the queryset
+        paginator = Paginator(company_queryset, per_page)
+        try:
+            companies_page = paginator.page(page)
+        except PageNotAnInteger:
+            companies_page = paginator.page(1)
+        except EmptyPage:
+            companies_page = paginator.page(paginator.num_pages)
+            
+        # Prepare data for the template (add company_id)
+        company_list = []
+        for comp_data in companies_page.object_list:
+             # Normalize company name to create an ID for the link
+            comp_data['company_id'] = normalize(comp_data['company_name'])
+            company_list.append(comp_data)
+            
+    except Exception as e:
+        logger.error(f"Error processing company capacity list: {e}")
+        error_message = f"Error processing company list: {e}"
+        # Ensure variables are in a safe state for the template
+        company_list = []
+        total_count = 0
+        companies_page = None 
+        paginator = Paginator([], per_page) # Empty paginator
+        companies_page = paginator.page(1)
+    
+    api_time = time.time() - start_time
+    
+    context = {
+        "page_obj": companies_page,
+        "object_list": company_list, # Pass the processed list for the current page
+        "paginator": paginator,
+        "total_count": total_count,
+        "api_time": api_time,
+        "error": error_message,
+        "sort_order": sort_order_param, # Pass sort order to template
+        # Pagination context variables
+        "page": companies_page.number if companies_page else 1, 
+        "per_page": per_page,
+        "total_pages": paginator.num_pages if paginator else 0,
+        "has_prev": companies_page.has_previous() if companies_page else False,
+        "has_next": companies_page.has_next() if companies_page else False,
+        "page_range": paginator.get_elided_page_range(number=companies_page.number if companies_page else 1, on_each_side=1, on_ends=1) if paginator else []
+    }
+
+    return render(request, "checker/company_capacity_list.html", context)

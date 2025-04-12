@@ -103,6 +103,13 @@
                 {% empty %}
                     <div class="list-group-item">No company data available.</div>
                 {% endfor %}
+                
+                <!-- Show Full List Link (only when sorted by capacity) -->
+                {% if company_sort == 'capacity' and top_companies_data %}
+                    <div class="text-center mt-3">
+                        <a href="{% url 'company_capacity_list' %}">Show full list...</a>
+                    </div>
+                {% endif %}
             </div>
 
             <!-- Technology Distribution Section -->
