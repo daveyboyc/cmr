@@ -172,7 +172,7 @@
                             </button>
                             <div id="auction-content-{{ auction_id }}" class="auction-content collapse border rounded p-3 mb-2"
                                  hx-get="/api/auction-components/{{ company_id }}/{{ year_info.year|url_safe }}/{{ auction_name|url_safe }}/"
-                                 hx-trigger="load-components from:body"
+                                 hx-trigger="intersect once"
                                  hx-target="find .auction-data"
                                  hx-indicator="#spinner-{{ auction_id }}"
                                  hx-swap="innerHTML">
