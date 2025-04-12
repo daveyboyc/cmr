@@ -9,6 +9,7 @@ from django.core.cache import cache
 from django.http import HttpResponse
 from django.template.loader import render_to_string
 import requests
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 
 from ..utils import normalize, get_cache_key, format_location_list, safe_url_param, from_url_param
 from .data_access import (
@@ -933,137 +934,114 @@ def get_cmu_details(cmu_id):
 
 
 def company_detail(request, company_id):
-    """
-    View function for company detail page.
-    Displays all data related to a specific company.
-    """
+    """Displays details for a specific company, including years, auctions, and potentially components."""
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+    from ..models import Component
+    from django.db.models import Sum # Import Sum
+    
+    logger.info(f"Company detail page requested for company_id: {company_id}")
+    
+    # Determine view mode and sort order from GET parameters
+    view_mode = request.GET.get('view_mode', 'year_auction')
+    sort_order = request.GET.get('sort', 'desc')
+    page = request.GET.get("page", 1)
+    per_page = 50 # Components per page for capacity view
+    
+    if view_mode not in ['year_auction', 'capacity']:
+        view_mode = 'year_auction'
+    if sort_order not in ['asc', 'desc']:
+        sort_order = 'desc'
+        
+    context = {
+        "company_id": company_id,
+        "company_name": None,
+        "view_mode": view_mode,
+        "sort_order": sort_order,
+        "error": None,
+        "year_auction_data": [],
+        "page_obj": None,
+        "paginator": None,
+        "total_count": 0,
+    }
+    
     try:
-        # Get company name from component database directly
-        from ..models import Component
-        from django.db.models import Count
-        import logging
+        # --- Find the primary company name from DB --- 
+        # This ensures we use the name stored in our Component table
+        company_record = Component.objects.filter(company_id_normalized=company_id).values('company_name').first()
+        if company_record and company_record['company_name']:
+            context['company_name'] = company_record['company_name']
+            logger.info(f"Found company name '{context['company_name']}' for id '{company_id}' from Component DB")
+        else:
+            # Fallback: Try to find any name variation (less reliable)
+            logger.warning(f"Could not find exact company name for id '{company_id}' via normalized field, attempting broader search...")
+            all_names = Component.objects.values_list('company_name', flat=True).distinct()
+            for name in all_names:
+                if name and normalize(name) == company_id:
+                    context['company_name'] = name
+                    logger.info(f"Found company name '{context['company_name']}' for id '{company_id}' via iteration.")
+                    break
         
-        logger = logging.getLogger(__name__)
-        logger.info(f"Loading company detail for company_id: {company_id}")
+        if not context['company_name']:
+            context["error"] = f"Company with ID '{company_id}' not found in component data."
+            logger.error(context["error"])
+            return render(request, "checker/company_detail.html", context)
+        # --- End Finding Company Name ---
         
-        # Step 1: Find all company name variations that match the normalized company_id
-        all_company_names = Component.objects.values_list('company_name', flat=True).distinct()
-        company_name_variations = []
-        primary_company_name = None
-        for name in all_company_names:
-            if name and normalize(name) == company_id:
-                company_name_variations.append(name)
-                if primary_company_name is None: # Use the first match as the primary display name
-                    primary_company_name = name
-
-        # If no matching company names found at all, it's an error
-        if not company_name_variations:
-            logger.error(f"Company not found for normalized ID: {company_id}")
-            return render(request, "checker/company_detail.html", {
-                "error": f"Company not found: {company_id}",
-                "company_name": None
-            })
-
-        # Use the first found name for display, but query using all variations
-        logger.info(f"Found company variations for {company_id}: {company_name_variations}")
-        
-        # Step 2: Get all delivery years and auctions using all found company name variations
-        years_query = Component.objects.filter(company_name__in=company_name_variations) \
-                               .values('delivery_year', 'auction_name', 'cmu_id') \
-                               .distinct()
-        
-        # Group by year and auction (existing logic is fine)
-        year_auction_data = []
-        years_mapping = {}
-        
-        # First, collect all unique years
-        for item in years_query:
-            year = item['delivery_year']
-            if not year or year == 'nan':
-                continue
-                
-            if year not in years_mapping:
-                # Use the URL company_id for consistency in HTML IDs
-                year_id = f"year-{normalize(year)}-{company_id}"
-                years_mapping[year] = {
-                    'year': year,
-                    'auctions': {},
-                    'auctions_display': [],
-                    'year_id': year_id
-                }
-        
-        # Then add auctions to each year
-        for item in years_query:
-            year = item['delivery_year']
-            auction_name = item['auction_name']
-            cmu_id_val = item['cmu_id'] # Renamed to avoid conflict
+        if view_mode == 'capacity':
+            # --- Capacity View Logic --- 
+            logger.info(f"Fetching components sorted by capacity ({sort_order}) for {context['company_name']}")
+            db_sort_prefix = '-' if sort_order == 'desc' else ''
+            db_sort_field = f'{db_sort_prefix}derated_capacity_mw'
             
-            if not year or year == 'nan' or not auction_name or auction_name == 'nan':
-                continue
-                
-            if year in years_mapping:
-                auction_data = years_mapping[year]
-                
-                # Only add auction if not already added
-                if auction_name not in auction_data['auctions']:
-                    auction_data['auctions'][auction_name] = []
+            # Query components for this company, sorted by capacity
+            component_queryset = Component.objects.filter(company_name=context['company_name']) \
+                                              .exclude(derated_capacity_mw__isnull=True) \
+                                              .order_by(db_sort_field) \
+                                              .only('id', 'location', 'description', 'derated_capacity_mw', 'technology')
+                                              
+            total_count = component_queryset.count()
+            context['total_count'] = total_count
+            logger.info(f"Found {total_count} components with capacity data.")
 
-                    # Extract auction type for badge
-                    auction_type = ""
-                    badge_class = "bg-secondary"
-                    if "T-1" in auction_name:
-                        auction_type = "T-1"
-                        badge_class = "bg-warning"
-                    elif "T-4" in auction_name:
-                        auction_type = "T-4"
-                        badge_class = "bg-info"
-                    # Added T-3 check based on other code parts
-                    elif "T-3" in auction_name: 
-                        auction_type = "T-3"
-                        badge_class = "bg-success"
-                    else:
-                        auction_type = auction_name # Fallback
-                        
-                    # Create unique auction ID using URL company_id
-                    auction_id = f"auction-{normalize(year)}-{normalize(auction_name)}-{company_id}"
-                    
-                    # Add to display list
-                    auction_data['auctions_display'].append((auction_name, auction_id, badge_class, auction_type))
+            # Apply pagination
+            paginator = Paginator(component_queryset, per_page)
+            context['paginator'] = paginator
+            try:
+                components_page = paginator.page(page)
+                context['page_obj'] = components_page
+            except PageNotAnInteger:
+                context['page_obj'] = paginator.page(1)
+            except EmptyPage:
+                context['page_obj'] = paginator.page(paginator.num_pages)
+            # --- End Capacity View Logic ---
                 
-                # Add CMU ID to auction if not already added
-                if cmu_id_val not in auction_data['auctions'][auction_name]:
-                    auction_data['auctions'][auction_name].append(cmu_id_val)
-        
-        # Convert mapping to list
-        for year_data in years_mapping.values():
-            if year_data['auctions']:  # Only add years that have auctions
-                year_auction_data.append(year_data)
-                
-        # Sort the years
-        sort_order = request.GET.get("sort", "desc")
-        year_auction_data.sort(
-            key=lambda x: try_parse_year(x['year']),
-            reverse=(sort_order == "desc")
-        )
-        
-        logger.info(f"Found {len(year_auction_data)} years with auctions for company ID {company_id}")
+        else: 
+            # --- Year/Auction View Logic (Existing) --- 
+            logger.info(f"Fetching components grouped by year/auction for {context['company_name']}")
+            cmu_df, _ = get_cmu_dataframe()
+            if cmu_df is None:
+                raise ValueError("Could not load CMU registry data.")
 
-        return render(request, "checker/company_detail.html", {
-            "company_name": primary_company_name, # Display the primary name found
-            "company_id": company_id, # Pass the normalized ID from URL
-            "year_auction_data": year_auction_data,
-            "api_time": 0, # Since it's from DB
-            "sort_order": sort_order
-        })
-
+            # Find records for this specific company name
+            company_records = cmu_df[cmu_df["Full Name"] == context['company_name']]
+            
+            if company_records.empty:
+                # If no records found with the exact name, maybe log or handle differently?
+                # For now, we proceed, which might result in empty year_auction_data
+                logger.warning(f"No records found in CMU registry for company name: {context['company_name']}")
+            
+            # Organize by year and auction
+            context['year_auction_data'] = _organize_year_data(company_records, 'desc') # Default sort desc for years here
+            logger.info(f"Organized data into {len(context['year_auction_data'])} years.")
+            # --- End Year/Auction View Logic ---
+            
     except Exception as e:
-        logger.error(f"Error in company_detail: {str(e)}")
+        logger.error(f"Error fetching details for company '{company_id}': {str(e)}")
         logger.error(traceback.format_exc())
-        return render(request, "checker/company_detail.html", {
-            "error": f"Error loading company details: {str(e)}",
-            "company_name": None,
-            "traceback": traceback.format_exc() if request.GET.get("debug") else None
-        })
+        context["error"] = f"Error loading company details: {str(e)}"
+        context["traceback"] = traceback.format_exc() if request.GET.get("debug") else None
+
+    return render(request, "checker/company_detail.html", context)
 
 def _organize_year_data(company_records, sort_order):
     """
