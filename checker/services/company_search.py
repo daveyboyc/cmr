@@ -10,6 +10,7 @@ from django.http import HttpResponse
 from django.template.loader import render_to_string
 import requests
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+import re
 
 from ..utils import normalize, get_cache_key, format_location_list, safe_url_param, from_url_param
 from .data_access import (
@@ -1064,8 +1065,12 @@ def _organize_year_data(company_records, sort_order):
         # Create auctions_display list with required tuple format
         auctions_display = []
         for auction_name in auctions.keys():
-            # Generate a unique ID for this auction
-            auction_id = f"auction-{normalize(auction_name)}-{year.replace(' ', '-')}"
+            # Generate a unique and VALID ID for this auction
+            sanitized_auction_name = re.sub(r'[^a-zA-Z0-9-]+', '-', normalize(auction_name)) # Replace invalid chars with hyphen
+            sanitized_year = re.sub(r'[^a-zA-Z0-9-]+', '-', year.replace(' ', '-').lower())
+            auction_id = f"auction-{sanitized_auction_name}-{sanitized_year}" # Combine sanitized parts
+            # Ensure ID doesn't start/end with hyphen (optional but good practice)
+            auction_id = auction_id.strip('-')
             
             # Determine auction type and badge class
             auction_type = "Unknown"
