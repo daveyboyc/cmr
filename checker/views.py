@@ -244,8 +244,8 @@ def htmx_auction_components(request, company_id, year, auction_name):
             'company_id': company_id, # Pass company ID if needed by template links/logic
             'year': year, # Pass year if needed
         }
-        # Use the correct template name here
-        html_content = render_to_string('checker/components/auction_section.html', context)
+        # Use the new partial template name here
+        html_content = render_to_string('checker/components/_auction_component_list_partial.html', context)
         # --- End Process Results ---
 
     except Exception as e:

@@ -1,0 +1,37 @@
+{% load checker_tags %}
+
+{% if components_by_cmu %}
+  <ul class="list-group list-group-flush">
+    {% for cmu_id, component_list in components_by_cmu.items %}
+      <li class="list-group-item">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <strong class="me-3">CMU ID: {{ cmu_id }}</strong>
+          <span class="badge bg-secondary rounded-pill">{{ component_list|length }} Component{{ component_list|length|pluralize }}</span>
+        </div>
+        <ul class="list-unstyled ms-3">
+          {% for component in component_list %}
+            <li class="mb-1">
+              <a href="{% url 'component_detail' pk=component.id %}" class="text-decoration-none">
+                <i class="fas fa-cube me-1 text-muted"></i> <!-- Optional: Icon -->
+                {{ component.location|default:"N/A" }} 
+                {% if component.description %}({{ component.description|truncatechars:50 }}){% endif %}
+              </a>
+              {% if component.display_capacity is not None %}
+                <span class="badge bg-primary ms-2">{{ component.display_capacity|floatformat:2 }} MW</span>
+              {% else %}
+                <span class="badge bg-light text-dark ms-2">N/A MW</span>
+              {% endif %}
+              {% if component.technology %}
+                 <span class="badge bg-info ms-2">{{ component.technology }}</span>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <div class="p-3 text-muted">
+    No specific components found matching the criteria for this auction within this company/year.
+  </div>
+{% endif %} 
