@@ -1060,10 +1060,38 @@ def _organize_year_data(company_records, sort_order):
     year_data = []
     for year, auctions in year_auctions.items():
         year_id = f"year-{year.replace(' ', '-').lower()}"
+        
+        # Create auctions_display list with required tuple format
+        auctions_display = []
+        for auction_name in auctions.keys():
+            # Generate a unique ID for this auction
+            auction_id = f"auction-{normalize(auction_name)}-{year.replace(' ', '-')}"
+            
+            # Determine auction type and badge class
+            auction_type = "Unknown"
+            badge_class = "bg-secondary"  # Default
+            
+            if "T-1" in auction_name or "T1" in auction_name:
+                auction_type = "T-1"
+                badge_class = "bg-info"
+            elif "T-3" in auction_name or "T3" in auction_name:
+                auction_type = "T-3"
+                badge_class = "bg-primary"
+            elif "T-4" in auction_name or "T4" in auction_name:
+                auction_type = "T-4"
+                badge_class = "bg-success"
+            elif "TR" in auction_name:
+                auction_type = "TR"
+                badge_class = "bg-warning"
+                
+            # Add to display list as a tuple
+            auctions_display.append((auction_name, auction_id, badge_class, auction_type))
+        
         year_data.append({
             "year": year,
             "year_id": year_id,
-            "auctions": list(auctions.keys())
+            "auctions": list(auctions.keys()),
+            "auctions_display": auctions_display  # Add the formatted display data
         })
         
     # Sort by year
