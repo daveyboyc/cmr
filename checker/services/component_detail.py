@@ -101,7 +101,8 @@ def get_component_details(request, pk):
                 "Technology": target_component.get("Generating Technology Class", "N/A"),
                 "Generation Type": target_component.get("Generation Type", "N/A"),
                 "Connection Type": target_component.get("Connection Type", "N/A"),
-                "Capacity (MW)": target_component.get("Capacity (MW)", "N/A"),
+                "De-Rated Capacity": target_component.get("De-Rated Capacity", "N/A"),
+                "Connection / DSR Capacity": target_component.get("Connection / DSR Capacity", "N/A"),
                 "Type": target_component.get("Type", "N/A"),
             },
             "Auction Information": {
@@ -141,6 +142,40 @@ def get_component_details(request, pk):
             if not key_exists:
                 organized_data["Additional Information"][k] = v
 
+        # -- Add De-Rated Capacity Prioritization Logic --
+        capacity_from_registry = False
+        missing_values = {None, "N/A", ""}
+        component_capacity = target_component.get("De-Rated Capacity") # Get from component dict
+        registry_capacity = raw_cmu_data.get("De-Rated Capacity") if raw_cmu_data else None # Get from registry dict
+
+        # Check if component capacity is missing/invalid
+        is_component_capacity_missing = component_capacity in missing_values
+        try:
+            # Also treat non-float values as missing
+            if not is_component_capacity_missing:
+                float(component_capacity)
+        except (ValueError, TypeError):
+            is_component_capacity_missing = True
+            
+        # Check if registry capacity is valid
+        is_registry_capacity_valid = registry_capacity not in missing_values
+        if is_registry_capacity_valid:
+            try:
+                float(registry_capacity)
+            except (ValueError, TypeError):
+                is_registry_capacity_valid = False
+
+        # If component capacity is missing but registry is valid, use registry value
+        final_capacity_value = component_capacity # Default to component value
+        if is_component_capacity_missing and is_registry_capacity_valid:
+            final_capacity_value = registry_capacity
+            capacity_from_registry = True
+            logger.info(f"Component {pk}: Using De-Rated Capacity '{registry_capacity}' from CMU Registry.")
+            
+        # Update the Technical Details section with the prioritized value
+        organized_data.setdefault("Technical Details", {})["De-Rated Capacity"] = final_capacity_value
+        # -- End Prioritization Logic --
+
         # Remove empty sections
         organized_data = {k: v for k, v in organized_data.items() if v}
 
@@ -155,7 +190,8 @@ def get_component_details(request, pk):
             "location": target_component.get("Location and Post Code", "N/A"),
             "raw_component_data": raw_component_data,
             "raw_cmu_data": raw_cmu_data,
-            "source": "database" 
+            "source": "database",
+            "capacity_from_registry": capacity_from_registry # Pass flag to template
         })
 
     except Exception as e:

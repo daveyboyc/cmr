@@ -215,12 +215,22 @@
                 {% for section_title, section_data in organized_data.items %}
                     <div class="detail-section">
                         <h3 class="detail-title">{{ section_title }}</h3>
-                        {% for key, value in section_data.items %}
-                            <div class="detail-item">
-                                <span class="detail-label">{{ key|title|replace_underscores }}:</span>
-                                <span class="detail-value">{{ value|default:"N/A" }}</span>
-                            </div>
-                        {% endfor %}
+                        <div class="card mb-3">
+                            <div class="card-header">{{ section_title }}</div>
+                            <ul class="list-group list-group-flush">
+                                {% for key, value in section_data.items %}
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        <span>{{ key }}</span>
+                                        <span class="text-end">
+                                            {{ value|format_value }}
+                                            {% if section_title == "Technical Details" and key == "De-Rated Capacity" and capacity_from_registry %}
+                                                <span class="badge bg-secondary ms-1" title="Value sourced from CMU Registry data as component data was missing/invalid.">From Registry</span>
+                                            {% endif %}
+                                        </span>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
                     </div>
                 {% endfor %}
 
