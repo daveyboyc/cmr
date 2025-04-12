@@ -1018,10 +1018,6 @@ def statistics_view(request):
     
     # Calculate percentages for visual representation and add normalized company IDs
     for company in top_companies_data:
-        if total_components > 0:
-             company['percentage'] = (company['count'] / total_components) * 100
-        else:
-             company['percentage'] = 0
         company['company_id'] = normalize(company['company_name'])
         
     # Re-enable percentage calculation for tech distribution 
