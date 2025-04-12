@@ -214,73 +214,53 @@ def htmx_auction_components(request, company_id, year, auction_name):
                     logger.warning(f"Could not parse capacity from registry raw_data for CMU {entry.cmu_id}: {parse_error}")
         logger.info(f"Fetched registry capacity for {len(registry_capacity_map)} CMUs.")
 
-        # Organize components for the template
-        components_by_cmu_loc = {}
-        cmu_ids_processed = set()
-        for comp in components: # Iterate through the original queryset
-            cmu_id = comp.cmu_id
-            if not cmu_id:
-                continue
-
-            # Determine display capacity
+        # Organize components by CMU ID (for the template)
+        components_by_cmu = {}
+        for comp in components:
             display_capacity = comp.derated_capacity_mw
             if display_capacity is None:
-                display_capacity = registry_capacity_map.get(cmu_id)
-            comp.display_capacity = display_capacity # Attach for template
+                display_capacity = registry_capacity_map.get(comp.cmu_id)
+            
+            comp_data = {
+                'id': comp.id,
+                'location': comp.location,
+                'description': comp.description,
+                'technology': comp.technology,
+                'component_id': comp.component_id,
+                'display_capacity': display_capacity,
+                 # Add other fields needed by the template if any
+            }
+            
+            if comp.cmu_id not in components_by_cmu:
+                 components_by_cmu[comp.cmu_id] = []
+            components_by_cmu[comp.cmu_id].append(comp_data)
+        
+        logger.info(f"Organized {components.count()} components into {len(components_by_cmu)} CMU groups for template.")
 
-            # Add actual component ID if available
-            actual_component_id = None
-            if isinstance(comp.additional_data, dict):
-                actual_component_id = comp.additional_data.get("Component ID")
-            comp.actual_component_id = actual_component_id # Attach for template
-
-            loc = comp.location or "Unknown Location"
-
-            if cmu_id not in components_by_cmu_loc:
-                components_by_cmu_loc[cmu_id] = {}
-            if loc not in components_by_cmu_loc[cmu_id]:
-                components_by_cmu_loc[cmu_id][loc] = []
-
-            components_by_cmu_loc[cmu_id][loc].append(comp)
-            cmu_ids_processed.add(cmu_id)
-
-        # Check timeout before rendering
-        if time.time() - start_time > MAX_EXECUTION_TIME:
-            return HttpResponse("""
-                <div class='alert alert-warning'>
-                    <p><strong>The operation is taking too long.</strong></p>
-                    <p>We're working on improving performance. Please try again later or choose a different auction.</p>
-                </div>
-            """)
-
-        # Render template fragment
+        # Render the component list HTML
         context = {
-            'components_by_cmu_loc': components_by_cmu_loc,
-            'auction_name': auction_name,
-            'total_cmu_count': len(cmu_ids_processed),
-            'total_component_count': components.count(), # Use count() on original queryset
+            'components_by_cmu': components_by_cmu,
+            'auction_name': auction_name, # Pass auction name for context in template
+            'company_id': company_id, # Pass company ID if needed by template links/logic
+            'year': year, # Pass year if needed
         }
-        # Ensure the template name matches the file you created
-        html_content = render_to_string('checker/components/_auction_components_list.html', context)
+        # Use the correct template name here
+        html_content = render_to_string('checker/components/auction_section.html', context)
         # --- End Process Results ---
 
-    except Exception as e: # Main error handler for the whole process
-        logger.error(f"Error loading auction components: {str(e)}")
-        logger.error(traceback.format_exc())
-        # Prepare user-friendly error HTML inside the main except block
-        error_html = f"""
-            <div class='alert alert-danger'>
-                <p><strong>We're having trouble loading these components.</strong></p>
-                <p>Please try again or choose a different auction.</p>
-                <button class="btn btn-primary mt-2" onclick="location.reload()">Try Again</button>
-                <p class="small text-muted mt-3">Error: {str(e)[:200]}...</p>
-            </div>
-        """
-        if request.GET.get("debug"):
-            error_html += f"<pre>{traceback.format_exc()}</pre>"
-        html_content = error_html # Assign error HTML to be returned
+    except Exception as e:
+        logger.exception(f"Error loading auction components: {e}")
+        # Provide a user-friendly error message via HTMX
+        html_content = f"<div class='alert alert-danger'>An error occurred: {e}. Please check the logs.</div>"
+    
+    finally:
+        execution_time = time.time() - start_time
+        logger.info(f"HTMX auction components request for '{company_id}/{year}/{auction_name}' took {execution_time:.2f}s")
+        if execution_time > MAX_EXECUTION_TIME:
+             logger.warning(f"HTMX request exceeded max time: {execution_time:.2f}s > {MAX_EXECUTION_TIME}s")
+             # Optionally return a timeout message if it consistently takes too long
+             # html_content = "<div class='alert alert-warning'>Loading took too long. Please try refreshing.</div>"
 
-    # Final return outside the main try...except
     return HttpResponse(html_content)
 
 def debug_mapping_cache(request):
@@ -301,7 +281,7 @@ def debug_mapping_cache(request):
     # If company name is provided, look it up in the mapping
     company_name = request.GET.get("company", "")
     if company_name:
-        # Find all CMU IDs for this company name
+        # Find all CMU IDs for this company
         company_cmus = []
         for cmu_id, comp_name in cmu_to_company_mapping.items():
             if comp_name == company_name:
