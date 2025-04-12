@@ -1,5 +1,5 @@
-from django.shortcuts import render, redirect
-from django.http import HttpResponse, JsonResponse
+from django.shortcuts import render, redirect, get_object_or_404
+from django.http import HttpResponse, JsonResponse, Http404, HttpResponseBadRequest
 from django.views.decorators.http import require_http_methods
 import urllib.parse
 from django.conf import settings
@@ -15,11 +15,11 @@ from django.db.models import Count, Q, Sum
 from .services.company_search import search_companies_service, get_company_years, get_cmu_details, company_detail # Import company_detail only once
 from .services.component_search import search_components_service
 from .services.component_detail import get_component_details
-from .utils import safe_url_param, from_url_param
+from .utils import safe_url_param, from_url_param, normalize
 from .services.data_access import get_component_data_from_json, get_json_path, fetch_components_for_cmu_id
 
 # Now import the models
-from .models import Component
+from .models import Component, CMURegistry
 
 # Define logger after imports
 import logging
@@ -44,6 +44,8 @@ try:
 except:
     # Some cache backends don't support keys() method
     logger.info("Unable to bulk clear search cache - will be refreshed gradually")
+
+import traceback
 
 def search_companies(request):
     """View function for searching companies using the unified search"""
