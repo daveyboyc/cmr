@@ -1,0 +1,24 @@
+            {% endif %}
+            
+            {# De-Rated Capacity Badge #}
+            {% with capacity=component.additional_data.De_Rated_Capacity|default:"None" %}
+                {% if capacity != "None" and capacity != "N/A" %}
+                    <span class="badge bg-info me-1" title="De-Rated Capacity">{{ capacity|floatformat:2|intcomma }} MW</span>
+                {% else %}
+                    <span class="badge bg-secondary me-1" title="De-Rated Capacity">None MW</span>
+                {% endif %}
+            {% endwith %}
+            
+            {# De-Rated Capacity Badge - Updated to use display_capacity #}
+            <span class="badge {% if component.display_capacity is not None %}bg-info{% else %}bg-secondary{% endif %} me-1" title="De-Rated Capacity">{{ component.display_capacity|floatformat:2|intcomma|default:"None" }} MW</span>
+            
+            {# Add more badges as needed e.g. Status, Type #}
+            {% if component.display_capacity is not None %}
+                <span class="badge bg-info me-1" title="Status">Active</span>
+            {% else %}
+                <span class="badge bg-secondary me-1" title="Status">Inactive</span>
+            {% endif %}
+            
+            {% if component.type %}
+                <span class="badge bg-info me-1" title="Type">{{ component.type }}</span>
+            {% endif %} 

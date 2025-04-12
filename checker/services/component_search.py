@@ -5,6 +5,10 @@ from django.shortcuts import render
 from django.core.cache import cache
 import traceback
 from django.urls import reverse
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+from django.template.loader import render_to_string
+from ..models import Component, CMURegistry
+import json
 
 from ..utils import normalize, get_cache_key
 from .data_access import (
@@ -16,13 +20,14 @@ from .company_search import _perform_company_search, get_cmu_dataframe, _build_s
 logger = logging.getLogger(__name__)
 
 
-def search_components_service(request, return_data_only=False):
+def search_components_service(request, extra_context=None, return_data_only=False):
     """Service function for searching companies AND components in a unified interface."""
     # Get query and pagination parameters
     query = request.GET.get("q", "").strip()
     page = int(request.GET.get("page", 1))
     per_page = int(request.GET.get("per_page", 50))  # Default to 50 items per page
     sort_order = request.GET.get("comp_sort", "desc")
+    sort_field = request.GET.get("sort_field", "date")
 
     # Initialize context variables
     company_links = []
@@ -114,44 +119,157 @@ def search_components_service(request, return_data_only=False):
         debug_info["component_search_attempted"] = True
         components_list = []
         try:
-            # --- MODIFIED: Use search_term primarily --- 
-            logger.info(f"Performing component search using search_term='{query}'")
-            components_list, total_component_count = get_components_from_database(
-                search_term=query, 
-                page=page, 
-                per_page=per_page, 
-                sort_order=sort_order
-            )
-            # --- END MODIFICATION ---
-            
-            displayed_component_count = len(components_list)
-            debug_info["data_source"] = "database"
-            
-            logger.info(f"Fetched {displayed_component_count} components (total: {total_component_count}) for '{query}' page {page}")
-            
-            # Cache the total count separately (it doesn't change between pages)
-            cache.set(total_count_cache_key, total_component_count, 3600)  # Cache for 1 hour
-            
-        except Exception as e:
-            error_msg = f"Error fetching component data: {str(e)}"
-            logger.exception(error_msg)
-            if not error_message: error_message = error_msg
-            debug_info["component_error"] = error_msg
-            components_list = []
-            total_component_count = 0
+            # --- REFACTOR: Query and Paginate First --- 
+            try:
+                # Determine sort order for DB query if possible
+                db_sort_prefix = '-' if sort_order == 'desc' else ''
+                if sort_field == 'date':
+                    db_sort_field = f'{db_sort_prefix}delivery_year'
+                elif sort_field == 'derated_capacity':
+                    db_sort_field = f'{db_sort_prefix}derated_capacity_mw'
+                else: 
+                    db_sort_field = None # Requires Python sorting later
 
-        # STEP 3: Format component results for display
-        formatted_components = []
-        if components_list:
-            for component in components_list:
-                formatted_record = format_component_record(component, {})
-                formatted_components.append(formatted_record)
-            
-            if formatted_components:
-                component_results_dict[query] = formatted_components
-                # Cache the formatted results for this specific page
-                cache.set(cache_key, component_results_dict, 3600)  # Cache for 1 hour
-                logger.info(f"Formatted and cached {len(formatted_components)} component records for display.")
+                # Get initial queryset (apply filters based on query)
+                # (This part needs to be adapted from the existing logic that uses get_components_from_database)
+                # Example: Replace data_access.get_components_from_database with direct model query
+                base_queryset = Component.objects.all() # Start with all
+                if query:
+                     # Simplified example: You'll need to adapt your existing multi-field search logic here
+                     base_queryset = base_queryset.filter(
+                         Q(company_name__icontains=query) | 
+                         Q(location__icontains=query) | 
+                         Q(description__icontains=query) | 
+                         Q(cmu_id__icontains=query) |
+                         Q(technology__icontains=query)
+                     ).distinct()
+
+                # Apply DB sorting if applicable
+                if db_sort_field:
+                    component_queryset = base_queryset.order_by(db_sort_field)
+                else:
+                    component_queryset = base_queryset # Keep original order for Python sort
+
+                total_component_count = component_queryset.count()
+                logger.info(f"Initial query found {total_component_count} components for '{query}'")
+                
+                # --- Python Sorting (if needed) --- 
+                if sort_field == 'mw': # Example for Connection Capacity
+                    logger.info(f"Fetching all {total_component_count} components for Python sort: {sort_field}")
+                    all_components = list(component_queryset) # Fetch all
+                    # Define get_connection_capacity helper (as before)
+                    def get_connection_capacity(comp):
+                        # ... (logic to parse from additional_data) ...
+                        return 0 # Placeholder
+                    all_components.sort(key=get_connection_capacity, reverse=(sort_order == "desc"))
+                    logger.info(f"Applied Python sort for MW ({sort_order})")
+                    paginator = Paginator(all_components, per_page)
+                else:
+                    # Paginate the queryset directly if using DB sort
+                    paginator = Paginator(component_queryset, per_page)
+                    
+                # Get the current page
+                try:
+                    components_page = paginator.page(page)
+                except PageNotAnInteger:
+                    components_page = paginator.page(1)
+                except EmptyPage:
+                    components_page = paginator.page(paginator.num_pages)
+                # --- END REFACTOR --- 
+                
+                # --- Fetch Registry Data for Current Page --- 
+                page_components = list(components_page.object_list)
+                cmu_ids_to_check = [comp.cmu_id for comp in page_components if comp.cmu_id and comp.derated_capacity_mw is None]
+                registry_capacity_map = {}
+                if cmu_ids_to_check:
+                    registry_entries = CMURegistry.objects.filter(cmu_id__in=list(set(cmu_ids_to_check)))
+                    for entry in registry_entries:
+                        try:
+                            raw_data = entry.raw_data or {}
+                            capacity_str = raw_data.get("De-Rated Capacity")
+                            if capacity_str and isinstance(capacity_str, str) and capacity_str.lower() != 'n/a':
+                                 registry_capacity_map[entry.cmu_id] = float(capacity_str)
+                            elif isinstance(capacity_str, (int, float)):
+                                 registry_capacity_map[entry.cmu_id] = float(capacity_str)
+                        except (ValueError, TypeError, json.JSONDecodeError) as parse_error:
+                            logger.warning(f"Could not parse registry capacity for CMU {entry.cmu_id}: {parse_error}")
+                logger.info(f"Fetched registry capacity for {len(registry_capacity_map)} CMUs on page {page}")
+                # --- END Fetch Registry Data --- 
+                
+                # --- Prepare Components for Template (including display_capacity) --- 
+                components_for_template = []
+                for comp in page_components:
+                    # Determine display capacity
+                    display_capacity = comp.derated_capacity_mw
+                    if display_capacity is None:
+                        display_capacity = registry_capacity_map.get(comp.cmu_id)
+                    
+                    # Convert model object to dict and add display_capacity
+                    # (Adapt this based on how _component_card.html expects data)
+                    comp_dict = {
+                        # ... copy necessary fields from comp object ...
+                        'id': comp.id,
+                        'location': comp.location,
+                        'company_name': comp.company_name,
+                        'description': comp.description,
+                        'technology': comp.technology,
+                        'cmu_id': comp.cmu_id,
+                        'component_id': comp.component_id,
+                        'derated_capacity_mw': comp.derated_capacity_mw, # Keep original for info
+                        'display_capacity': display_capacity, # Use this for the badge
+                        'additional_data': comp.additional_data, # Pass if needed by card
+                        # ... add other fields needed by _component_card.html ...
+                    }
+                    components_for_template.append(comp_dict)
+                # --- END Prepare Components --- 
+                
+                # ... (rest of the function: prepare context, handle cache, render) ...
+                
+                # Update context preparation
+                context = {
+                    "query": query,
+                    "note": note,
+                    "company_links": company_links,
+                    "component_results": component_results_dict, 
+                    "component_count": total_component_count,
+                    "displayed_component_count": displayed_component_count,
+                    "error": error_message,
+                    "api_time": api_time,
+                    "comp_sort": sort_order,  # Use comp_sort to match template
+                    "debug_info": debug_info,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": total_pages,
+                    "has_prev": has_prev,
+                    "has_next": has_next,
+                    "page_range": page_range,
+                    "unified_search": True,
+                    'components': components_for_template, # Pass the processed list
+                    'page_obj': components_page, # Pass the page object
+                    'paginator': paginator,
+                    'component_count': total_component_count, # Total count before pagination
+                }
+                
+                # ... (cache saving logic might need adjustment based on paginated data) ...
+                
+                # Render the main search results template
+                return render(request, "checker/search.html", context)
+
+            except Exception as e:
+                logger.exception(f"Error in search_components_service: {str(e)}")
+                # Render error page or fallback
+                # ... (error handling) ...
+                return render(request, "checker/search.html", {'error': str(e)}) # Basic error display
+
+        except Exception as e:
+            logger.exception(f"Error during component query/pagination: {str(e)}")
+            error_message = f"Error fetching component data: {str(e)}"
+            components_for_template = [] # Ensure empty list on error
+            total_component_count = 0
+            components_page = None # No page object on error
+            paginator = Paginator([], per_page) # Empty paginator
+            components_page = paginator.page(1) # Set page 1 for context
+            # Fall through to render template with error message
 
     # STEP 4: Calculate final pagination variables
     if total_component_count > 0 and per_page > 0:
