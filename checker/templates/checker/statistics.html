@@ -53,10 +53,10 @@
                     <!-- Sort Controls -->
                     <div class="btn-group btn-group-sm" role="group" aria-label="Sort companies by">
                         <a href="?company_sort=count" class="btn {% if company_sort == 'count' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-                            By Component Count
+                            By Component Count {% if company_sort == 'count' %}<i class="bi bi-arrow-down-short"></i>{% endif %}
                         </a>
                         <a href="?company_sort=capacity" class="btn {% if company_sort == 'capacity' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-                            By Total Capacity (MW)
+                            By Total Capacity (MW) {% if company_sort == 'capacity' %}<i class="bi bi-arrow-down-short"></i>{% endif %}
                         </a>
                     </div>
                 </div>
