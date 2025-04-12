@@ -6,30 +6,39 @@
       {% with first_component=component_list.0 %}{# Get the first component to access shared CMU data #}
       <li class="list-group-item">
         <div class="d-flex justify-content-between align-items-center mb-2">
-          {# Display CMU ID and its associated capacity badge #}
+          {# Display CMU ID (as link) and its associated capacity badge (yellow) #}
           <div>
-            <strong class="me-3">CMU ID: {{ cmu_id }}</strong>
+            <strong class="me-3">
+              <a href="/?q={{ cmu_id }}" title="Search for CMU ID {{ cmu_id }}">CMU ID: {{ cmu_id }}</a>
+            </strong>
             {% if first_component.display_capacity is not None %}
-                <span class="badge bg-info me-1" title="CMU De-Rated Capacity (Calculated)">{{ first_component.display_capacity|floatformat:2 }} MW</span>
+                {# Changed badge color to yellow with dark text #}
+                <span class="badge bg-warning text-dark me-1" title="CMU De-Rated Capacity (Calculated)">{{ first_component.display_capacity|floatformat:2 }} MW</span>
             {% else %}
                 <span class="badge bg-light text-dark me-1" title="CMU De-Rated Capacity (Calculated)">De-Rated N/A</span>
             {% endif %}
           </div>
-          <span class="badge bg-secondary rounded-pill">{{ component_list|length }} Component Record{{ component_list|length|pluralize }}</span>
+          {# Only show component count badge if more than 1 record #}
+          {% if component_list|length > 1 %}
+            <span class="badge bg-secondary rounded-pill">{{ component_list|length }} Component Record{{ component_list|length|pluralize }}</span>
+          {% endif %}
         </div>
         <ul class="list-unstyled ms-3">
-          {# Loop through components for this CMU - NO capacity badge here #}
+          {# Loop through components for this CMU #}
           {% for component in component_list %}
-            <li class="mb-1">
+            <li class="mb-2"> {# Increased bottom margin slightly #}
+              {# Location link #}
               <a href="{% url 'component_detail' pk=component.id %}" class="text-decoration-none">
                 <i class="fas fa-cube me-1 text-muted"></i> <!-- Optional: Icon -->
-                {{ component.location|default:"N/A" }} 
-                {% if component.description %}({{ component.description|truncatechars:50 }}){% endif %}
+                {{ component.location|default:"N/A" }}
               </a>
-              {# Removed capacity badge from individual component line #}
-              {# Add other relevant badges IF they differ per component record (e.g., maybe specific status?) #}
+              {# Description on a new line #}
+              {% if component.description %}
+                <p class="mb-0 ms-3 text-muted small">{{ component.description }}</p>
+              {% endif %}
+               {# Technology badge #}
                {% if component.technology %}
-                 <span class="badge bg-info ms-2">{{ component.technology }}</span>
+                 <span class="badge bg-info ms-3">{{ component.technology }}</span> {# Added left margin to align with description #}
                {% endif %}
             </li>
           {% endfor %}
