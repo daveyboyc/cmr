@@ -157,6 +157,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             api_time = 0
             company_results = []
             try:
+                per_page = 50 # Define items per page for pagination
                 logger.warning("Inside DB search try block, attempting imports...") # MOVED HERE
                 from ..models import Component
                 logger.error("DEBUG: Imported Component OK") # DEBUG LOG
