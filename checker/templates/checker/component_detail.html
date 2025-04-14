@@ -229,6 +229,19 @@
                                         </span>
                                     </li>
                                 {% endfor %}
+                                
+                                {# --- Add specific De-Rated Capacity lines for Technical Details --- #}
+                                {% if section_title == "Technical Details" %}
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        <span>De-Rated Capacity (Component)</span>
+                                        <span class="text-end">{{ component_derated_capacity|format_value|default:"N/A" }}</span>
+                                    </li>
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        <span>De-Rated Capacity (Registry)</span>
+                                        <span class="text-end">{{ registry_derated_capacity|format_value|default:"N/A" }}</span>
+                                    </li>
+                                {% endif %}
+                                {# --- End specific De-Rated Capacity lines --- #}
                             </ul>
                         </div>
                     </div>
