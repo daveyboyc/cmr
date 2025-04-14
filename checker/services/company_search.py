@@ -1074,14 +1074,16 @@ def _organize_year_data(company_records, sort_order):
     # Extract unique years and auctions
     year_auctions = {}
     for _, row in company_records.iterrows():
-        year = str(row.get("Delivery Year", ""))
+        # Use correct DataFrame column names
+        year = str(row.get("delivery_year", "")) 
         if not year or year == "nan":
             continue
             
         if year not in year_auctions:
             year_auctions[year] = {}
             
-        auction = row.get("Auction Name", "")
+        # Use correct DataFrame column names
+        auction = str(row.get("auction_name", "")) 
         if auction and auction != "nan":
             year_auctions[year][auction] = True
             
