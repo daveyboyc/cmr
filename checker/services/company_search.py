@@ -175,34 +175,43 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                         logger.error(f"DEBUG: Added term to filter: {term}") # DEBUG LOG
                 logger.error("DEBUG: Finished Q filter loop") # DEBUG LOG
 
-                # logger.info(f"Direct DB search filter: {query_filter}") # REMOVED: Logging Q object caused issues
+                logger.error("DEBUG: About to query Companies...") # ADDED
+                all_companies = Component.objects.filter(query_filter).order_by(django_sort_field)
+                logger.error("DEBUG: Company query finished.") # ADDED
+                # The .count() might also be problematic, let's log around it too
+                logger.error("DEBUG: About to count Companies...") # ADDED
+                company_count = all_companies.count()
+                logger.error(f"DEBUG: Company count: {company_count}") # ADDED
+                # logger.info(f"Found {company_count} potential matching companies for query '{query}'")
 
-                logger.info(f"Direct DB search filter: {query_filter}") # LOG DB FILTER
+                # Pagination for companies
+                company_paginator = Paginator(all_companies, per_page)
+                try:
+                    page_obj = company_paginator.get_page(page)
+                except PageNotAnInteger:
+                    page_obj = company_paginator.page(1)
+                except EmptyPage:
+                    page_obj = company_paginator.page(company_paginator.num_pages)
 
-                matching_companies = Component.objects.filter(query_filter)\
-                    .values('company_name')\
-                    .annotate(cmu_count=Count('cmu_id', distinct=True), total_components=Count('id'))\
-                    .order_by('-cmu_count')[:50]
+                # Sorting for components
+                comp_page_obj = component_paginator.get_page(comp_page_number)
 
-                logger.info(f"Direct DB query executed. Found {len(matching_companies)} potential company groups.") # LOG DB COUNT
+                logger.error("DEBUG: About to create context dictionary...") # ADDED
+                context = {
+                    "query": query,
+                    "page_obj": page_obj,
+                    "paginator": company_paginator,
+                    "total_count": company_count,
+                    "error": error_message,
+                    "api_time": api_time,
+                    "sort_order": sort_order,
+                }
+                logger.info(f"Final context keys for rendering: {list(context.keys())}") # LOG FINAL CONTEXT KEYS
 
-                for company in matching_companies:
-                    company_name = company['company_name']
-                    if not company_name: continue # Skip if name is empty
-                    company_id = normalize(company_name)
-                    cmu_count = company['cmu_count']
-                    component_count = company['total_components']
-                    company_html = f'<a href="/company/{company_id}/" style="color: blue; text-decoration: underline;">{company_name}</a>'
-                    company_results.append(f'''
-                    <div>
-                        <strong>{company_html}</strong>
-                        <div class="mt-1 mb-1"><span class="text-muted">Company in component database</span></div>
-                        <div>{component_count} components across {cmu_count} CMU IDs</div>
-                    </div>
-                    ''')
+                if extra_context:
+                    context.update(extra_context)
 
-                logger.info(f"Direct DB search finished. Generated {len(company_results)} company result strings.") # LOG DB FINISHED
-
+                return render(request, "checker/search.html", context)
             except Exception as e:
                 logger.error("!!!!!!!! CAUGHT EXCEPTION IN DIRECT DB SEARCH BLOCK !!!!!!!!") # ADDED ERROR LOG
                 logger.exception(f"Error during direct database search: {e}")
