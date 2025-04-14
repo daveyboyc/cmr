@@ -20,13 +20,32 @@
         <a href="javascript:history.back()" class="text-decoration-none">
             <i class="bi bi-arrow-left"></i> Back to Previous Page
         </a>
-        <div class="btn-group btn-group-sm" role="group" aria-label="View mode">
-            <a href="?view_mode=year_auction" class="btn {% if view_mode == 'year_auction' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-                View by Year/Auction
-            </a>
-            <a href="?view_mode=capacity" class="btn {% if view_mode == 'capacity' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-                View by Capacity
-            </a>
+        <div class="dropdown ms-2">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="viewModeDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="bi bi-eye"></i> 
+                View: 
+                {% if view_mode == 'capacity' %}Capacity
+                {% else %}Year/Auction
+                {% endif %}
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="viewModeDropdown">
+                <li>
+                    <a class="dropdown-item {% if view_mode == 'year_auction' %}active{% endif %}" href="?view_mode=year_auction">
+                        <i class="bi bi-calendar-week me-2"></i>View by Year/Auction
+                    </a>
+                </li>
+                <li>
+                    <a class="dropdown-item {% if view_mode == 'capacity' %}active{% endif %}" href="?view_mode=capacity">
+                        <i class="bi bi-bar-chart-line me-2"></i>View by Capacity
+                    </a>
+                </li>
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                    <a class="dropdown-item" href="{% url 'search' %}?q={{ company_id|urlencode }}" target="_blank">
+                        <i class="bi bi-search me-2"></i>View All on Search Page
+                    </a>
+                </li>
+            </ul>
         </div>
     </div>
 
