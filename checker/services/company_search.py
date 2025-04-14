@@ -50,10 +50,12 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             if return_data_only:
                 return cached_results
             
-            # Handle non-return_data_only case with cached results
+            # Handle non-return_data_only case with cached results - CORRECTED CONTEXT
             context = {
-                "results": cached_results,
-                "record_count": sum(len(matches) for matches in cached_results.values()),
+                "company_links": cached_results, # Correct key: "company_links"
+                "company_count": len(cached_results), # Correct count based on list length
+                "displayed_company_count": len(cached_results), # Correct count based on list length
+                "record_count": len(cached_results), # Correct count based on list length
                 "api_time": 0.1,  # Fast because from cache
                 "query": query,
                 "sort_order": sort_order,
