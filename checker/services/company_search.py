@@ -150,6 +150,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
 
         elif query:
             logger.warning("Entering main query block (elif query:).") # ADDED LOG
+            logger.warning("Attempting direct DB company search... (Moved Log)") # MOVED & CHANGED LEVEL
             # Execute an optimized search that will work for all companies
 
             # Try Direct DB Company Search
