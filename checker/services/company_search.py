@@ -196,54 +196,40 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                     django_sort_field = 'company_name' # Default to ascending
                 logger.error(f"DEBUG: Determined django_sort_field: {django_sort_field}") # ADDED LOG
 
-                logger.error("DEBUG: About to query Companies...") # ADDED
+                logger.error("DEBUG: About to query Companies...") # Existing log
                 all_companies = Component.objects.filter(query_filter).order_by(django_sort_field)
-                logger.error("DEBUG: Company query finished.") # ADDED
-                # The .count() might also be problematic, let's log around it too
-                logger.error("DEBUG: About to count Companies...") # ADDED
-                company_count = all_companies.count()
-                logger.error(f"DEBUG: Company count: {company_count}") # ADDED
-                # logger.info(f"Found {company_count} potential matching companies for query '{query}'")
+                logger.error("DEBUG: Company query finished.") # Existing log
+                logger.error("DEBUG: About to count Companies...") # Existing log
+                company_count = all_companies.count() # This is the TOTAL count matching the filter
+                logger.error(f"DEBUG: Company count: {company_count}") # Existing log
 
-                # Pagination for companies
-                company_paginator = Paginator(all_companies, per_page)
-                try:
-                    page_obj = company_paginator.get_page(page)
-                except PageNotAnInteger:
-                    page_obj = company_paginator.page(1)
-                except EmptyPage:
-                    page_obj = company_paginator.page(company_paginator.num_pages)
+                # Build results using the new helper
+                logger.info("Building results from DB query...")
+                company_links, render_time = _build_db_search_results(all_companies) # Call new helper
+                api_time = time.time() - start_time # Capture total time up to render finish
 
-                # Sorting and Pagination for components - NEEDS DEFINITION
-                # Assuming we want to paginate components separately if needed, but the query doesn't fetch them yet.
-                # Placeholder: Let's define component_paginator based on *something* for now to avoid NameError,
-                # but this logic needs review based on how components should be handled here.
-                # We are currently querying Component objects for the *company* search.
-                # Let's paginate the SAME queryset for components for now? This seems wrong.
-                # TODO: Re-evaluate component handling in this block.
-                component_paginator = Paginator(all_companies, per_page) # TEMPORARY: Using same queryset and per_page
-                try:
-                    comp_page_obj = component_paginator.get_page(comp_page_number)
-                except PageNotAnInteger:
-                    comp_page_obj = component_paginator.page(1)
-                except EmptyPage:
-                    comp_page_obj = component_paginator.page(component_paginator.num_pages)
+                logger.error("DEBUG: About to create context dictionary...") # Existing log
 
-                logger.error("DEBUG: About to create context dictionary...") # ADDED
                 context = {
                     "query": query,
-                    "page_obj": page_obj,
-                    "paginator": company_paginator,
-                    "total_count": company_count,
+                    # "page_obj": page_obj, # REMOVED
+                    # "paginator": company_paginator, # REMOVED
+                    "company_links": company_links, # ADDED - List of HTML strings
+                    "company_count": len(company_links), # Count of links generated (might be limited)
+                    "displayed_company_count": len(company_links), # Count of links generated
+                    "total_count": company_count, # Total matches found by DB query
                     "error": error_message,
                     "api_time": api_time,
+                    "render_time": render_time, # Add link generation time
                     "sort_order": sort_order,
+                    "note": "Results from database search" # Add note indicating source
                 }
-                logger.info(f"Final context keys for rendering: {list(context.keys())}") # LOG FINAL CONTEXT KEYS
+                logger.info(f"Final context keys for rendering: {list(context.keys())}") # ADDED MISSING LOG
 
                 if extra_context:
                     context.update(extra_context)
 
+                logger.info("Rendering search results page from DB search path...") # Add log before return
                 return render(request, "checker/search.html", context)
             except Exception as e:
                 logger.error("!!!!!!!! CAUGHT EXCEPTION IN DIRECT DB SEARCH BLOCK !!!!!!!!") # ADDED ERROR LOG
@@ -1285,3 +1271,50 @@ def fetch_components_for_cmu_id(cmu_id, limit=1000):
     
     elapsed_time = time.time() - start_time
     return all_components, elapsed_time
+
+def _build_db_search_results(company_queryset):
+    """
+    Builds formatted HTML links from a Component QuerySet from the direct DB search.
+    Groups by company name and provides a link.
+    TODO: Enhance to show component counts or other details if needed.
+    """
+    start_build_time = time.time()
+    company_links = []
+    # Get unique company names efficiently from the queryset
+    # Limit the number of unique names processed to avoid excessive rendering time
+    limit = 250 # Limit to rendering N unique companies from DB results
+    unique_company_names = list(company_queryset.values_list('company_name', flat=True).distinct()[:limit])
+    logger.info(f"Found {len(unique_company_names)} unique company names from DB query (limited to {limit}).")
+
+    # Attempt to import normalize, provide fallback
+    normalize = None
+    try:
+        from .utils import normalize # Assuming normalize is in utils
+    except ImportError:
+        logger.warning("Could not import normalize function from utils.")
+        def normalize(s): # Basic fallback slugification
+             if not s: return ""
+             s = s.lower()
+             s = ''.join(c for c in s if c.isalnum() or c == ' ') # Keep alphanum and space
+             return '-'.join(s.split()) # Replace space with hyphen
+
+
+    if normalize is None:
+         def normalize(s): # Basic fallback slugification if import succeeded but normalize was None
+             if not s: return ""
+             s = s.lower()
+             s = ''.join(c for c in s if c.isalnum() or c == ' ') # Keep alphanum and space
+             return '-'.join(s.split()) # Replace space with hyphen
+
+    for company_name in unique_company_names:
+        if not company_name: continue # Skip if name is empty
+        company_id = normalize(company_name)
+
+        # Simple link for now
+        company_html = f'<a href="/company/{company_id}/" style="color: blue; text-decoration: underline;">{company_name}</a>'
+        # Add company name to the surrounding div for easier selection/debugging if needed
+        company_links.append(f'<div data-company-name="{company_name}"><strong>{company_html}</strong><div class="mt-1 mb-1"><span class="text-muted">Company found via DB search</span></div></div>')
+
+    build_time = time.time() - start_build_time
+    logger.info(f"Generated {len(company_links)} links for DB results in {build_time:.4f}s.")
+    return company_links, build_time
