@@ -25,6 +25,7 @@
                 <i class="bi bi-eye"></i> 
                 View: 
                 {% if view_mode == 'capacity' %}Capacity
+                {% elif view_mode == 'all_components' %}All Components
                 {% else %}Year/Auction
                 {% endif %}
             </button>
@@ -37,6 +38,11 @@
                 <li>
                     <a class="dropdown-item {% if view_mode == 'capacity' %}active{% endif %}" href="?view_mode=capacity">
                         <i class="bi bi-bar-chart-line me-2"></i>View by Capacity
+                    </a>
+                </li>
+                <li>
+                    <a class="dropdown-item {% if view_mode == 'all_components' %}active{% endif %}" href="?view_mode=all_components">
+                         <i class="bi bi-list-ul me-2"></i>View All Components
                     </a>
                 </li>
                 <li><hr class="dropdown-divider"></li>
@@ -149,6 +155,116 @@
                 </nav>
             {% endif %}
 
+        </div>
+
+    {% elif view_mode == 'all_components' %}
+        {# --- ALL COMPONENTS VIEW --- #}
+        <div class="all-components-view">
+            <h2 class="h4 mb-3">All Components for {{ company_name }}</h2>
+
+            {# --- Sorting Controls --- #}
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="text-muted small">
+                    Found {{ total_count|intcomma }} component record{{ total_count|pluralize }}.
+                </div>
+                <div class="d-flex">
+                    {# Sort Field Dropdown #}
+                    <div class="dropdown me-2">
+                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="sortFieldDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                             Sort by: {{ sort_field|replace_underscores|title }}
+                        </button>
+                        <ul class="dropdown-menu" aria-labelledby="sortFieldDropdown">
+                            <li><a class="dropdown-item {% if sort_field == 'delivery_year' %}active{% endif %}" href="?view_mode=all_components&sort_by=delivery_year&sort={{ sort_order }}">Delivery Year</a></li>
+                            <li><a class="dropdown-item {% if sort_field == 'auction_name' %}active{% endif %}" href="?view_mode=all_components&sort_by=auction_name&sort={{ sort_order }}">Auction Name</a></li>
+                            <li><a class="dropdown-item {% if sort_field == 'derated_capacity_mw' %}active{% endif %}" href="?view_mode=all_components&sort_by=derated_capacity_mw&sort={{ sort_order }}">De-Rated Capacity</a></li>
+                            <li><a class="dropdown-item {% if sort_field == 'location' %}active{% endif %}" href="?view_mode=all_components&sort_by=location&sort={{ sort_order }}">Location</a></li>
+                        </ul>
+                    </div>
+                    {# Sort Order Button #}
+                    <a href="?view_mode=all_components&sort_by={{ sort_field }}&sort={% if sort_order == 'desc' %}asc{% else %}desc{% endif %}" 
+                       class="btn btn-outline-secondary btn-sm">
+                        {% if sort_order == "desc" %}
+                            <i class="bi bi-arrow-up-short"></i> Asc
+                        {% else %}
+                            <i class="bi bi-arrow-down-short"></i> Desc
+                        {% endif %}
+                    </a>
+                </div>
+            </div>
+            {# --- End Sorting Controls --- #}
+
+            {# --- Component List --- #}
+            <p class="text-muted">Displaying {{ page_obj.start_index }}-{{ page_obj.end_index }} of {{ total_count|intcomma }}.</p>
+            <ul class="list-group list-group-flush mb-4">
+                {% for component in page_obj.object_list %}
+                    <li class="list-group-item py-2">
+                        <div class="d-flex justify-content-between align-items-start mb-1">
+                            <div class="flex-grow-1 me-3">
+                                <a href="{% url 'component_detail' pk=component.id %}" class="fw-bold text-decoration-none mb-1 d-block">
+                                    {{ component.location|truncatechars:80|default:"No Location Info" }}
+                                </a>
+                                <div class="small text-muted">
+                                    {{ component.technology|truncatechars:70|default:"No Technology Info" }}
+                                    {% if component.description %}
+                                        <span class="ms-1 fst-italic"> - {{ component.description|truncatechars:100 }}</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="text-end text-nowrap">
+                                {% if component.derated_capacity_mw is not None %}
+                                    <span class="badge bg-info rounded-pill">{{ component.derated_capacity_mw|floatformat:2|intcomma }} MW</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-start align-items-center mt-1 small text-muted">
+                           <span class="badge bg-secondary me-2">{{ component.delivery_year|default:"N/A" }}</span>
+                           <span class="me-2">{{ component.auction_name|truncatechars:50|default:"N/A" }}</span>
+                           {% if component.cmu_id %}
+                               <span class="badge bg-light text-dark border">CMU: {{ component.cmu_id }}</span>
+                           {% endif %}
+                        </div>
+                    </li>
+                {% empty %}
+                    <li class="list-group-item">No components found for this company.</li>
+                {% endfor %}
+            </ul>
+            {# --- End Component List --- #}
+
+            {# --- Pagination --- #}
+            {% if paginator.num_pages > 1 %}
+                <nav aria-label="Component navigation" class="pagination-nav">
+                    <ul class="pagination justify-content-center">
+                        {% with base_url="?view_mode=all_components&sort_by="|add:sort_field|add:"&sort="|add:sort_order %}
+                        {% if page_obj.has_previous %}
+                            <li class="page-item"><a class="page-link" href="{{ base_url }}&page=1">First</a></li>
+                            <li class="page-item"><a class="page-link" href="{{ base_url }}&page={{ page_obj.previous_page_number }}">Previous</a></li>
+                        {% else %}
+                            <li class="page-item disabled"><span class="page-link">First</span></li>
+                            <li class="page-item disabled"><span class="page-link">Previous</span></li>
+                        {% endif %}
+
+                        {% for i in page_obj.paginator.get_elided_page_range %}
+                            {% if i == page_obj.number %}
+                                <li class="page-item active" aria-current="page"><span class="page-link">{{ i }}</span></li>
+                            {% elif i == page_obj.paginator.ELLIPSIS %}
+                                 <li class="page-item disabled"><span class="page-link">...</span></li>
+                            {% else %}
+                                <li class="page-item"><a class="page-link" href="{{ base_url }}&page={{ i }}">{{ i }}</a></li>
+                            {% endif %}
+                        {% endfor %}
+
+                        {% if page_obj.has_next %}
+                            <li class="page-item"><a class="page-link" href="{{ base_url }}&page={{ page_obj.next_page_number }}">Next</a></li>
+                            <li class="page-item"><a class="page-link" href="{{ base_url }}&page={{ paginator.num_pages }}">Last</a></li>
+                        {% else %}
+                            <li class="page-item disabled"><span class="page-link">Next</span></li>
+                            <li class="page-item disabled"><span class="page-link">Last</span></li>
+                        {% endif %}
+                        {% endwith %}
+                    </ul>
+                </nav>
+            {% endif %}
+            {# --- End Pagination --- #}
         </div>
 
     {% else %}

@@ -944,19 +944,29 @@ def company_detail(request, company_id):
     
     # Determine view mode and sort order from GET parameters
     view_mode = request.GET.get('view_mode', 'year_auction')
-    sort_order = request.GET.get('sort', 'desc')
+    sort_field = request.GET.get('sort_by', 'delivery_year') # Default sort for all_components
+    sort_order = request.GET.get('sort', 'desc') # Keep this consistent
     page = request.GET.get("page", 1)
-    per_page = 50 # Components per page for capacity view
+    per_page = 50 # Components per page for capacity and all_components views
     
-    if view_mode not in ['year_auction', 'capacity']:
+    # Validate view_mode
+    if view_mode not in ['year_auction', 'capacity', 'all_components']:
         view_mode = 'year_auction'
+        
+    # Validate sort_order (remains the same)
     if sort_order not in ['asc', 'desc']:
         sort_order = 'desc'
         
+    # Validate sort_field for 'all_components' view
+    allowed_sort_fields = ['delivery_year', 'auction_name', 'derated_capacity_mw', 'location']
+    if view_mode == 'all_components' and sort_field not in allowed_sort_fields:
+        sort_field = 'delivery_year' # Default if invalid
+
     context = {
         "company_id": company_id,
-        "company_name": None,
+        "company_name": None, # Will be populated later
         "view_mode": view_mode,
+        "sort_field": sort_field, # Add sort_field to context
         "sort_order": sort_order,
         "error": None,
         "year_auction_data": [],
@@ -964,78 +974,96 @@ def company_detail(request, company_id):
         "paginator": None,
         "total_count": 0,
     }
+
+    start_time = time.time()
     
-    try:
-        # --- Find the primary company name from DB --- 
-        # Use a direct approach to find company by normalized company_name
-        logger.info(f"Looking for company with normalized ID: '{company_id}'")
-        all_names = Component.objects.values_list('company_name', flat=True).distinct()
-        for name in all_names:
-            if name and normalize(name) == company_id:
-                context['company_name'] = name
-                logger.info(f"Found company name '{context['company_name']}' for id '{company_id}'")
-                break
-        
-        if not context['company_name']:
-            context["error"] = f"Company with ID '{company_id}' not found in component data."
-            logger.error(context["error"])
-            return render(request, "checker/company_detail.html", context)
-        # --- End Finding Company Name ---
-        
-        if view_mode == 'capacity':
-            # --- Capacity View Logic --- 
-            logger.info(f"Fetching components sorted by capacity ({sort_order}) for {context['company_name']}")
-            db_sort_prefix = '-' if sort_order == 'desc' else ''
-            db_sort_field = f'{db_sort_prefix}derated_capacity_mw'
-            
-            # Query components for this company, sorted by capacity
-            component_queryset = Component.objects.filter(company_name=context['company_name']) \
-                                              .exclude(derated_capacity_mw__isnull=True) \
-                                              .order_by(db_sort_field) \
-                                              .only('id', 'location', 'description', 'derated_capacity_mw', 'technology')
-                                              
-            total_count = component_queryset.count()
-            context['total_count'] = total_count
-            logger.info(f"Found {total_count} components with capacity data.")
-
-            # Apply pagination
-            paginator = Paginator(component_queryset, per_page)
-            context['paginator'] = paginator
-            try:
-                components_page = paginator.page(page)
-                context['page_obj'] = components_page
-            except PageNotAnInteger:
-                context['page_obj'] = paginator.page(1)
-            except EmptyPage:
-                context['page_obj'] = paginator.page(paginator.num_pages)
-            # --- End Capacity View Logic ---
+    # Find all company name variations based on the normalized company_id
+    # (This logic might need adjustment if company_id isn't the normalized name)
+    all_db_company_names = Component.objects.values_list('company_name', flat=True).distinct()
+    company_name_variations = []
+    primary_company_name = None
+    for name in all_db_company_names:
+        if name and normalize(name) == company_id:
+            company_name_variations.append(name)
+            if primary_company_name is None:
+                primary_company_name = name
                 
-        else: 
-            # --- Year/Auction View Logic (Existing) --- 
-            logger.info(f"Fetching components grouped by year/auction for {context['company_name']}")
-            cmu_df, _ = get_cmu_dataframe()
-            if cmu_df is None:
-                raise ValueError("Could not load CMU registry data.")
+    if not company_name_variations:
+        context["error"] = f"Company variations not found for ID '{company_id}'. Cannot load details."
+        return render(request, "checker/company_detail.html", context)
+        
+    context["company_name"] = primary_company_name # Set the display name
 
-            # Find records for this specific company name
-            company_records = cmu_df[cmu_df["Full Name"] == context['company_name']]
+    # --- Data Fetching based on view_mode ---
+    try:
+        if view_mode == 'year_auction':
+            # Existing logic for year/auction view
+            company_records = Component.objects.filter(company_name__in=company_name_variations).values(
+                'delivery_year', 'auction_name', 'auction_type' # Add auction_type if needed
+            ).distinct()
+            # Convert queryset to DataFrame for processing - might be inefficient for large sets
+            # Consider direct DB aggregation if performance is an issue
+            if company_records.exists():
+                df = pd.DataFrame(list(company_records))
+                context['year_auction_data'] = _organize_year_data(df, sort_order)
+            else:
+                 context['year_auction_data'] = []
+
+        elif view_mode == 'capacity':
+            # Existing logic for capacity view
+            components_query = Component.objects.filter(company_name__in=company_name_variations)\
+                                            .exclude(derated_capacity_mw__isnull=True)
+
+            # Apply sorting
+            order_direction = '-' if sort_order == 'desc' else ''
+            components_query = components_query.order_by(f'{order_direction}derated_capacity_mw', 'delivery_year')
+
+            total_count = components_query.count()
+            paginator = Paginator(components_query, per_page)
+            try:
+                page_obj = paginator.page(page)
+            except PageNotAnInteger:
+                page_obj = paginator.page(1)
+            except EmptyPage:
+                page_obj = paginator.page(paginator.num_pages)
+
+            context["page_obj"] = page_obj
+            context["paginator"] = paginator
+            context["total_count"] = total_count
             
-            if company_records.empty:
-                # If no records found with the exact name, maybe log or handle differently?
-                # For now, we proceed, which might result in empty year_auction_data
-                logger.warning(f"No records found in CMU registry for company name: {context['company_name']}")
+        elif view_mode == 'all_components':
+            # NEW Logic for all_components view
+            components_query = Component.objects.filter(company_name__in=company_name_variations)
             
-            # Organize by year and auction
-            context['year_auction_data'] = _organize_year_data(company_records, sort_order)
-            logger.info(f"Organized data into {len(context['year_auction_data'])} years.")
-            # --- End Year/Auction View Logic ---
-            
+            # Apply sorting based on sort_field and sort_order
+            order_direction = '-' if sort_order == 'desc' else ''
+            # Add nulls_last/nulls_first if needed depending on DB and field type
+            if sort_field:
+                 components_query = components_query.order_by(f'{order_direction}{sort_field}')
+
+            total_count = components_query.count()
+            paginator = Paginator(components_query, per_page)
+            try:
+                page_obj = paginator.page(page)
+            except PageNotAnInteger:
+                page_obj = paginator.page(1)
+            except EmptyPage:
+                page_obj = paginator.page(paginator.num_pages)
+
+            context["page_obj"] = page_obj
+            context["paginator"] = paginator
+            context["total_count"] = total_count
+
     except Exception as e:
-        logger.error(f"Error fetching details for company '{company_id}': {str(e)}")
+        logger.error(f"Error fetching data for company '{company_id}', view '{view_mode}': {e}")
         logger.error(traceback.format_exc())
-        context["error"] = f"Error loading company details: {str(e)}"
-        context["traceback"] = traceback.format_exc() if request.GET.get("debug") else None
-
+        context["error"] = f"An error occurred while loading data: {e}"
+        # Optionally add traceback to context if debug is enabled
+        if request.GET.get("debug"): 
+            context["traceback"] = traceback.format_exc()
+    
+    # Common context updates
+    context["api_time"] = time.time() - start_time
     return render(request, "checker/company_detail.html", context)
 
 def _organize_year_data(company_records, sort_order):
