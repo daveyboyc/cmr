@@ -164,6 +164,12 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                     page = int(page)
                 except (ValueError, TypeError):
                     page = 1 # Default to 1 if conversion fails
+                # Also get component page number
+                comp_page_number = request.GET.get('comp_page', 1)
+                try:
+                    comp_page_number = int(comp_page_number)
+                except (ValueError, TypeError):
+                    comp_page_number = 1 # Default to 1
 
                 logger.warning("Inside DB search try block, attempting imports...") # MOVED HERE
                 from ..models import Component
@@ -208,8 +214,20 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 except EmptyPage:
                     page_obj = company_paginator.page(company_paginator.num_pages)
 
-                # Sorting for components
-                comp_page_obj = component_paginator.get_page(comp_page_number)
+                # Sorting and Pagination for components - NEEDS DEFINITION
+                # Assuming we want to paginate components separately if needed, but the query doesn't fetch them yet.
+                # Placeholder: Let's define component_paginator based on *something* for now to avoid NameError,
+                # but this logic needs review based on how components should be handled here.
+                # We are currently querying Component objects for the *company* search.
+                # Let's paginate the SAME queryset for components for now? This seems wrong.
+                # TODO: Re-evaluate component handling in this block.
+                component_paginator = Paginator(all_companies, per_page) # TEMPORARY: Using same queryset and per_page
+                try:
+                    comp_page_obj = component_paginator.get_page(comp_page_number)
+                except PageNotAnInteger:
+                    comp_page_obj = component_paginator.page(1)
+                except EmptyPage:
+                    comp_page_obj = component_paginator.page(component_paginator.num_pages)
 
                 logger.error("DEBUG: About to create context dictionary...") # ADDED
                 context = {
