@@ -175,6 +175,8 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                         logger.error(f"DEBUG: Added term to filter: {term}") # DEBUG LOG
                 logger.error("DEBUG: Finished Q filter loop") # DEBUG LOG
 
+                # logger.info(f"Direct DB search filter: {query_filter}") # REMOVED: Logging Q object caused issues
+
                 logger.info(f"Direct DB search filter: {query_filter}") # LOG DB FILTER
 
                 matching_companies = Component.objects.filter(query_filter)\
