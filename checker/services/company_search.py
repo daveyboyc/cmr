@@ -150,15 +150,14 @@ def search_companies_service(request, extra_context=None, return_data_only=False
 
         elif query:
             logger.warning("Entering main query block (elif query:).") # ADDED LOG
-            logger.warning("Attempting direct DB company search... (Moved Log)") # MOVED & CHANGED LEVEL
             # Execute an optimized search that will work for all companies
 
             # Try Direct DB Company Search
             start_time = time.time() # Reset start time for live search timing
             api_time = 0
             company_results = []
-            logger.info("Attempting direct DB company search...") # LOG DB SEARCH START
             try:
+                logger.warning("Inside DB search try block, attempting imports...") # MOVED HERE
                 from ..models import Component
                 from django.db.models import Count, Q
 
