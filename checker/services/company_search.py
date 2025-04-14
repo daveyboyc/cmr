@@ -158,6 +158,13 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             company_results = []
             try:
                 per_page = 50 # Define items per page for pagination
+                # Get the current page number from GET parameters, default to 1
+                page = request.GET.get('page', 1)
+                try:
+                    page = int(page)
+                except (ValueError, TypeError):
+                    page = 1 # Default to 1 if conversion fails
+
                 logger.warning("Inside DB search try block, attempting imports...") # MOVED HERE
                 from ..models import Component
                 logger.error("DEBUG: Imported Component OK") # DEBUG LOG
