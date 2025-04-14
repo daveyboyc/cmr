@@ -159,12 +159,21 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             try:
                 logger.warning("Inside DB search try block, attempting imports...") # MOVED HERE
                 from ..models import Component
+                logger.error("DEBUG: Imported Component OK") # DEBUG LOG
                 from django.db.models import Count, Q
+                logger.error("DEBUG: Imported Count, Q OK") # DEBUG LOG
 
                 query_terms = query.lower().split()
+                logger.error(f"DEBUG: Processed query_terms: {query_terms}") # DEBUG LOG
                 query_filter = Q()
+                logger.error("DEBUG: Initialized query_filter OK") # DEBUG LOG
+                logger.error("DEBUG: Starting Q filter loop") # DEBUG LOG
                 for term in query_terms:
-                    if len(term) >= 3: query_filter |= Q(company_name__icontains=term)
+                    logger.error(f"DEBUG: Processing term: {term}") # DEBUG LOG
+                    if len(term) >= 3:
+                        query_filter |= Q(company_name__icontains=term)
+                        logger.error(f"DEBUG: Added term to filter: {term}") # DEBUG LOG
+                logger.error("DEBUG: Finished Q filter loop") # DEBUG LOG
 
                 logger.info(f"Direct DB search filter: {query_filter}") # LOG DB FILTER
 
