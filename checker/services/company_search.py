@@ -175,6 +175,13 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                         logger.error(f"DEBUG: Added term to filter: {term}") # DEBUG LOG
                 logger.error("DEBUG: Finished Q filter loop") # DEBUG LOG
 
+                # Define the sort field for Django ORM based on sort_order
+                if sort_order == 'desc':
+                    django_sort_field = '-company_name'
+                else:
+                    django_sort_field = 'company_name' # Default to ascending
+                logger.error(f"DEBUG: Determined django_sort_field: {django_sort_field}") # ADDED LOG
+
                 logger.error("DEBUG: About to query Companies...") # ADDED
                 all_companies = Component.objects.filter(query_filter).order_by(django_sort_field)
                 logger.error("DEBUG: Company query finished.") # ADDED
