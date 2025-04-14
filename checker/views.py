@@ -195,12 +195,11 @@ def htmx_auction_components(request, company_id, year, auction_name):
         # --- End Handle No Results ---
 
         # --- Process Results (Fetch Registry, Organize, Render) ---
-        # Fetch Registry Data
-        cmu_ids_to_check = [comp.cmu_id for comp in components if comp.cmu_id and comp.derated_capacity_mw is None]
+        # Fetch Registry Data for ALL relevant CMU IDs
+        all_cmu_ids_in_results = list(set([c.cmu_id for c in components if c.cmu_id])) # Get all unique CMU IDs from query results
         registry_capacity_map = {}
-        if cmu_ids_to_check:
-            # Use list(set(...)) to ensure unique IDs are queried
-            registry_entries = CMURegistry.objects.filter(cmu_id__in=list(set(cmu_ids_to_check)))
+        if all_cmu_ids_in_results: # Check if the list is not empty
+            registry_entries = CMURegistry.objects.filter(cmu_id__in=all_cmu_ids_in_results) # Query based on all IDs
             for entry in registry_entries:
                 try:
                     raw_data = entry.raw_data or {}
@@ -212,22 +211,24 @@ def htmx_auction_components(request, company_id, year, auction_name):
                          registry_capacity_map[entry.cmu_id] = float(capacity_str)
                 except (ValueError, TypeError, json.JSONDecodeError) as parse_error:
                     logger.warning(f"Could not parse capacity from registry raw_data for CMU {entry.cmu_id}: {parse_error}")
-        logger.info(f"Fetched registry capacity for {len(registry_capacity_map)} CMUs.")
+        logger.info(f"Fetched registry capacity for {len(registry_capacity_map)} CMUs potentially needed.") # Log adjusted message
 
         # Organize components by CMU ID (for the template)
         components_by_cmu = {}
         for comp in components:
-            display_capacity = comp.derated_capacity_mw
-            if display_capacity is None:
-                display_capacity = registry_capacity_map.get(comp.cmu_id)
-            
+            # Get both capacities explicitly
+            component_capacity = comp.derated_capacity_mw # From the Component object
+            registry_capacity = registry_capacity_map.get(comp.cmu_id) # Get from the map populated above
+
             comp_data = {
                 'id': comp.id,
                 'location': comp.location,
                 'description': comp.description,
                 'technology': comp.technology,
                 'component_id': comp.component_id,
-                'display_capacity': display_capacity,
+                # Pass both capacities to the template
+                'component_capacity': component_capacity,
+                'registry_capacity': registry_capacity,
                  # Add other fields needed by the template if any
             }
             

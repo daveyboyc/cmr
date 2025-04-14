@@ -1,4 +1,5 @@
 {% load checker_tags %}
+{% load humanize %}
 
 {% if components_by_cmu %}
   <ul class="list-group list-group-flush">
@@ -6,17 +7,12 @@
       {% with first_component=component_list.0 %}{# Get the first component to access shared CMU data #}
       <li class="list-group-item">
         <div class="d-flex justify-content-between align-items-center mb-2">
-          {# Display CMU ID (as link) and its associated capacity badge (yellow) #}
+          {# Display CMU ID (as link) - Removed capacity badge #}
           <div>
             <strong class="me-3">
               <a href="/?q={{ cmu_id }}" title="Search for CMU ID {{ cmu_id }}">CMU ID: {{ cmu_id }}</a>
             </strong>
-            {% if first_component.display_capacity is not None %}
-                {# Changed badge color to yellow with dark text #}
-                <span class="badge bg-warning text-dark me-1" title="CMU De-Rated Capacity (Calculated)">{{ first_component.display_capacity|floatformat:2 }} MW</span>
-            {% else %}
-                <span class="badge bg-light text-dark me-1" title="CMU De-Rated Capacity (Calculated)">De-Rated N/A</span>
-            {% endif %}
+            {# --- Removed yellow MW badge block --- #}
           </div>
           {# Only show component count badge if more than 1 record #}
           {% if component_list|length > 1 %}
@@ -36,10 +32,22 @@
               {% if component.description %}
                 <p class="mb-0 ms-3 text-muted small">{{ component.description }}</p>
               {% endif %}
-               {# Technology badge #}
-               {% if component.technology %}
-                 <span class="badge bg-info ms-3">{{ component.technology }}</span> {# Added left margin to align with description #}
-               {% endif %}
+               {# Technology badge and NEW capacity badges #}
+               <div class="ms-3 mt-1"> {# Wrapper div for alignment #}
+                   {% if component.technology %}
+                     <span class="badge bg-info me-2">{{ component.technology }}</span> {# Added margin-end #}
+                   {% endif %}
+
+                   {# NEW: Component Capacity Badge #}
+                   <span class="badge bg-light text-dark border me-1" title="De-Rated Capacity (Component DB Field)">
+                       Comp: {{ component.component_capacity|format_value|default:"N/A" }} MW
+                   </span>
+
+                   {# NEW: Registry Capacity Badge #}
+                   <span class="badge bg-light text-dark border" title="De-Rated Capacity (CMU Registry Raw Data)">
+                       Reg: {{ component.registry_capacity|format_value|default:"N/A" }} MW
+                   </span>
+               </div>
             </li>
           {% endfor %}
         </ul>
