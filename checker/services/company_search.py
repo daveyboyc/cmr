@@ -263,9 +263,71 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             if return_data_only:
                 return results
 
+            # If we found results directly, use them
+            if company_results:
+                pass # We will handle company_results later when building company_links_final
+            else:
+                # Fall back to dataframe-based search with tight limits
+                logger.info(f"Falling back to dataframe search for '{query}'")
+                
+                # Limit company processing to avoid timeouts
+                component_limit = 20  # Only process the top 20 companies max
+                cmu_limit = 3         # Only check up to 3 CMU IDs per company
+                
+                cmu_df, df_api_time = get_cmu_dataframe()
+                api_time += df_api_time
+    
+                if cmu_df is None:
+                    if return_data_only:
+                        return {}
+                        
+                    context = {
+                        "error": "Error fetching CMU data",
+                        "api_time": api_time,
+                        "query": query,
+                        "sort_order": sort_order,
+                    }
+    
+                    if extra_context:
+                        context.update(extra_context)
+    
+                    return render(request, "checker/search.html", context)
+    
+                record_count = len(cmu_df)
+                matching_records = _perform_company_search(cmu_df, norm_query)
+                
+                # Limit the number of companies to avoid timeouts
+                unique_companies = list(matching_records["Full Name"].unique())[:component_limit]
+                
+                # Use a version of _build_search_results that limits CMU ID checks
+                # _build_search_results returns a dict like {query: [links]}, so extract the list
+                results_dict = _build_search_results(cmu_df, unique_companies, sort_order, query, 
+                                                  cmu_limit=cmu_limit, add_debug_info=True)
+                company_links_final = results_dict.get(query, []) # Get the list for the template
+            
+            # Caching needs reconsideration if results structure varies. Let's skip caching for now.
+            # if query:
+            #    cache_key = get_cache_key("search_results", query.lower())
+            #    # ... decide what to cache and how ...
+            #    # cache.set(cache_key, company_links_final, ...) # Example
+            #    logger.info(f"Cached {len(company_links_final)} results for query '{query}'")
+
+            # Update session data appropriately
+            # request.session["search_results"] = company_links_final # Store the links
+            # request.session["record_count"] = record_count if 'record_count' in locals() else len(company_links_final)
+            # request.session["api_time"] = api_time
+            # request.session["last_query"] = query
+            
+            if return_data_only:
+                 return company_links_final # Return the list directly
+
+            # Build context for the template
             context = {
-                "results": results,
-                "record_count": record_count if 'record_count' in locals() else len(company_results),
+                "company_links": company_links_final, # Use the correct context variable name
+                "company_count": len(company_links_final), # Pass the count
+                "displayed_company_count": len(company_links_final), # Assume all are displayed for now
+                # "results": results, # Remove the old results dict
+                "record_count": record_count if 'record_count' in locals() else len(company_links_final),
                 "error": error_message,
                 "api_time": api_time,
                 "query": query,
