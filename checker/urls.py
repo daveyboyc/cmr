@@ -2,9 +2,10 @@ from django.urls import path
 from . import views
 from .services.component_detail import get_component_details
 from .debug_views import debug_component_duplicates
+from .services.company_search import search_companies_service
 
 urlpatterns = [
-    path("", views.search_companies, name="search_companies"),
+    path("", search_companies_service, name="search_companies"),
     path("components/", views.search_components, name="search_components"),
 
     # HTMX endpoints
