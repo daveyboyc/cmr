@@ -197,11 +197,12 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 logger.exception(f"Error in direct database search: {e}")
                 # If the direct DB search fails, fall back to the dataframe method
                 
-            # If we found results directly, use them
-            if company_results:
-                results[query] = company_results
-                api_time = time.time() - start_time
-            else:
+            # Determine the final list of company links BEFORE caching/sessions
+            company_links_final = []
+            if company_results: # Direct DB search succeeded
+                company_links_final = company_results
+                api_time = time.time() - start_time # Calculate API time here
+            else: # Fallback search needed
                 # Fall back to dataframe-based search with tight limits
                 logger.info(f"Falling back to dataframe search for '{query}'")
                 
@@ -210,118 +211,54 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 cmu_limit = 3         # Only check up to 3 CMU IDs per company
                 
                 cmu_df, df_api_time = get_cmu_dataframe()
-                api_time += df_api_time
+                api_time += df_api_time # Add dataframe fetch time
     
                 if cmu_df is None:
+                    # Handle error if dataframe loading fails
                     if return_data_only:
-                        return {}
-                        
+                        return [] # Return empty list
                     context = {
-                        "error": "Error fetching CMU data",
+                        "error": "Error fetching CMU registry data",
                         "api_time": api_time,
                         "query": query,
                         "sort_order": sort_order,
                     }
-    
-                    if extra_context:
-                        context.update(extra_context)
-    
+                    if extra_context: context.update(extra_context)
                     return render(request, "checker/search.html", context)
     
-                record_count = len(cmu_df)
+                record_count = len(cmu_df) # Set record count based on dataframe size
                 matching_records = _perform_company_search(cmu_df, norm_query)
-                
-                # Limit the number of companies to avoid timeouts
                 unique_companies = list(matching_records["Full Name"].unique())[:component_limit]
                 
-                # Use a version of _build_search_results that limits CMU ID checks
-                results = _build_search_results(cmu_df, unique_companies, sort_order, query, 
-                                              cmu_limit=cmu_limit, add_debug_info=True)
-            
-            # Cache these search results - use safe cache key
-            if query:
-                cache_key = get_cache_key("search_results", query.lower())
-                total_items = sum(len(matches) for matches in results.values())
-                
-                # Cache longer for smaller result sets
-                if total_items < 10:
-                    cache.set(cache_key, results, 7200)     # 2 hours for very small results
-                elif total_items < 100:
-                    cache.set(cache_key, results, 3600)     # 1 hour for small results
-                elif total_items < 500:
-                    cache.set(cache_key, results, 1800)     # 30 minutes for medium results
-                else:
-                    cache.set(cache_key, results, 600)      # 10 minutes for large results
-                    
-                logger.info(f"Cached {total_items} results for query '{query}'")
-
-            request.session["search_results"] = results
-            request.session["record_count"] = record_count if 'record_count' in locals() else len(company_results)
-            request.session["api_time"] = api_time
-            request.session["last_query"] = query
-            
-            if return_data_only:
-                return results
-
-            # If we found results directly, use them
-            if company_results:
-                pass # We will handle company_results later when building company_links_final
-            else:
-                # Fall back to dataframe-based search with tight limits
-                logger.info(f"Falling back to dataframe search for '{query}'")
-                
-                # Limit company processing to avoid timeouts
-                component_limit = 20  # Only process the top 20 companies max
-                cmu_limit = 3         # Only check up to 3 CMU IDs per company
-                
-                cmu_df, df_api_time = get_cmu_dataframe()
-                api_time += df_api_time
-    
-                if cmu_df is None:
-                    if return_data_only:
-                        return {}
-                        
-                    context = {
-                        "error": "Error fetching CMU data",
-                        "api_time": api_time,
-                        "query": query,
-                        "sort_order": sort_order,
-                    }
-    
-                    if extra_context:
-                        context.update(extra_context)
-    
-                    return render(request, "checker/search.html", context)
-    
-                record_count = len(cmu_df)
-                matching_records = _perform_company_search(cmu_df, norm_query)
-                
-                # Limit the number of companies to avoid timeouts
-                unique_companies = list(matching_records["Full Name"].unique())[:component_limit]
-                
-                # Use a version of _build_search_results that limits CMU ID checks
                 # _build_search_results returns a dict like {query: [links]}, so extract the list
                 results_dict = _build_search_results(cmu_df, unique_companies, sort_order, query, 
                                                   cmu_limit=cmu_limit, add_debug_info=True)
                 company_links_final = results_dict.get(query, []) # Get the list for the template
+                # api_time calculation for fallback is handled by adding df_api_time
             
-            # Caching needs reconsideration if results structure varies. Let's skip caching for now.
-            # if query:
-            #    cache_key = get_cache_key("search_results", query.lower())
-            #    # ... decide what to cache and how ...
-            #    # cache.set(cache_key, company_links_final, ...) # Example
-            #    logger.info(f"Cached {len(company_links_final)} results for query '{query}'")
+            # Cache the final list of links
+            if query:
+                cache_key = get_cache_key("search_results", query.lower())
+                # Cache based on number of results found
+                total_items = len(company_links_final)
+                if total_items < 10: cache_time = 7200 # 2 hours
+                elif total_items < 100: cache_time = 3600 # 1 hour
+                elif total_items < 500: cache_time = 1800 # 30 mins
+                else: cache_time = 600 # 10 mins
+                cache.set(cache_key, company_links_final, cache_time)     
+                logger.info(f"Cached {total_items} results for query '{query}' for {cache_time}s")
 
-            # Update session data appropriately
-            # request.session["search_results"] = company_links_final # Store the links
+            # Update session data appropriately (optional)
+            # request.session["search_results"] = company_links_final 
             # request.session["record_count"] = record_count if 'record_count' in locals() else len(company_links_final)
             # request.session["api_time"] = api_time
             # request.session["last_query"] = query
             
+            # Handle return_data_only case AFTER determining links
             if return_data_only:
-                 return company_links_final # Return the list directly
+                 return company_links_final 
 
-            # Build context for the template
+            # Build context for the template (this block remains)
             context = {
                 "company_links": company_links_final, # Use the correct context variable name
                 "company_count": len(company_links_final), # Pass the count
