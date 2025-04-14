@@ -27,10 +27,8 @@ def search_companies_service(request, extra_context=None, return_data_only=False
     """Service function for searching companies with improved caching and performance"""
     # Imports at the top
     import logging
-    from django.core.cache import cache
-    
-    # Initialize logger once
     logger = logging.getLogger(__name__)
+    logger.warning("--- ENTERING search_companies_service ---")
     
     # Initialize variables
     results = {}
@@ -71,7 +69,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
         error_message = "Search query too long, truncated to 100 characters"
         logger.warning(f"Search query truncated: '{query}'")
     
-    logger.info(f"--- Starting live search for query: '{query}' ---") # LOG START
+    logger.warning(f"--- Starting live search for query: '{query}' ---") # LOG START (WARNING LEVEL)
 
     # Process GET requests
     if request.method == "GET":
