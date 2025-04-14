@@ -193,6 +193,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 logger.info(f"Direct DB search finished. Generated {len(company_results)} company result strings.") # LOG DB FINISHED
 
             except Exception as e:
+                logger.error("!!!!!!!! CAUGHT EXCEPTION IN DIRECT DB SEARCH BLOCK !!!!!!!!") # ADDED ERROR LOG
                 logger.exception(f"Error during direct database search: {e}")
                 company_results = [] # Ensure it's empty if search failed
 
