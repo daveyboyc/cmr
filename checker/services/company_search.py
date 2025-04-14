@@ -73,8 +73,10 @@ def search_companies_service(request, extra_context=None, return_data_only=False
 
     # Process GET requests
     if request.method == "GET":
+        logger.warning("Inside GET request block.") # ADDED LOG
         # Shortcut for component results
         if query.startswith("CM_"):
+            logger.warning("Entering CM_ shortcut block.") # ADDED LOG
             component_id = query
             logger.info(f"Direct component ID query: {component_id}")
             components = get_component_data_from_json(component_id)
@@ -121,6 +123,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                         return render(request, "checker/search.html", context)
         
         elif "debug" in request.GET:
+            logger.warning("Entering debug block.") # ADDED LOG
             # Show all companies (for debugging)
             cmu_df, df_api_time = get_cmu_dataframe()
             api_time += df_api_time
@@ -146,6 +149,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 return render(request, "checker/search.html", context)
 
         elif query:
+            logger.warning("Entering main query block (elif query:).") # ADDED LOG
             # Execute an optimized search that will work for all companies
 
             # Try Direct DB Company Search
