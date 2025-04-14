@@ -71,6 +71,8 @@ def search_companies_service(request, extra_context=None, return_data_only=False
         error_message = "Search query too long, truncated to 100 characters"
         logger.warning(f"Search query truncated: '{query}'")
     
+    logger.info(f"--- Starting live search for query: '{query}' ---") # LOG START
+
     # Process GET requests
     if request.method == "GET":
         # Shortcut for component results
@@ -147,75 +149,71 @@ def search_companies_service(request, extra_context=None, return_data_only=False
 
         elif query:
             # Execute an optimized search that will work for all companies
-            start_time = time.time()
-            norm_query = normalize(query)
-            
-            # First, try a direct database search for companies
+
+            # Try Direct DB Company Search
+            start_time = time.time() # Reset start time for live search timing
+            api_time = 0
             company_results = []
-            
+            logger.info("Attempting direct DB company search...") # LOG DB SEARCH START
             try:
-                # Use the Component model to directly find matching companies
                 from ..models import Component
-                # Get matching companies directly from the database with a count
                 from django.db.models import Count, Q
-                
-                # Build a query that works for spaces using separate terms
+
                 query_terms = query.lower().split()
                 query_filter = Q()
-                
                 for term in query_terms:
-                    if len(term) >= 3:  # Only use terms with at least 3 characters
-                        query_filter |= Q(company_name__icontains=term)
-                
+                    if len(term) >= 3: query_filter |= Q(company_name__icontains=term)
+
+                logger.info(f"Direct DB search filter: {query_filter}") # LOG DB FILTER
+
                 matching_companies = Component.objects.filter(query_filter)\
                     .values('company_name')\
-                    .annotate(cmu_count=Count('cmu_id', distinct=True), 
-                              total_components=Count('id'))\
-                    .order_by('-cmu_count')[:50]  # Limit to top 50 companies
-                
-                # Format results directly
+                    .annotate(cmu_count=Count('cmu_id', distinct=True), total_components=Count('id'))\
+                    .order_by('-cmu_count')[:50]
+
+                logger.info(f"Direct DB query executed. Found {len(matching_companies)} potential company groups.") # LOG DB COUNT
+
                 for company in matching_companies:
-                    if not company['company_name']:
-                        continue
-                        
-                    company_name = company['company_name'] 
+                    company_name = company['company_name']
+                    if not company_name: continue # Skip if name is empty
                     company_id = normalize(company_name)
                     cmu_count = company['cmu_count']
                     component_count = company['total_components']
-                    
-                    # Create formatted HTML
                     company_html = f'<a href="/company/{company_id}/" style="color: blue; text-decoration: underline;">{company_name}</a>'
-                    company_results.append(f"""
+                    company_results.append(f'''
                     <div>
                         <strong>{company_html}</strong>
                         <div class="mt-1 mb-1"><span class="text-muted">Company in component database</span></div>
                         <div>{component_count} components across {cmu_count} CMU IDs</div>
                     </div>
-                    """)
-                
-                logger.info(f"Direct DB search found {len(company_results)} companies for '{query}'")
-                    
+                    ''')
+
+                logger.info(f"Direct DB search finished. Generated {len(company_results)} company result strings.") # LOG DB FINISHED
+
             except Exception as e:
-                logger.exception(f"Error in direct database search: {e}")
-                # If the direct DB search fails, fall back to the dataframe method
-                
+                logger.exception(f"Error during direct database search: {e}")
+                company_results = [] # Ensure it's empty if search failed
+
             # Determine the final list of company links BEFORE caching/sessions
             company_links_final = []
+            record_count = 0 # Initialize record_count
             if company_results: # Direct DB search succeeded
                 company_links_final = company_results
                 api_time = time.time() - start_time # Calculate API time here
+                record_count = len(company_links_final) # Count based on DB results
+                logger.info("Using results from Direct DB search.") # LOG PATH TAKEN
             else: # Fallback search needed
-                # Fall back to dataframe-based search with tight limits
-                logger.info(f"Falling back to dataframe search for '{query}'")
-                
+                logger.info("Direct DB search yielded no results or failed. Falling back to dataframe search...") # LOG PATH TAKEN
+
                 # Limit company processing to avoid timeouts
-                component_limit = 20  # Only process the top 20 companies max
-                cmu_limit = 3         # Only check up to 3 CMU IDs per company
-                
+                component_limit = 20
+                cmu_limit = 3
+
                 cmu_df, df_api_time = get_cmu_dataframe()
                 api_time += df_api_time # Add dataframe fetch time
-    
+
                 if cmu_df is None:
+                    logger.error("CMU Dataframe could not be loaded for fallback search.") # LOG DF ERROR
                     # Handle error if dataframe loading fails
                     if return_data_only:
                         return [] # Return empty list
@@ -227,17 +225,22 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                     }
                     if extra_context: context.update(extra_context)
                     return render(request, "checker/search.html", context)
-    
-                record_count = len(cmu_df) # Set record count based on dataframe size
-                matching_records = _perform_company_search(cmu_df, norm_query)
-                unique_companies = list(matching_records["Full Name"].unique())[:component_limit]
-                
-                # _build_search_results returns a dict like {query: [links]}, so extract the list
-                results_dict = _build_search_results(cmu_df, unique_companies, sort_order, query, 
-                                                  cmu_limit=cmu_limit, add_debug_info=True)
-                company_links_final = results_dict.get(query, []) # Get the list for the template
-                # api_time calculation for fallback is handled by adding df_api_time
-            
+                else:
+                    record_count = len(cmu_df) # Set record count based on dataframe size
+                    matching_records = _perform_company_search(cmu_df, normalize(query))
+                    logger.info(f"Fallback: Found {len(matching_records)} records via _perform_company_search.") # LOG FALLBACK COUNT 1
+                    unique_companies = list(matching_records["Full Name"].unique())[:component_limit]
+                    logger.info(f"Fallback: Processing {len(unique_companies)} unique companies.") # LOG FALLBACK COUNT 2
+
+                    # _build_search_results returns a dict like {query: [links]}, so extract the list
+                    results_dict = _build_search_results(cmu_df, unique_companies, sort_order, query,
+                                                    cmu_limit=cmu_limit, add_debug_info=True)
+                    company_links_final = results_dict.get(query, []) # Get the list for the template
+                    logger.info(f"Fallback: _build_search_results generated {len(company_links_final)} links.") # LOG FALLBACK COUNT 3
+                    # api_time calculation for fallback is handled by adding df_api_time
+
+            logger.info(f"Final company_links_final length: {len(company_links_final)}") # LOG FINAL LIST LENGTH
+
             # Cache the final list of links
             if query:
                 cache_key = get_cache_key("search_results", query.lower())
@@ -247,8 +250,8 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 elif total_items < 100: cache_time = 3600 # 1 hour
                 elif total_items < 500: cache_time = 1800 # 30 mins
                 else: cache_time = 600 # 10 mins
-                cache.set(cache_key, company_links_final, cache_time)     
-                logger.info(f"Cached {total_items} results for query '{query}' for {cache_time}s")
+                cache.set(cache_key, company_links_final, cache_time)
+                logger.info(f"Cached {total_items} results for query '{query}' for {cache_time}s") # Adjusted log message
 
             # Update session data appropriately (optional)
             # request.session["search_results"] = company_links_final 
@@ -258,20 +261,21 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             
             # Handle return_data_only case AFTER determining links
             if return_data_only:
-                 return company_links_final 
+                 logger.info("Returning data only.") # LOG RETURN DATA ONLY
+                 return company_links_final
 
             # Build context for the template (this block remains)
             context = {
                 "company_links": company_links_final, # Use the correct context variable name
                 "company_count": len(company_links_final), # Pass the count
                 "displayed_company_count": len(company_links_final), # Assume all are displayed for now
-                # "results": results, # Remove the old results dict
-                "record_count": record_count if 'record_count' in locals() else len(company_links_final),
+                "record_count": record_count, # Use calculated record_count
                 "error": error_message,
                 "api_time": api_time,
                 "query": query,
                 "sort_order": sort_order,
             }
+            logger.info(f"Final context keys for rendering: {list(context.keys())}") # LOG FINAL CONTEXT KEYS
 
             if extra_context:
                 context.update(extra_context)
