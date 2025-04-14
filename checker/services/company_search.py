@@ -999,7 +999,7 @@ def company_detail(request, company_id):
         if view_mode == 'year_auction':
             # Existing logic for year/auction view
             company_records = Component.objects.filter(company_name__in=company_name_variations).values(
-                'delivery_year', 'auction_name', 'auction_type' # Add auction_type if needed
+                'delivery_year', 'auction_name' # Removed auction_type as it's not a direct field
             ).distinct()
             # Convert queryset to DataFrame for processing - might be inefficient for large sets
             # Consider direct DB aggregation if performance is an issue
