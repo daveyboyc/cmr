@@ -1624,10 +1624,16 @@ def _build_db_search_results(company_queryset, query):
     # Sort by score, descending
     name_score_list.sort(key=lambda item: item[1], reverse=True)
     
-    # Get the sorted list of names
-    sorted_unique_names = [name for name, score in name_score_list]
-    logger.debug(f"_build_db_search_results: Names sorted by score: {sorted_unique_names[:10]}...")
-    # --- End Sorting --- 
+    # --- Filter by Score Threshold ---
+    score_threshold = 85
+    filtered_name_score_list = [(name, score) for name, score in name_score_list if score >= score_threshold]
+    logger.info(f"_build_db_search_results: Filtered {len(name_score_list)} names down to {len(filtered_name_score_list)} with score >= {score_threshold}")
+
+    # Get the sorted list of names that meet the threshold
+    sorted_unique_names = [name for name, score in filtered_name_score_list]
+    # --- End Filtering ---
+    
+    logger.debug(f"_build_db_search_results: High-scoring names: {sorted_unique_names[:10]}...")
 
     processed_count = 0
     # Iterate through the SCORE-SORTED unique names
