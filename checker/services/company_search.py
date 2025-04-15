@@ -155,10 +155,10 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             context = {}
             error_message = None # Ensure error message is initialized
 
-            logger.info("+++ Pre-TRY Block: About to attempt Hybrid DB Search +++")
+            logger.warning("+++ Pre-TRY Block: About to attempt Hybrid DB Search +++")
             # --- Try Option 2: Hybrid DB Search (Companies + Components) ---
             try:
-                logger.info("+++ Entered Hybrid DB Search TRY block +++")
+                logger.warning("+++ Entered Hybrid DB Search TRY block +++")
                 # --- Prerequisites ---
                 per_page = 50 # Components per page
                 # NOTE: 'page' from GET will be used for Component pagination now, aligned with template
@@ -170,7 +170,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 # from django.db.models import Count, Q
                 # from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
                 # from ..utils import normalize # Use corrected import
-                logger.info("+++ Imports successful inside try block +++")
+                logger.warning("+++ Imports successful inside try block +++")
 
 
                 # --- Keep the original query, lowercased ---
@@ -178,7 +178,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 # if not full_query_lower:
                 #      raise ValueError("Search query is empty.")
 
-                logger.info("+++ Query processed, starting company link search section +++")
+                logger.warning("+++ Query processed, starting company link search section +++")
                 # --- 1. Find Matching Companies (Links) ---
                 # Company search can still benefit from splitting
                 # company_query_filter = Q()
@@ -197,17 +197,17 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 # else:
                 #     django_sort_field = 'company_name' 
                 #
-                logger.info(f"Company links: About to query Component DB with filter: SKIPPED") # Modified log
+                logger.warning(f"Company links: About to query Component DB with filter: SKIPPED")
                 # Query and build company links
                 # all_matching_company_components = Component.objects.filter(company_query_filter).order_by(django_sort_field)
-                logger.info(f"Company links: Initial query returned COUNT_SKIPPED potential components. Calling _build_db_search_results.") # Modified log
+                logger.warning(f"Company links: Initial query returned COUNT_SKIPPED potential components. Calling _build_db_search_results.")
                 # company_links, render_time_links = _build_db_search_results(all_matching_company_components)
                 # company_link_count = len(company_links)
                 company_links = [] # Mock empty results
                 company_link_count = 0
                 render_time_links = 0
 
-                logger.info(f"Company links: _build_db_search_results returned {company_link_count} links.")
+                logger.warning(f"Company links: _build_db_search_results returned {company_link_count} links.")
                 
                 # --- 2. Find Matching Components (Paginated) ---
                 # Construct component filter using the FULL query string
@@ -225,7 +225,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 # )
                 
                 # Log the exact filter being used
-                logger.info(f"Attempting component query with filter: SKIPPED") # Modified log
+                logger.warning(f"Attempting component query with filter: SKIPPED")
 
                 # # Determine sort order for components (use comp_sort GET param like template expects)
                 # comp_sort_order = request.GET.get('comp_sort', 'desc') # Default sort from template
@@ -233,12 +233,12 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 # # TODO: Allow sorting components by different fields?
                 # comp_django_sort_field = f'{comp_sort_prefix}delivery_year' # Default sort
 
-                logger.info(f"Component Query Filter built. About to execute Component.objects.filter...")
+                logger.warning(f"Component Query Filter built. About to execute Component.objects.filter...")
                 # all_components = Component.objects.filter(component_query_filter).order_by(comp_django_sort_field)
-                logger.info(f"Component.objects.filter executed. About to call .count()...")
+                logger.warning(f"Component.objects.filter executed. About to call .count()...")
                 # component_count = all_components.count()
                 component_count = 0 # Mock empty results
-                logger.info(f"Component query executed. Filter: SKIPPED. Found {component_count} components.") # Modified log
+                logger.warning(f"Component query executed. Filter: SKIPPED. Found {component_count} components.")
 
                 # Paginate Components (using 'page' from GET)
                 # paginator = Paginator(all_components, per_page)
@@ -279,7 +279,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                     "unified_search": True, # REQUIRED flag for template
                     "search_method": "Hybrid DB Search (LOGGING TEST)", 
                 }
-                logger.info(f"Successfully completed Hybrid DB search. Context keys: {list(context.keys())}")
+                logger.warning(f"Successfully completed Hybrid DB search. Context keys: {list(context.keys())}")
 
             # --- End of Option 2 Try Block ---
             
@@ -396,7 +396,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             context.setdefault("unified_search", False)
 
 
-            logger.info(f"Rendering search results page via {context['search_method']} path.")
+            logger.warning(f"Rendering search results page via {context.get('search_method', 'Unknown/Failed')} path.")
             return render(request, "checker/search.html", context)
             # --- End of main elif query: block ---
 
