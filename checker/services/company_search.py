@@ -221,9 +221,11 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 else:
                     django_sort_field = 'company_name'
                 
+                logger.warning("STEP 1: About to execute initial company filter query...") # ADDED
                 logger.info(f"Company links: About to query Component DB with filter: {company_query_filter}")
                 # Query and build company links
                 all_matching_company_components = Component.objects.filter(company_query_filter).order_by(django_sort_field)
+                logger.warning(f"STEP 1: Initial company filter query EXECUTED. Type: {type(all_matching_company_components)}") # ADDED
                 logger.info(f"Company links: Initial query returned queryset. Calling _build_db_search_results.")
                 company_links, render_time_links = _build_db_search_results(all_matching_company_components)
                 company_link_count = len(company_links)
