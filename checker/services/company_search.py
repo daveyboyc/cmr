@@ -244,12 +244,13 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 
                 # --- 2. Find Matching Components (Paginated) ---
                 # Construct component filter using the FULL query string
+                # Ensure company_name icontains is definitely included
                 component_query_filter = (
+                    Q(company_name__icontains=full_query_lower) | # Explicitly match query in company name
                     Q(cmu_id__iexact=full_query_lower) | 
                     Q(location__icontains=full_query_lower) | 
                     Q(description__icontains=full_query_lower) | 
-                    Q(technology__icontains=full_query_lower) | 
-                    Q(company_name__icontains=full_query_lower) 
+                    Q(technology__icontains=full_query_lower) 
                 )
                 
                 # Log the exact filter being used
