@@ -195,10 +195,10 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 # try: page = int(page)
                 # except (ValueError, TypeError): page = 1
 
-                # from ..models import Component
-                # from django.db.models import Count, Q
-                # from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-                # from ..utils import normalize # Use corrected import
+                from ..models import Component
+                from django.db.models import Count, Q
+                from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+                from ..utils import normalize # Use corrected import
                 logger.warning("+++ Imports successful inside try block +++")
 
                 # --- Keep the original query, lowercased ---
