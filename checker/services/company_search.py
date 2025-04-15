@@ -1624,14 +1624,38 @@ def _build_db_search_results(company_queryset, query):
     # Sort by score, descending
     name_score_list.sort(key=lambda item: item[1], reverse=True)
     
-    # Get the sorted list of names
-    sorted_unique_names = [name for name, score in name_score_list]
-    logger.debug(f"_build_db_search_results: Names sorted by score: {sorted_unique_names[:10]}...")
-    # --- End Sorting --- 
+    # --- Filter by Score Threshold ---
+    score_threshold = 80
+    filtered_name_score_list = [(name, score) for name, score in name_score_list if score >= score_threshold]
+    logger.info(f"_build_db_search_results: Filtered {len(name_score_list)} names down to {len(filtered_name_score_list)} with score >= {score_threshold}")
+
+    # Get the sorted list of names that meet the threshold
+    sorted_unique_names_filtered = [name for name, score in filtered_name_score_list]
+    # --- End Filtering ---
+    
+    logger.debug(f"_build_db_search_results: High-scoring names: {sorted_unique_names_filtered[:10]}...")
+
+    # --- Step 3: Fetch Counts and Build HTML --- 
+    # Fetch counts efficiently only for the high-scoring names
+    if not sorted_unique_names_filtered:
+        logger.warning("_build_db_search_results: No company names met the score threshold.")
+        return [], 0.0
+    
+    logger.info(f"Fetching counts for {len(sorted_unique_names_filtered)} high-scoring companies...")
+    company_data = Component.objects.filter(company_name__in=sorted_unique_names_filtered) \
+                                    .values('company_name') \
+                                    .annotate(
+                                        component_count=Count('id'), 
+                                        cmu_count=Count(Coalesce('cmu_id', Value('__EMPTY__')), distinct=True)
+                                    ) \
+                                    .order_by() # Remove default ordering for efficiency if not needed here
+                                    
+    company_counts_dict = {item['company_name']: item for item in company_data}
+    logger.info(f"Annotated counts retrieved for {len(company_counts_dict)} companies.")
 
     processed_count = 0
-    # Iterate through the SCORE-SORTED unique names
-    for company_name in sorted_unique_names:
+    # Iterate through the FILTERED AND SORTED unique names
+    for company_name in sorted_unique_names_filtered:
         processed_count += 1
         if not company_name:
             logger.warning(f"Skipping blank company name at index {processed_count-1}")
