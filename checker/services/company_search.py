@@ -237,35 +237,54 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                     all_matching_company_components = Component.objects.filter(company_query_filter).order_by(django_sort_field)
                     # logger.warning(f"STEP 1: Initial company filter query EXECUTED. Type: {type(all_matching_company_components)}") # Removed log
                     logger.warning(f"Company links: Initial query returned queryset. Calling _build_db_search_results.")
-                    company_links, render_time_links = _build_db_search_results(all_matching_company_components) # Use the actual queryset
+                    company_links, render_time_links = _build_db_search_results(all_matching_company_components, query) # Use the actual queryset
                     company_link_count = len(company_links)
                     logger.warning(f"Company links: _build_db_search_results returned {company_link_count} links.")
                 # --- END OF STEP 1 --- 
                 
                 # --- 2. Find Matching Components (Paginated) ---
-                # Construct component filter using the FULL query string
-                # Ensure company_name icontains is definitely included
-                component_query_filter = (
-                    Q(company_name__icontains=full_query_lower) | # Explicitly match query in company name
-                    Q(cmu_id__iexact=full_query_lower) | 
-                    Q(location__icontains=full_query_lower) | 
-                    Q(description__icontains=full_query_lower) | 
-                    Q(technology__icontains=full_query_lower) 
-                )
+                # --- Use term-based filter for components --- 
+                component_query_filter = Q()
+                component_terms = full_query_lower.split()
+                terms_added = 0
+                for term in component_terms:
+                    # Use a slightly lower length threshold for component search maybe?
+                    if len(term) >= 2: 
+                        term_filter = (
+                            Q(location__icontains=term) | 
+                            Q(description__icontains=term) | 
+                            Q(technology__icontains=term) | 
+                            Q(company_name__icontains=term) | # Match term in company name
+                            Q(cmu_id__icontains=term)
+                        )
+                        component_query_filter |= term_filter
+                        terms_added += 1
                 
-                # Log the exact filter being used
-                logger.warning(f"Attempting component query with filter: {component_query_filter}")
+                # Add exact CMU ID match as a high-priority option
+                # Use the original query case for potential exact match
+                if query: # Ensure query is not empty
+                    component_query_filter |= Q(cmu_id__iexact=query)
 
-                # Restore Component Sort Logic
-                comp_sort_order = request.GET.get('comp_sort', 'desc') # Default sort from template
-                comp_sort_prefix = '-' if comp_sort_order == 'desc' else ''
-                comp_django_sort_field = f'{comp_sort_prefix}delivery_year'
+                # If no terms were added (e.g., only very short words), the filter might be empty
+                if not component_query_filter:
+                     logger.warning("Component query filter is empty after processing terms. No components will be searched.")
+                     all_components = Component.objects.none() # Return an empty queryset
+                     component_count = 0
+                else:
+                    # Log the exact filter being used
+                    logger.warning(f"Attempting component query with term-based filter: {component_query_filter}")
 
-                logger.warning(f"Component Query Filter built. About to execute Component.objects.filter with sort: {comp_django_sort_field}...")
-                all_components = Component.objects.filter(component_query_filter).order_by(comp_django_sort_field)
-                logger.warning(f"Component.objects.filter executed. About to call .count()...")
-                component_count = all_components.count()
-                logger.warning(f"Component query executed. Filter: {component_query_filter}. Found {component_count} components.")
+                    # Restore Component Sort Logic
+                    comp_sort_order = request.GET.get('comp_sort', 'desc') # Default sort from template
+                    comp_sort_prefix = '-' if comp_sort_order == 'desc' else ''
+                    comp_django_sort_field = f'{comp_sort_prefix}delivery_year'
+
+                    logger.warning(f"Component Query Filter built. About to execute Component.objects.filter with sort: {comp_django_sort_field}...")
+                    all_components = Component.objects.filter(component_query_filter).order_by(comp_django_sort_field).distinct() # Add distinct()
+                    logger.warning(f"Component.objects.filter executed. About to call .count()...")
+                    component_count = all_components.count()
+                    logger.warning(f"Component query executed. Filter: {component_query_filter}. Found {component_count} components.")
+                # --- END Component Filter Logic ---
 
                 # Restore Pagination Logic
                 paginator = Paginator(all_components, per_page)
@@ -1551,7 +1570,7 @@ def fetch_components_for_cmu_id(cmu_id, limit=1000):
     return all_components, elapsed_time
 
 
-def _build_db_search_results(company_queryset):
+def _build_db_search_results(company_queryset, query):
     """
     Builds formatted HTML links from a Component QuerySet from the direct DB search.
     Groups by company name, fetches component/CMU counts efficiently using annotate,
@@ -1593,20 +1612,26 @@ def _build_db_search_results(company_queryset):
     logger.info(f"Annotated counts retrieved for {len(company_counts_dict)} companies.")
     # --- End of efficient count retrieval --- 
 
-    # Attempt to import normalize, provide fallback
-    try:
-        from ..utils import normalize # Correct relative import
-    except ImportError:
-        logger.warning("Could not import normalize function from checker.utils.") # Updated warning message
-        def normalize(s): # Basic fallback slugification
-             if not s: return ""
-             s = s.lower()
-             s = ''.join(c for c in s if c.isalnum() or c == ' ') # Keep alphanum and space
-             return '-'.join(s.split()) # Replace space with hyphen
+    # Calculate scores
+    scorer = fuzz.token_set_ratio
+    name_score_list = []
+    for name in unique_company_names:
+        if not name: continue
+        # Score the original query against the *actual* company name
+        score = scorer(query, name) 
+        name_score_list.append((name, score))
+    
+    # Sort by score, descending
+    name_score_list.sort(key=lambda item: item[1], reverse=True)
+    
+    # Get the sorted list of names
+    sorted_unique_names = [name for name, score in name_score_list]
+    logger.debug(f"_build_db_search_results: Names sorted by score: {sorted_unique_names[:10]}...")
+    # --- End Sorting --- 
 
     processed_count = 0
-    # Iterate through the unique names we originally found to maintain order/limit
-    for company_name in unique_company_names:
+    # Iterate through the SCORE-SORTED unique names
+    for company_name in sorted_unique_names:
         processed_count += 1
         if not company_name:
             logger.warning(f"Skipping blank company name at index {processed_count-1}")
