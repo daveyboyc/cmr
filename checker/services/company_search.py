@@ -1331,16 +1331,17 @@ def fetch_components_for_cmu_id(cmu_id, limit=1000):
 def _build_db_search_results(company_queryset):
     """
     Builds formatted HTML links from a Component QuerySet from the direct DB search.
-    Groups by company name and provides a link.
-    TODO: Enhance to show component counts or other details if needed.
+    Groups by company name, fetches component/CMU counts, and provides a link.
     """
     start_build_time = time.time()
     company_links = []
     # Get unique company names efficiently from the queryset
-    # Limit the number of unique names processed to avoid excessive rendering time
     limit = 250 # Limit to rendering N unique companies from DB results
-    unique_company_names = list(company_queryset.values_list('company_name', flat=True).distinct()[:limit])
-    logger.info(f"Found {len(unique_company_names)} unique company names from DB query (limited to {limit}).")
+    # We need the original queryset to efficiently get counts later
+    # unique_company_names = list(company_queryset.values_list('company_name', flat=True).distinct()[:limit])
+    # Instead, get distinct names but keep the ability to filter the original queryset
+    unique_company_names = list(company_queryset.order_by('company_name').values_list('company_name', flat=True).distinct()[:limit])
+    logger.info(f"Found {len(unique_company_names)} unique company names from DB query (limited to {limit}). Processing counts...")
 
     # Attempt to import normalize, provide fallback
     normalize = None
@@ -1354,23 +1355,44 @@ def _build_db_search_results(company_queryset):
              s = ''.join(c for c in s if c.isalnum() or c == ' ') # Keep alphanum and space
              return '-'.join(s.split()) # Replace space with hyphen
 
-
     if normalize is None:
-         def normalize(s): # Basic fallback slugification if import succeeded but normalize was None
+         # Fallback if import structure failed somehow
+         def normalize(s): 
              if not s: return ""
              s = s.lower()
-             s = ''.join(c for c in s if c.isalnum() or c == ' ') # Keep alphanum and space
-             return '-'.join(s.split()) # Replace space with hyphen
+             s = ''.join(c for c in s if c.isalnum() or c == ' ') 
+             return '-'.join(s.split())
 
+    processed_count = 0
     for company_name in unique_company_names:
-        if not company_name: continue # Skip if name is empty
+        processed_count += 1
+        if not company_name: continue 
         company_id = normalize(company_name)
 
-        # Simple link for now
+        # --- Query for counts for this specific company_name --- 
+        # Filter the original queryset for efficiency, rather than hitting DB from scratch
+        # NOTE: This assumes company_queryset contains all fields needed implicitly by .count()/.distinct()
+        try:
+            company_components = company_queryset.filter(company_name=company_name)
+            component_count = company_components.count() # Total components for this name
+            cmu_count = company_components.values('cmu_id').distinct().count() # Distinct CMUs for this name
+            count_text = f"{component_count} components across {cmu_count} CMU IDs"
+        except Exception as count_e:
+            logger.error(f"Error getting counts for '{company_name}': {count_e}")
+            count_text = "(Error fetching counts)"
+        # --- End Count Query ---
+
         company_html = f'<a href="/company/{company_id}/" style="color: blue; text-decoration: underline;">{company_name}</a>'
-        # Add company name to the surrounding div for easier selection/debugging if needed
-        company_links.append(f'<div data-company-name="{company_name}"><strong>{company_html}</strong><div class="mt-1 mb-1"><span class="text-muted">Company found via DB search</span></div></div>')
+        # Add counts back to the display
+        company_links.append(f'''
+            <div data-company-name="{company_name}">
+                <strong>{company_html}</strong>
+                <div class="mt-1 mb-1"><span class="text-muted">{count_text}</span></div>
+            </div>
+        ''')
+        if processed_count % 50 == 0:
+             logger.info(f"Processed counts for {processed_count}/{len(unique_company_names)} companies...")
 
     build_time = time.time() - start_build_time
-    logger.info(f"Generated {len(company_links)} links for DB results in {build_time:.4f}s.")
+    logger.info(f"Generated {len(company_links)} links with counts for DB results in {build_time:.4f}s.")
     return company_links, build_time
