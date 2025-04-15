@@ -13,6 +13,7 @@ from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 import re
 from django.db.models import Count, Value
 from django.db.models.functions import Coalesce
+from ..models import Component
 
 from ..utils import (
     normalize,
