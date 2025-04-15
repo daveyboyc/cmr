@@ -197,20 +197,17 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 # else:
                 #     django_sort_field = 'company_name' 
                 #
-                logger.warning(f"--- SKIPPING STEP 1 (Company Link Generation) FOR TESTING ---")
-                # logger.warning(f"Company links: About to query Component DB with filter: SKIPPED") # Changed to WARNING
-                # # Query and build company links
-                # # all_matching_company_components = Component.objects.filter(company_query_filter).order_by(django_sort_field)
-                # logger.warning(f"Company links: Initial query returned COUNT_SKIPPED potential components. Calling _build_db_search_results.") # Changed to WARNING
-                # # company_links, render_time_links = _build_db_search_results(all_matching_company_components)
-                # # company_link_count = len(company_links)
-
-                # Mock results for Step 1 to allow Step 2 to proceed
-                company_links = []
+                logger.warning(f"Company links: About to query Component DB with filter: SKIPPED")
+                # Query and build company links
+                # all_matching_company_components = Component.objects.filter(company_query_filter).order_by(django_sort_field)
+                logger.warning(f"Company links: Initial query returned COUNT_SKIPPED potential components. Calling _build_db_search_results.")
+                # company_links, render_time_links = _build_db_search_results(all_matching_company_components)
+                # company_link_count = len(company_links)
+                company_links = [] # Mock empty results
                 company_link_count = 0
-                render_time_links = 0 
+                render_time_links = 0
 
-                # logger.warning(f"Company links: _build_db_search_results returned {company_link_count} links.") # Changed to WARNING
+                logger.warning(f"Company links: _build_db_search_results returned {company_link_count} links.")
                 
                 # --- 2. Find Matching Components (Paginated) ---
                 # Construct component filter using the FULL query string
@@ -228,7 +225,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 # )
                 
                 # Log the exact filter being used
-                logger.warning(f"Attempting component query with filter: SKIPPED") # Changed to WARNING
+                logger.warning(f"Attempting component query with filter: SKIPPED")
 
                 # # Determine sort order for components (use comp_sort GET param like template expects)
                 # comp_sort_order = request.GET.get('comp_sort', 'desc') # Default sort from template
@@ -236,41 +233,23 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 # # TODO: Allow sorting components by different fields?
                 # comp_django_sort_field = f'{comp_sort_prefix}delivery_year' # Default sort
 
-                # Restore Component Query Logic
-                full_query_lower = query.lower() # Ensure this is defined if skipped above
-                component_query_filter = (
-                    Q(cmu_id__iexact=full_query_lower) | 
-                    Q(location__icontains=full_query_lower) | 
-                    Q(description__icontains=full_query_lower) | 
-                    Q(technology__icontains=full_query_lower) | 
-                    Q(company_name__icontains=full_query_lower) 
-                )
-
-                logger.warning(f"Attempting component query with filter: {component_query_filter}")
-
-                # Restore Component Sort Logic
-                comp_sort_order = request.GET.get('comp_sort', 'desc') # Default sort from template
-                comp_sort_prefix = '-' if comp_sort_order == 'desc' else ''
-                comp_django_sort_field = f'{comp_sort_prefix}delivery_year'
-
-                logger.warning(f"Component Query Filter built. About to execute Component.objects.filter with sort: {comp_django_sort_field}...")
-                all_components = Component.objects.filter(component_query_filter).order_by(comp_django_sort_field)
+                logger.warning(f"Component Query Filter built. About to execute Component.objects.filter...")
+                # all_components = Component.objects.filter(component_query_filter).order_by(comp_django_sort_field)
                 logger.warning(f"Component.objects.filter executed. About to call .count()...")
-                component_count = all_components.count()
-                logger.warning(f"Component query executed. Filter: {component_query_filter}. Found {component_count} components.")
+                # component_count = all_components.count()
+                component_count = 0 # Mock empty results
+                logger.warning(f"Component query executed. Filter: SKIPPED. Found {component_count} components.")
 
                 # Paginate Components (using 'page' from GET)
-                paginator = Paginator(all_components, per_page)
-                page = request.GET.get('page', 1) # Need page number again
-                try: page = int(page) 
-                except (ValueError, TypeError): page = 1
-
-                try:
-                    page_obj = paginator.page(page) # Use 'page_obj' to match template
-                except PageNotAnInteger:
-                    page_obj = paginator.page(1)
-                except EmptyPage:
-                    page_obj = paginator.page(paginator.num_pages)
+                # paginator = Paginator(all_components, per_page)
+                # try:
+                #     page_obj = paginator.page(page) # Use 'page_obj' to match template
+                # except PageNotAnInteger:
+                #     page_obj = paginator.page(1)
+                # except EmptyPage:
+                #     page_obj = paginator.page(paginator.num_pages)
+                page_obj = None # Mock empty results
+                paginator = None
 
                 # --- 3. Build Context for Option 2 ---
                 api_time = time.time() - start_time
@@ -284,13 +263,13 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                     "paginator": paginator, # Pass the paginator object
                     "component_count": component_count, # Total components matched
                     "total_component_count": component_count, # Use same count for clarity?
-                    "total_pages": paginator.num_pages, # For pagination display
-                    "page": page, # Pass current page number
-                    "has_prev": page_obj.has_previous(), # Pagination flags
-                    "has_next": page_obj.has_next(),
-                    "page_range": paginator.get_elided_page_range(number=page, on_each_side=2, on_ends=1), # For pagination display
+                    "total_pages": 0, # For pagination display
+                    "page": 1, # Pass current page number
+                    "has_prev": False, # Pagination flags
+                    "has_next": False,
+                    "page_range": [], # For pagination display
 
-                    "comp_sort": comp_sort_order, # Pass component sort order
+                    "comp_sort": "desc", # Pass component sort order
                     "per_page": per_page, # Pass items per page
                     
                     "error": error_message,
@@ -298,7 +277,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                     "render_time_links": render_time_links, 
                     "sort_order": sort_order, # Original sort order for companies (if needed)
                     "unified_search": True, # REQUIRED flag for template
-                    "search_method": "Hybrid DB (Step 1 Skipped)", 
+                    "search_method": "Hybrid DB Search (LOGGING TEST)", 
                 }
                 logger.warning(f"Successfully completed Hybrid DB search. Context keys: {list(context.keys())}")
 
