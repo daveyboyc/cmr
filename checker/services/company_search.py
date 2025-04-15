@@ -155,9 +155,9 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             context = {}
             error_message = None # Ensure error message is initialized
 
-            # --- Try Option 2: Hybrid Direct DB Search (Companies + Components) ---
+            # --- Try Option 2: Hybrid DB Search (Companies + Components) ---
             try:
-                logger.info("Attempting Hybrid Direct DB Search...")
+                logger.info("+++ Entered Hybrid DB Search TRY block +++")
                 # --- Prerequisites ---
                 per_page = 50 # Components per page
                 # NOTE: 'page' from GET will be used for Component pagination now, aligned with template
@@ -169,6 +169,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 from django.db.models import Count, Q
                 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
                 from ..utils import normalize # Use corrected import
+                logger.info("+++ Imports successful inside try block +++")
 
 
                 # --- Keep the original query, lowercased ---
@@ -176,6 +177,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 if not full_query_lower:
                      raise ValueError("Search query is empty.")
 
+                logger.info("+++ Query processed, starting company link search section +++")
                 # --- 1. Find Matching Companies (Links) ---
                 # Company search can still benefit from splitting
                 company_query_filter = Q()
