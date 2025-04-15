@@ -14,6 +14,7 @@ import re
 from django.db.models import Count, Value
 from django.db.models.functions import Coalesce
 from ..models import Component
+from rapidfuzz import fuzz, process
 
 from ..utils import (
     normalize,
@@ -509,18 +510,37 @@ def search_companies_service(request, extra_context=None, return_data_only=False
 
 def _perform_company_search(cmu_df, norm_query):
     """
-    Perform search for companies based on normalized query.
+    Perform search for companies based on normalized query using RapidFuzz.
     Returns a DataFrame of matching records.
     """
-    cmu_id_matches = cmu_df[
-        cmu_df["Normalized CMU ID"].str.contains(norm_query, regex=False, na=False)
-    ]
-    company_matches = cmu_df[
-        cmu_df["Normalized Full Name"].str.contains(norm_query, regex=False, na=False)
-    ]
-    matching_records = pd.concat([cmu_id_matches, company_matches]).drop_duplicates(
-        subset=["Full Name"]
+    logger = logging.getLogger(__name__)
+    min_score = 75  # Minimum fuzzy match score
+
+    # Prepare choices for fuzzy matching (Company Name and CMU ID)
+    # Drop duplicates and NaN to avoid errors and improve performance
+    company_names = cmu_df["Normalized Full Name"].dropna().unique().tolist()
+    cmu_ids = cmu_df["Normalized CMU ID"].dropna().unique().tolist()
+
+    # Perform fuzzy search on company names
+    company_results = process.extract(norm_query, company_names, scorer=fuzz.token_set_ratio, limit=None, score_cutoff=min_score)
+    matched_company_names = [name for name, score, index in company_results]
+    logger.debug(f"Fuzzy matched company names: {matched_company_names}")
+
+    # Perform fuzzy search on CMU IDs
+    cmu_results = process.extract(norm_query, cmu_ids, scorer=fuzz.token_set_ratio, limit=None, score_cutoff=min_score)
+    matched_cmu_ids = [cmu_id for cmu_id, score, index in cmu_results]
+    logger.debug(f"Fuzzy matched CMU IDs: {matched_cmu_ids}")
+
+    # Filter the original DataFrame based on fuzzy matches
+    company_matches_df = cmu_df[cmu_df["Normalized Full Name"].isin(matched_company_names)]
+    cmu_id_matches_df = cmu_df[cmu_df["Normalized CMU ID"].isin(matched_cmu_ids)]
+
+    # Combine results and drop duplicates based on the *actual* full name
+    matching_records = pd.concat([company_matches_df, cmu_id_matches_df]).drop_duplicates(
+        subset=["Full Name"] # Use the non-normalized name for deduplication
     )
+
+    logger.info(f"Found {len(matching_records)} potential companies after fuzzy matching for '{norm_query}'")
     return matching_records
 
 

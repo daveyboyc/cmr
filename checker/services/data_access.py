@@ -1030,12 +1030,15 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
                 )
         
         # Check if location might be a postcode and get related area
-        area = get_area_for_any_postcode(location)
+        areas = get_area_for_any_postcode(location)
         area_filter = Q()
-        if area:
-            logger.info(f"Found related area for postcode {location}: {area}")
-            # Only match the area name as a complete word, not as a substring
-            area_filter = Q(location__iregex=f"\\b{area}\\b")
+        if areas:
+            logger.info(f"Found related areas for postcode {location}: {areas}")
+            # Combine filters for all found areas using OR
+            for area_name in areas:
+                if area_name:
+                    # Only match the area name as a complete word, not as a substring
+                    area_filter |= Q(location__iregex=f"\\b{area_name}\\b")
         
         # Combine all filters with priority - exact matches first, then starts_with, then postcodes, then area names
         # Use | (OR) between filters, so any match will work, but prioritize the filters when combining
@@ -1085,10 +1088,13 @@ def get_components_from_database(cmu_id=None, component_id=None, location=None, 
                             Q(location__icontains=f" {postcode} ")
                         )
                 
-                related_area = get_area_for_any_postcode(search_term_lower)
-                if related_area:
-                    logger.info(f"Expanding search with related area: {related_area}")
-                    location_expansion_filter |= Q(location__iregex=f"\\b{related_area}\\b")
+                related_areas = get_area_for_any_postcode(search_term_lower)
+                if related_areas:
+                    logger.info(f"Expanding search with related areas: {related_areas}")
+                    # Combine filters for all found areas using OR
+                    for area_name in related_areas:
+                        if area_name:
+                            location_expansion_filter |= Q(location__iregex=f"\\b{area_name}\\b")
 
             except Exception as e:
                 logger.error(f"Error during location expansion for term '{search_term_lower}': {e}")
