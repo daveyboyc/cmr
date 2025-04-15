@@ -169,7 +169,6 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 from django.db.models import Count, Q
                 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
                 from ..utils import normalize # Use corrected import
-                from django.core.cache import cache # Ensure cache is imported if used later
 
 
                 query_terms = query.lower().split()
