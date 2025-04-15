@@ -171,13 +171,16 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 from ..utils import normalize # Use corrected import
 
 
-                query_terms = query.lower().split()
-                if not query_terms:
-                    raise ValueError("No valid query terms found.")
+                # --- Keep the original query, lowercased ---
+                full_query_lower = query.lower()
+                if not full_query_lower:
+                     raise ValueError("Search query is empty.")
 
                 # --- 1. Find Matching Companies (Links) ---
+                # Company search can still benefit from splitting
                 company_query_filter = Q()
-                for term in query_terms:
+                company_query_terms = full_query_lower.split()
+                for term in company_query_terms:
                     if len(term) >= 3:
                         company_query_filter |= Q(company_name__icontains=term)
                 
@@ -197,19 +200,19 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 company_link_count = len(company_links)
                 
                 # --- 2. Find Matching Components (Paginated) ---
-                component_query_filter = Q()
-                for term in query_terms:
-                    # Search across multiple component fields
-                    # Restore full search
-                    # logger.warning(f"TEMP DEBUG: Adding location__icontains={term} to component filter")
-                    # component_query_filter |= Q(location__icontains=term)
-                    component_query_filter |= (
-                        Q(cmu_id__icontains=term) | 
-                        Q(location__icontains=term) | 
-                        Q(description__icontains=term) | 
-                        Q(technology__icontains=term) | 
-                        Q(company_name__icontains=term)
-                    )
+                # Construct component filter using the FULL query string
+                component_query_filter = (
+                    # Use exact match for CMU ID
+                    Q(cmu_id__iexact=full_query_lower) | 
+                    # Use icontains for other text fields with the full query
+                    Q(location__icontains=full_query_lower) | 
+                    Q(description__icontains=full_query_lower) | 
+                    Q(technology__icontains=full_query_lower) | 
+                    # Keep company name search using split terms for broader matching here if desired?
+                    # Or use the full query for company name in component search too?
+                    # Let's start with full query for consistency here as well.
+                    Q(company_name__icontains=full_query_lower) 
+                )
                 
                 # Determine sort order for components (use comp_sort GET param like template expects)
                 comp_sort_order = request.GET.get('comp_sort', 'desc') # Default sort from template
