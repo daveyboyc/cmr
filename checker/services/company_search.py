@@ -155,6 +155,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             context = {}
             error_message = None # Ensure error message is initialized
 
+            logger.info("+++ Pre-TRY Block: About to attempt Hybrid DB Search +++")
             # --- Try Option 2: Hybrid DB Search (Companies + Components) ---
             try:
                 logger.info("+++ Entered Hybrid DB Search TRY block +++")
