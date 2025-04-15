@@ -13,7 +13,6 @@ from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 import re
 from django.db.models import Count, Value
 from django.db.models.functions import Coalesce
-from ..models import Component
 
 from ..utils import (
     normalize,
@@ -179,58 +178,283 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 return render(request, "checker/search.html", context)
 
         elif query:
-            logger.warning("Entering main query block (elif query:).") 
+            logger.warning("Entering main query block (elif query:).")  # ADDED LOG
             start_time = time.time()
             api_time = 0
-            error_message = None
-            
-            # --- MINIMAL TEST --- 
-            logger.warning("--- Running MINIMAL TEST block ---")
-            
-            # Directly create a basic context and render
-            context = {
-                "query": query,
-                "company_links": [], 
-                "company_count": 0, 
-                "displayed_company_count": 0,
-                "page_obj": None, 
-                "paginator": None,
-                "component_count": 0, 
-                "total_component_count": 0, 
-                "total_pages": 0, 
-                "page": 1, 
-                "has_prev": False, 
-                "has_next": False,
-                "page_range": [], 
-                "comp_sort": "desc", 
-                "per_page": 50, 
-                "error": error_message,
-                "api_time": time.time() - start_time,
-                "render_time_links": 0, 
-                "sort_order": sort_order, 
-                "unified_search": True, 
-                "search_method": "MINIMAL TEST", 
-            }
-            
-            if extra_context:
-                context.update(extra_context)
-                
-            logger.warning(f"Rendering MINIMAL TEST page via {context['search_method']} path.")
-            return render(request, "checker/search.html", context)
-            
-            # --- Original Code Commented Out Below --- 
-            # logger.warning("+++ Pre-TRY Block: About to attempt Hybrid DB Search +++")
+            context = {}
+            error_message = None  # Ensure error message is initialized
+
+            logger.warning("+++ Pre-TRY Block: About to attempt Hybrid DB Search +++")
             # --- Try Option 2: Hybrid DB Search (Companies + Components) ---
-            # try:
-            # ... (rest of original try block) ...
-            # except Exception as e:
-            # ... (rest of original except block) ...
+            try:
+                # --- Prerequisites ---
+                per_page = 50  # Components per page
+                page = request.GET.get('page', 1)
+                try: page = int(page) 
+                except (ValueError, TypeError): page = 1
+                
+                from ..models import Component
+                from django.db.models import Count, Q
+                from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+                from ..utils import normalize # Use corrected import
+
+                # --- Keep the original query, lowercased ---
+                full_query_lower = query.lower()
+                if not full_query_lower:
+                     raise ValueError("Search query is empty.")
+
+                # --- 1. Find Matching Companies (Links) ---
+                company_query_filter = Q()
+                company_query_terms = full_query_lower.split()
+                for term in company_query_terms:
+                    if len(term) >= 3:
+                        company_query_filter |= Q(company_name__icontains=term)
+                
+                if not company_query_filter:
+                     logger.warning("Company query filter is empty, only short terms provided.")
+                     # Proceed, company_links might be empty, rely on component search
+
+                # Determine sort order for companies (used by helper)
+                if sort_order == 'desc':
+                    django_sort_field = '-company_name'
+                else:
+                    django_sort_field = 'company_name'
+                
+                logger.info(f"Company links: About to query Component DB with filter: {company_query_filter}")
+                # Query and build company links
+                all_matching_company_components = Component.objects.filter(company_query_filter).order_by(django_sort_field)
+                logger.info(f"Company links: Initial query returned queryset. Calling _build_db_search_results.")
+                company_links, render_time_links = _build_db_search_results(all_matching_company_components)
+                company_link_count = len(company_links)
+                logger.info(f"Company links: _build_db_search_results returned {company_link_count} links.")
+                
+                # --- 2. Find Matching Components (Paginated) ---
+                # Construct component filter using the FULL query string
+                component_query_filter = (
+                    Q(cmu_id__iexact=full_query_lower) | 
+                    Q(location__icontains=full_query_lower) | 
+                    Q(description__icontains=full_query_lower) | 
+                    Q(technology__icontains=full_query_lower) | 
+                    Q(company_name__icontains=full_query_lower) 
+                )
+                
+                # Log the exact filter being used
+                logger.info(f"Attempting component query with filter: {component_query_filter}")
+
+                # Restore Component Sort Logic
+                comp_sort_order = request.GET.get('comp_sort', 'desc') # Default sort from template
+                comp_sort_prefix = '-' if comp_sort_order == 'desc' else ''
+                comp_django_sort_field = f'{comp_sort_prefix}delivery_year'
+
+                logger.info(f"Component Query Filter built. About to execute Component.objects.filter with sort: {comp_django_sort_field}...")
+                all_components = Component.objects.filter(component_query_filter).order_by(comp_django_sort_field)
+                logger.info(f"Component.objects.filter executed. About to call .count()...")
+                component_count = all_components.count()
+                logger.info(f"Component query executed. Filter: {component_query_filter}. Found {component_count} components.")
+
+                # Restore Pagination Logic
+                paginator = Paginator(all_components, per_page)
+                try:
+                    page_obj = paginator.page(page) # Use 'page_obj' to match template
+                except PageNotAnInteger:
+                    page_obj = paginator.page(1)
+                except EmptyPage:
+                    page_obj = paginator.page(paginator.num_pages)
+
+                # --- 3. Build Context for Option 2 ---
+                api_time = time.time() - start_time
+                context = {
+                    "query": query,
+                    "company_links": company_links, 
+                    "company_count": company_link_count, # Use count of links generated
+                    "displayed_company_count": company_link_count,
+                    
+                    "page_obj": page_obj, # Use the name expected by template
+                    "paginator": paginator, # Pass the paginator object
+                    "component_count": component_count, # Total components matched
+                    "total_component_count": component_count, # Use same count for clarity?
+                    "total_pages": paginator.num_pages, # For pagination display
+                    "page": page, # Pass current page number
+                    "has_prev": page_obj.has_previous(), # Pagination flags
+                    "has_next": page_obj.has_next(),
+                    "page_range": paginator.get_elided_page_range(number=page, on_each_side=2, on_ends=1), # For pagination display
+
+                    "comp_sort": comp_sort_order, # Pass component sort order
+                    "per_page": per_page, # Pass items per page
+                    
+                    "error": error_message,
+                    "api_time": api_time,
+                    "render_time_links": render_time_links, 
+                    "sort_order": sort_order, # Original sort order for companies (if needed)
+                    "unified_search": True, # REQUIRED flag for template
+                    "search_method": "Hybrid DB Search", # Restore original method name
+                }
+                logger.info(f"Successfully completed Hybrid DB search. Context keys: {list(context.keys())}")
+
+            # --- End of Option 2 Try Block ---
+            
+            except Exception as e:
+                # --- Fallback Option 1: DataFrame Search Logic (similar to e1da13d) ---
+                logger.error(f"!!!!!!!! HYBRID DB SEARCH FAILED! Error: {e} !!!!!!!!")
+                logger.exception("Full traceback for Hybrid DB search failure:") # Log full traceback
+                api_time = (
+                    time.time() - start_time
+                )  # Recalculate time up to failure point
+                company_links_final = []
+                record_count = 0
+                results = {}  # Use the old results structure for fallback
+                context = {}  # Reset context
+
+                logger.info("Executing Fallback DataFrame Search...")
+                component_limit = 20
+                cmu_limit = 3
+
+                try:
+                    cmu_df, df_api_time = get_cmu_dataframe()
+                    api_time += df_api_time
+                except Exception as df_e:
+                    logger.error(f"Failed to get CMU DataFrame for fallback: {df_e}")
+                    cmu_df = None
+
+                if cmu_df is None:
+                    logger.error(
+                        "CMU Dataframe could not be loaded for fallback search."
+                    )
+                    error_message = (
+                        "Error fetching CMU registry data for fallback search."
+                    )
+                    context = {
+                        "error": error_message,
+                        "api_time": api_time,
+                        "query": query,
+                        "sort_order": sort_order,
+                        "search_method": "Fallback Failed (No DataFrame)",
+                    }
+                else:
+                    record_count = len(cmu_df)
+                    try:
+                        from ..utils import (
+                            normalize,
+                        )  # Ensure normalize is available here too
+
+                        matching_records = _perform_company_search(
+                            cmu_df, normalize(query)
+                        )
+                        logger.info(
+                            f"Fallback: Found {len(matching_records)} records via _perform_company_search."
+                        )
+                        unique_companies = list(matching_records["Full Name"].unique())[
+                            :component_limit
+                        ]
+                        logger.info(
+                            f"Fallback: Processing {len(unique_companies)} unique companies."
+                        )
+
+                        results = _build_search_results(
+                            cmu_df,
+                            unique_companies,
+                            sort_order,
+                            query,
+                            cmu_limit=cmu_limit,
+                            add_debug_info=True,
+                        )
+                        company_links_final = results.get(query, [])
+                        logger.info(
+                            f"Fallback: _build_search_results generated {len(company_links_final)} links."
+                        )
+
+                        # Build context for successful fallback (NO unified_search flag)
+                        context = {
+                            "query": query,
+                            "results": results,  # Use old structure for fallback compatibility
+                            "company_links": company_links_final,  # Also pass links directly for consistency?
+                            "company_count": len(company_links_final),
+                            "displayed_company_count": len(company_links_final),
+                            "record_count": record_count,
+                            "error": error_message,
+                            "api_time": api_time,
+                            "sort_order": sort_order,
+                            "search_method": "Fallback DataFrame Search",
+                            "unified_search": False,  # Explicitly False for fallback
+                        }
+                        logger.info(
+                            f"Successfully completed Fallback DataFrame search. Context keys: {list(context.keys())}"
+                        )
+
+                        # Cache fallback results (optional, based on old logic)
+                        if query:
+                            try:
+                                cache_key = get_cache_key(
+                                    "search_results", query.lower()
+                                )
+                                total_items = sum(
+                                    len(matches) for matches in results.values()
+                                )
+                                if total_items < 10:
+                                    cache_time = 7200
+                                elif total_items < 100:
+                                    cache_time = 3600
+                                elif total_items < 500:
+                                    cache_time = 1800
+                                else:
+                                    cache_time = 600
+                                cache.set(cache_key, results, cache_time)
+                                logger.info(
+                                    f"Cached {total_items} DataFrame results for query '{query}' for {cache_time}s"
+                                )
+                            except Exception as cache_e:
+                                logger.error(
+                                    f"Failed to cache DataFrame search results: {cache_e}"
+                                )
+
+                    except Exception as build_e:
+                        logger.error(
+                            f"Error during fallback DataFrame processing (_perform/_build): {build_e}"
+                        )
+                        error_message = "Error processing fallback search results."
+                        context = {
+                            "error": error_message,
+                            "api_time": api_time,
+                            "query": query,
+                            "sort_order": sort_order,
+                            "search_method": "Fallback Failed (Processing Error)",
+                        }
             # --- End of Fallback Logic ---
 
             # --- Final Steps (executed after either try or except) ---
-            # ... (original final steps) ...
-            # logger.info(f"Rendering search results page via {context['search_method']} path.")
-            # return render(request, "checker/search.html", context)
+            # Handle return_data_only
+            if return_data_only:
+                logger.info(
+                    f"Returning data only from {context.get('search_method', 'Unknown')} path."
+                )
+                # Return structure depends on which path was taken
+                if context.get("search_method") == "Hybrid DB Search":
+                    # Return component objects? Or just links?
+                    return (
+                        context.get("page_obj").object_list
+                        if context.get("page_obj")
+                        else []
+                    )
+                else:  # Fallback or failed
+                    return context.get("results", {})  # Return old results dict
+
+            # Add extra context if provided
+            if extra_context:
+                context.update(extra_context)
+
+            # Ensure essential keys are present even if search failed badly
+            context.setdefault("query", query)
+            context.setdefault("sort_order", sort_order)
+            context.setdefault("api_time", api_time)
+            # Use our tracker if context['search_method'] wasn't set by try/except paths
+            context.setdefault("search_method", context.get("search_method", "Unknown/Failed"))
+            # Ensure template doesn't crash if pagination variables are missing
+            context.setdefault("page_obj", None)
+            context.setdefault("paginator", None)
+            context.setdefault("unified_search", False)
+
+            logger.info(f"Rendering search results page via {context['search_method']} path.")
+            return render(request, "checker/search.html", context)
             # --- End of main elif query: block ---
 
         else:
