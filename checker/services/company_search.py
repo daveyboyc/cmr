@@ -11,6 +11,8 @@ from django.template.loader import render_to_string
 import requests
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 import re
+from django.db.models import Count, Value
+from django.db.models.functions import Coalesce
 
 from ..utils import (
     normalize,
@@ -181,73 +183,53 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             api_time = 0
             context = {}
             error_message = None  # Ensure error message is initialized
-            search_method_tracker = "UNKNOWN - OUTSIDE TRY" # Initialize tracker
 
             logger.warning("+++ Pre-TRY Block: About to attempt Hybrid DB Search +++")
             # --- Try Option 2: Hybrid DB Search (Companies + Components) ---
             try:
-                search_method_tracker = "ENTERED TRY" # Track entry
-                logger.warning("+++ Entered Hybrid DB Search TRY block +++")
                 # --- Prerequisites ---
                 per_page = 50  # Components per page
-                # NOTE: 'page' from GET will be used for Component pagination now, aligned with template
-                # page = request.GET.get('page', 1)
-                # try: page = int(page)
-                # except (ValueError, TypeError): page = 1
-
+                page = request.GET.get('page', 1)
+                try: page = int(page) 
+                except (ValueError, TypeError): page = 1
+                
                 from ..models import Component
                 from django.db.models import Count, Q
                 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
                 from ..utils import normalize # Use corrected import
-                logger.warning("+++ Imports successful inside try block +++")
 
                 # --- Keep the original query, lowercased ---
-                # full_query_lower = query.lower()
-                # if not full_query_lower:
-                #      raise ValueError("Search query is empty.")
+                full_query_lower = query.lower()
+                if not full_query_lower:
+                     raise ValueError("Search query is empty.")
 
-                logger.warning(
-                    "+++ Query processed, starting company link search section +++"
-                )
                 # --- 1. Find Matching Companies (Links) ---
-                # Company search can still benefit from splitting
-                # company_query_filter = Q()
-                # company_query_terms = full_query_lower.split()
-                # for term in company_query_terms:
-                #     if len(term) >= 3:
-                #         company_query_filter |= Q(company_name__icontains=term)
-                #
-                # if not company_query_filter:
-                #      logger.warning("Company query filter is empty, only short terms provided.")
-                #      # Proceed, company_links might be empty, rely on component search
-                #
-                # # Determine sort order for companies (used by helper)
-                # if sort_order == 'desc':
-                #     django_sort_field = '-company_name'
-                # else:
-                #     django_sort_field = 'company_name'
-                #
-                logger.warning(
-                    f"Company links: About to query Component DB with filter: SKIPPED"
-                )
+                company_query_filter = Q()
+                company_query_terms = full_query_lower.split()
+                for term in company_query_terms:
+                    if len(term) >= 3:
+                        company_query_filter |= Q(company_name__icontains=term)
+                
+                if not company_query_filter:
+                     logger.warning("Company query filter is empty, only short terms provided.")
+                     # Proceed, company_links might be empty, rely on component search
+
+                # Determine sort order for companies (used by helper)
+                if sort_order == 'desc':
+                    django_sort_field = '-company_name'
+                else:
+                    django_sort_field = 'company_name'
+                
+                logger.info(f"Company links: About to query Component DB with filter: {company_query_filter}")
                 # Query and build company links
-                # all_matching_company_components = Component.objects.filter(company_query_filter).order_by(django_sort_field)
-                logger.warning(
-                    f"Company links: Initial query returned COUNT_SKIPPED potential components. Calling _build_db_search_results."
-                )
-                # company_links, render_time_links = _build_db_search_results(all_matching_company_components)
-                # company_link_count = len(company_links)
-                company_links = []  # Mock empty results
-                company_link_count = 0
-                render_time_links = 0
-
-                logger.warning(
-                    f"Company links: _build_db_search_results returned {company_link_count} links."
-                )
-
+                all_matching_company_components = Component.objects.filter(company_query_filter).order_by(django_sort_field)
+                logger.info(f"Company links: Initial query returned queryset. Calling _build_db_search_results.")
+                company_links, render_time_links = _build_db_search_results(all_matching_company_components)
+                company_link_count = len(company_links)
+                logger.info(f"Company links: _build_db_search_results returned {company_link_count} links.")
+                
                 # --- 2. Find Matching Components (Paginated) ---
                 # Construct component filter using the FULL query string
-                full_query_lower = query.lower() # Ensure this is defined if skipped above
                 component_query_filter = (
                     Q(cmu_id__iexact=full_query_lower) | 
                     Q(location__icontains=full_query_lower) | 
@@ -257,31 +239,21 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 )
                 
                 # Log the exact filter being used
-                logger.warning(f"Attempting component query with filter: {component_query_filter}")
-
-                # # Determine sort order for components (use comp_sort GET param like template expects)
-                # comp_sort_order = request.GET.get('comp_sort', 'desc') # Default sort from template
-                # comp_sort_prefix = '-' if comp_sort_order == 'desc' else ''
-                # # TODO: Allow sorting components by different fields?
-                # comp_django_sort_field = f'{comp_sort_prefix}delivery_year' # Default sort
+                logger.info(f"Attempting component query with filter: {component_query_filter}")
 
                 # Restore Component Sort Logic
                 comp_sort_order = request.GET.get('comp_sort', 'desc') # Default sort from template
                 comp_sort_prefix = '-' if comp_sort_order == 'desc' else ''
                 comp_django_sort_field = f'{comp_sort_prefix}delivery_year'
 
-                logger.warning(f"Component Query Filter built. About to execute Component.objects.filter with sort: {comp_django_sort_field}...")
+                logger.info(f"Component Query Filter built. About to execute Component.objects.filter with sort: {comp_django_sort_field}...")
                 all_components = Component.objects.filter(component_query_filter).order_by(comp_django_sort_field)
-                logger.warning(f"Component.objects.filter executed. About to call .count()...")
+                logger.info(f"Component.objects.filter executed. About to call .count()...")
                 component_count = all_components.count()
-                logger.warning(f"Component query executed. Filter: {component_query_filter}. Found {component_count} components.")
+                logger.info(f"Component query executed. Filter: {component_query_filter}. Found {component_count} components.")
 
-                # Paginate Components (using 'page' from GET)
+                # Restore Pagination Logic
                 paginator = Paginator(all_components, per_page)
-                page = request.GET.get('page', 1) # Need page number again
-                try: page = int(page) 
-                except (ValueError, TypeError): page = 1
-
                 try:
                     page_obj = paginator.page(page) # Use 'page_obj' to match template
                 except PageNotAnInteger:
@@ -293,9 +265,10 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 api_time = time.time() - start_time
                 context = {
                     "query": query,
-                    "company_links": company_links,
-                    "company_count": company_link_count,  # Use count of links generated
+                    "company_links": company_links, 
+                    "company_count": company_link_count, # Use count of links generated
                     "displayed_company_count": company_link_count,
+                    
                     "page_obj": page_obj, # Use the name expected by template
                     "paginator": paginator, # Pass the paginator object
                     "component_count": component_count, # Total components matched
@@ -305,28 +278,25 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                     "has_prev": page_obj.has_previous(), # Pagination flags
                     "has_next": page_obj.has_next(),
                     "page_range": paginator.get_elided_page_range(number=page, on_each_side=2, on_ends=1), # For pagination display
+
                     "comp_sort": comp_sort_order, # Pass component sort order
                     "per_page": per_page, # Pass items per page
+                    
                     "error": error_message,
                     "api_time": api_time,
                     "render_time_links": render_time_links, 
                     "sort_order": sort_order, # Original sort order for companies (if needed)
                     "unified_search": True, # REQUIRED flag for template
-                    "search_method": "Hybrid DB (Step 1 Skipped)", 
+                    "search_method": "Hybrid DB Search", # Restore original method name
                 }
-                logger.warning(
-                    f"Successfully completed Hybrid DB search. Context keys: {list(context.keys())}"
-                )
+                logger.info(f"Successfully completed Hybrid DB search. Context keys: {list(context.keys())}")
 
             # --- End of Option 2 Try Block ---
-
+            
             except Exception as e:
-                search_method_tracker = "HIT EXCEPT" # Track exception
                 # --- Fallback Option 1: DataFrame Search Logic (similar to e1da13d) ---
                 logger.error(f"!!!!!!!! HYBRID DB SEARCH FAILED! Error: {e} !!!!!!!!")
-                logger.exception(
-                    "Full traceback for Hybrid DB search failure:"
-                )  # Log full traceback
+                logger.exception("Full traceback for Hybrid DB search failure:") # Log full traceback
                 api_time = (
                     time.time() - start_time
                 )  # Recalculate time up to failure point
@@ -477,13 +447,13 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             context.setdefault("sort_order", sort_order)
             context.setdefault("api_time", api_time)
             # Use our tracker if context['search_method'] wasn't set by try/except paths
-            context.setdefault("search_method", context.get("search_method", search_method_tracker))
+            context.setdefault("search_method", context.get("search_method", "Unknown/Failed"))
             # Ensure template doesn't crash if pagination variables are missing
             context.setdefault("page_obj", None)
             context.setdefault("paginator", None)
             context.setdefault("unified_search", False)
 
-            logger.warning(f"Rendering search results page via {context['search_method']} path.") # Log the final method
+            logger.info(f"Rendering search results page via {context['search_method']} path.")
             return render(request, "checker/search.html", context)
             # --- End of main elif query: block ---
 
@@ -1550,102 +1520,94 @@ def fetch_components_for_cmu_id(cmu_id, limit=1000):
 def _build_db_search_results(company_queryset):
     """
     Builds formatted HTML links from a Component QuerySet from the direct DB search.
-    Groups by company name, fetches component/CMU counts, and provides a link.
+    Groups by company name, fetches component/CMU counts efficiently using annotate,
+    and provides a link.
+    
+    Args:
+        company_queryset: The initial queryset matching potential companies based on the query.
+    
+    Returns:
+        Tuple: (list of company HTML links, float build time)
     """
     start_build_time = time.time()
     company_links = []
-    # Get unique company names efficiently from the queryset
-    limit = 250  # Limit to rendering N unique companies from DB results
-    # We need the original queryset to efficiently get counts later
-    # unique_company_names = list(company_queryset.values_list('company_name', flat=True).distinct()[:limit])
-    # Instead, get distinct names but keep the ability to filter the original queryset
-    unique_company_names = list(
-        company_queryset.order_by("company_name")
-        .values_list("company_name", flat=True)
-        .distinct()[:limit]
-    )
-    logger.info(
-        f"Found {len(unique_company_names)} unique company names from DB query (limited to {limit}). Processing counts..."
-    )
+    limit = 250 # Limit rendering N unique companies 
+
+    # --- Efficiently get counts using annotate --- 
+    # 1. Get unique company names from the initial queryset (limited)
+    unique_company_names_qs = company_queryset.values_list('company_name', flat=True).distinct()[:limit]
+    unique_company_names = list(unique_company_names_qs)
+    logger.info(f"Processing {len(unique_company_names)} unique company names (limited to {limit}) for counts...")
+
+    if not unique_company_names:
+        return [], 0.0 # No companies found, return early
+    
+    # 2. Perform ONE query to get counts for these specific company names
+    # Use Coalesce to handle potential null cmu_ids gracefully in Count
+    company_data = Component.objects.filter(company_name__in=unique_company_names) \
+                                    .values('company_name') \
+                                    .annotate(
+                                        component_count=Count('id'), 
+                                        cmu_count=Count(Coalesce('cmu_id', Value('__EMPTY__')), distinct=True) # Count distinct non-null CMU IDs
+                                    ) \
+                                    .order_by('company_name') # Keep consistent order
+    
+    # Convert annotated data to a dictionary for easy lookup
+    company_counts_dict = {item['company_name']: item for item in company_data}
+    logger.info(f"Annotated counts retrieved for {len(company_counts_dict)} companies.")
+    # --- End of efficient count retrieval --- 
 
     # Attempt to import normalize, provide fallback
-    normalize = None
     try:
-        from ..utils import normalize  # Correct relative import
+        from ..utils import normalize # Correct relative import
     except ImportError:
-        logger.warning(
-            "Could not import normalize function from checker.utils."
-        )  # Updated warning message
-
-        def normalize(s):  # Basic fallback slugification
-            if not s:
-                return ""
-            s = s.lower()
-            s = "".join(
-                c for c in s if c.isalnum() or c == " "
-            )  # Keep alphanum and space
-            return "-".join(s.split())  # Replace space with hyphen
-
-    if normalize is None:
-        # Fallback if import structure failed somehow
-        def normalize(s):
-            if not s:
-                return ""
-            s = s.lower()
-            s = "".join(c for c in s if c.isalnum() or c == " ")
-            return "-".join(s.split())
+        logger.warning("Could not import normalize function from checker.utils.") # Updated warning message
+        def normalize(s): # Basic fallback slugification
+             if not s: return ""
+             s = s.lower()
+             s = ''.join(c for c in s if c.isalnum() or c == ' ') # Keep alphanum and space
+             return '-'.join(s.split()) # Replace space with hyphen
 
     processed_count = 0
+    # Iterate through the unique names we originally found to maintain order/limit
     for company_name in unique_company_names:
         processed_count += 1
         if not company_name:
             logger.warning(f"Skipping blank company name at index {processed_count-1}")
             continue
-
-        logger.debug(
-            f"Processing company {processed_count}/{len(unique_company_names)}: '{company_name}'"
-        )
-        company_id = normalize(company_name)
-
-        # --- Query for counts for this specific company_name ---
-        # Filter the original queryset for efficiency, rather than hitting DB from scratch
-        # NOTE: This assumes company_queryset contains all fields needed implicitly by .count()/.distinct()
-        try:
-            company_components = company_queryset.filter(company_name=company_name)
-            component_count = (
-                company_components.count()
-            )  # Total components for this name
-            cmu_count = (
-                company_components.values("cmu_id").distinct().count()
-            )  # Distinct CMUs for this name
+        
+        # Lookup counts from our annotated dictionary
+        counts = company_counts_dict.get(company_name)
+        
+        if counts:
+            component_count = counts.get('component_count', 0)
+            # Adjust cmu_count if '__EMPTY__' was counted (means only nulls were present)
+            cmu_count_val = counts.get('cmu_count', 0)
+            if cmu_count_val == 1 and Component.objects.filter(company_name=company_name, cmu_id='__EMPTY__').exists():
+                 cmu_count = 0 # If the only distinct value was our placeholder, it means only nulls
+            else:
+                 cmu_count = cmu_count_val
             count_text = f"{component_count} components across {cmu_count} CMU IDs"
-            logger.debug(f"  Counts for '{company_name}': {count_text}")
-            # --- End Count Query ---
+        else:
+            # Should not happen if company_name came from the DB, but handle defensively
+            logger.warning(f"Could not find annotated counts for '{company_name}'. Setting counts to 0.")
+            count_text = "0 components across 0 CMU IDs"
 
+        try:
+            company_id = normalize(company_name)
             company_html = f'<a href="/company/{company_id}/" style="color: blue; text-decoration: underline;">{company_name}</a>'
-            # Add counts back to the display
-            company_links.append(
-                f"""
+            company_links.append(f'''
                 <div data-company-name="{company_name}">
                     <strong>{company_html}</strong>
                     <div class="mt-1 mb-1"><span class="text-muted">{count_text}</span></div>
                 </div>
-            """
-            )
-        except Exception as count_e:
-            # Log the specific error and skip this company link
-            logger.error(
-                f"Error processing counts/link for company '{company_name}': {count_e}"
-            )
-            # Optionally add a placeholder or skip adding to company_links
-            continue  # Skip to the next company
-        if processed_count % 50 == 0:
-            logger.info(
-                f"Processed counts for {processed_count}/{len(unique_company_names)} companies..."
-            )
+            ''')
+            if processed_count % 50 == 0:
+                 logger.info(f"Processed link generation for {processed_count}/{len(unique_company_names)} companies...")
+        except Exception as link_e:
+            logger.error(f"Error generating link for company '{company_name}': {link_e}")
+            continue # Skip this company if link generation fails
 
     build_time = time.time() - start_build_time
-    logger.info(
-        f"Generated {len(company_links)} links with counts for DB results in {build_time:.4f}s."
-    )
+    logger.info(f"Optimized _build_db_search_results generated {len(company_links)} links in {build_time:.4f}s.")
     return company_links, build_time
