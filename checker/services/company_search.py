@@ -188,24 +188,127 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             logger.warning("+++ Pre-TRY Block: About to attempt Hybrid DB Search +++")
             # --- Try Option 2: Hybrid DB Search (Companies + Components) ---
             try:
-                logger.warning("+++ Entered Hybrid DB Search TRY block +++") # Use warning
-                # --- MINIMAL TRY BLOCK TEST ---
-                logger.warning("--- Inside MINIMAL TRY - about to raise exception ---")
-                raise ValueError("Deliberate exception for testing except block")
-                # --- END MINIMAL TRY BLOCK TEST ---
+                # --- Prerequisites ---
+                per_page = 50  # Components per page
+                page = request.GET.get('page', 1)
+                try: page = int(page) 
+                except (ValueError, TypeError): page = 1
                 
-                # --- Original Code Commented Out Below ---
-                # per_page = 50  # Components per page
-                # page = request.GET.get('page', 1)
-                # try: page = int(page) 
-                # except (ValueError, TypeError): page = 1
-                # ... (rest of original try commented out) ...
+                from ..models import Component
+                from django.db.models import Count, Q
+                from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+                from ..utils import normalize # Use corrected import
+
+                # --- Keep the original query, lowercased ---
+                full_query_lower = query.lower()
+                if not full_query_lower:
+                     raise ValueError("Search query is empty.")
+
+                # --- 1. Find Matching Companies (Links) ---
+                company_query_filter = Q()
+                company_query_terms = full_query_lower.split()
+                for term in company_query_terms:
+                    if len(term) >= 3:
+                        company_query_filter |= Q(company_name__icontains=term)
+                
+                if not company_query_filter:
+                     logger.warning("Company query filter is empty, only short terms provided.")
+                     # Proceed, company_links might be empty, rely on component search
+
+                # Determine sort order for companies (used by helper)
+                if sort_order == 'desc':
+                    django_sort_field = '-company_name'
+                else:
+                    django_sort_field = 'company_name'
+                
+                # --- ADD CHECK FOR EMPTY FILTER ---
+                if not company_query_filter:
+                    logger.warning("STEP 1: Company query filter is empty. Skipping company link generation.")
+                    all_matching_company_components = None # Indicate skipped
+                    company_links = []
+                    company_link_count = 0
+                    render_time_links = 0
+                else:
+                    # --- Filter is NOT empty, proceed with original Step 1 logic --- 
+                    logger.warning("STEP 1: About to execute initial company filter query...") # ADDED
+                    logger.info(f"Company links: About to query Component DB with filter: {company_query_filter}")
+                    # Query and build company links
+                    all_matching_company_components = Component.objects.filter(company_query_filter).order_by(django_sort_field)
+                    logger.warning(f"STEP 1: Initial company filter query EXECUTED. Type: {type(all_matching_company_components)}") # ADDED
+                    logger.info(f"Company links: Initial query returned queryset. Calling _build_db_search_results.")
+                    company_links, render_time_links = _build_db_search_results(all_matching_company_components) # Use the actual queryset
+                    company_link_count = len(company_links)
+                    logger.info(f"Company links: _build_db_search_results returned {company_link_count} links.")
+                # --- END OF STEP 1 --- 
+                
+                # --- 2. Find Matching Components (Paginated) ---
+                # Construct component filter using the FULL query string
+                component_query_filter = (
+                    Q(cmu_id__iexact=full_query_lower) | 
+                    Q(location__icontains=full_query_lower) | 
+                    Q(description__icontains=full_query_lower) | 
+                    Q(technology__icontains=full_query_lower) | 
+                    Q(company_name__icontains=full_query_lower) 
+                )
+                
+                # Log the exact filter being used
+                logger.info(f"Attempting component query with filter: {component_query_filter}")
+
+                # Restore Component Sort Logic
+                comp_sort_order = request.GET.get('comp_sort', 'desc') # Default sort from template
+                comp_sort_prefix = '-' if comp_sort_order == 'desc' else ''
+                comp_django_sort_field = f'{comp_sort_prefix}delivery_year'
+
+                logger.info(f"Component Query Filter built. About to execute Component.objects.filter with sort: {comp_django_sort_field}...")
+                all_components = Component.objects.filter(component_query_filter).order_by(comp_django_sort_field)
+                logger.info(f"Component.objects.filter executed. About to call .count()...")
+                component_count = all_components.count()
+                logger.info(f"Component query executed. Filter: {component_query_filter}. Found {component_count} components.")
+
+                # Restore Pagination Logic
+                paginator = Paginator(all_components, per_page)
+                try:
+                    page_obj = paginator.page(page) # Use 'page_obj' to match template
+                except PageNotAnInteger:
+                    page_obj = paginator.page(1)
+                except EmptyPage:
+                    page_obj = paginator.page(paginator.num_pages)
+
+                # --- 3. Build Context for Option 2 ---
+                api_time = time.time() - start_time
+                context = {
+                    "query": query,
+                    "company_links": company_links, 
+                    "company_count": company_link_count, # Use count of links generated
+                    "displayed_company_count": company_link_count,
+                    
+                    "page_obj": page_obj, # Use the name expected by template
+                    "paginator": paginator, # Pass the paginator object
+                    "component_count": component_count, # Total components matched
+                    "total_component_count": component_count, # Use same count for clarity?
+                    "total_pages": paginator.num_pages, # For pagination display
+                    "page": page, # Pass current page number
+                    "has_prev": page_obj.has_previous(), # Pagination flags
+                    "has_next": page_obj.has_next(),
+                    "page_range": paginator.get_elided_page_range(number=page, on_each_side=2, on_ends=1), # For pagination display
+
+                    "comp_sort": comp_sort_order, # Pass component sort order
+                    "per_page": per_page, # Pass items per page
+                    
+                    "error": error_message,
+                    "api_time": api_time,
+                    "render_time_links": render_time_links, 
+                    "sort_order": sort_order, # Original sort order for companies (if needed)
+                    "unified_search": True, # REQUIRED flag for template
+                    "search_method": "Hybrid DB Search", # Restore original method name
+                }
+                logger.info(f"Successfully completed Hybrid DB search. Context keys: {list(context.keys())}")
+
             # --- End of Option 2 Try Block ---
             
             except Exception as e:
-                logger.error(f"--- !!! CAUGHT EXCEPTION IN EXCEPT BLOCK !!! Error: {e} ---") # ADDED EMPHASIS
                 # --- Fallback Option 1: DataFrame Search Logic (similar to e1da13d) ---
-                # logger.error(f"!!!!!!!! HYBRID DB SEARCH FAILED! Error: {e} !!!!!!!!") # Keep original error log too
+                logger.error(f"!!!!!!!! HYBRID DB SEARCH FAILED! Error: {e} !!!!!!!!")
                 logger.exception("Full traceback for Hybrid DB search failure:") # Log full traceback
                 api_time = (
                     time.time() - start_time
