@@ -180,10 +180,12 @@
         <div class="mt-3 mb-3">
             <p class="text-muted">
                 {% if company_count %}
-                    Displaying <strong>{{ displayed_company_count|default:"0" }}</strong> of <strong>{{ company_count }}</strong> matching companies
-                {% elif component_count %}
-                    Displaying <strong>{{ page_obj.object_list|length }}</strong> of <strong>{{ component_count }}</strong> matching components
-                {% else %}
+                    {# Assuming similar logic might be needed here if company pagination is added later #}
+                    Displaying <strong>{{ page_obj.start_index }} - {{ page_obj.end_index }}</strong> of <strong>{{ company_count }}</strong> matching companies
+                {% elif component_count and page_obj %}
+                    {# Show the range of items on the current page #}
+                    Displaying items <strong>{{ page_obj.start_index }} - {{ page_obj.end_index }}</strong> of <strong>{{ component_count }}</strong> matching components
+                {% elif record_count %} {# Fallback if neither company nor component specific counts are available #}
                     Displaying <strong>{{ displayed_count|default:"0" }}</strong> of <strong>{{ record_count }}</strong> matching records
                 {% endif %}
                 {% if page and total_pages > 1 %}(Page {{ page }} of {{ total_pages }}){% endif %}
