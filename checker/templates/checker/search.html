@@ -168,7 +168,7 @@
     </div>
 
     <!-- Content Area Below Header - Only show if there are results or errors -->
-    {% if company_links or component_results or error %}
+    {% if company_links or page_obj or error %}
     <div class="container content-below-header">
         
         {% if note %}
@@ -376,7 +376,7 @@
                 {% endif %}
 
             </div> <!-- end component-results-section -->
-        {% elif not company_links and request.GET.q %}
+        {% elif not company_links and not page_obj and request.GET.q %}
              <div class="alert alert-warning mt-4">No matching companies or components found for "{{ request.GET.q }}".</div>
         {% endif %}
 
