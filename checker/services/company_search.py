@@ -219,6 +219,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
 
                 all_components = Component.objects.filter(component_query_filter).order_by(comp_django_sort_field)
                 component_count = all_components.count()
+                logger.info(f"Component query executed. Filter: {component_query_filter}. Found {component_count} components.") # ADDED LOG
 
                 # Paginate Components (using 'page' from GET)
                 paginator = Paginator(all_components, per_page)
