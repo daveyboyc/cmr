@@ -194,10 +194,13 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 else:
                     django_sort_field = 'company_name' 
 
+                logger.info(f"Company links: About to query Component DB with filter: {company_query_filter}")
                 # Query and build company links
                 all_matching_company_components = Component.objects.filter(company_query_filter).order_by(django_sort_field)
+                logger.info(f"Company links: Initial query returned {all_matching_company_components.count()} potential components. Calling _build_db_search_results.")
                 company_links, render_time_links = _build_db_search_results(all_matching_company_components)
                 company_link_count = len(company_links)
+                logger.info(f"Company links: _build_db_search_results returned {company_link_count} links.")
                 
                 # --- 2. Find Matching Components (Paginated) ---
                 # Construct component filter using the FULL query string
@@ -1374,7 +1377,11 @@ def _build_db_search_results(company_queryset):
     processed_count = 0
     for company_name in unique_company_names:
         processed_count += 1
-        if not company_name: continue 
+        if not company_name:
+            logger.warning(f"Skipping blank company name at index {processed_count-1}")
+            continue
+
+        logger.debug(f"Processing company {processed_count}/{len(unique_company_names)}: '{company_name}'")
         company_id = normalize(company_name)
 
         # --- Query for counts for this specific company_name --- 
@@ -1385,19 +1392,22 @@ def _build_db_search_results(company_queryset):
             component_count = company_components.count() # Total components for this name
             cmu_count = company_components.values('cmu_id').distinct().count() # Distinct CMUs for this name
             count_text = f"{component_count} components across {cmu_count} CMU IDs"
-        except Exception as count_e:
-            logger.error(f"Error getting counts for '{company_name}': {count_e}")
-            count_text = "(Error fetching counts)"
-        # --- End Count Query ---
+            logger.debug(f"  Counts for '{company_name}': {count_text}")
+            # --- End Count Query ---
 
-        company_html = f'<a href="/company/{company_id}/" style="color: blue; text-decoration: underline;">{company_name}</a>'
-        # Add counts back to the display
-        company_links.append(f'''
-            <div data-company-name="{company_name}">
-                <strong>{company_html}</strong>
-                <div class="mt-1 mb-1"><span class="text-muted">{count_text}</span></div>
-            </div>
-        ''')
+            company_html = f'<a href="/company/{company_id}/" style="color: blue; text-decoration: underline;">{company_name}</a>'
+            # Add counts back to the display
+            company_links.append(f'''
+                <div data-company-name="{company_name}">
+                    <strong>{company_html}</strong>
+                    <div class="mt-1 mb-1"><span class="text-muted">{count_text}</span></div>
+                </div>
+            ''')
+        except Exception as count_e:
+            # Log the specific error and skip this company link
+            logger.error(f"Error processing counts/link for company '{company_name}': {count_e}")
+            # Optionally add a placeholder or skip adding to company_links
+            continue # Skip to the next company
         if processed_count % 50 == 0:
              logger.info(f"Processed counts for {processed_count}/{len(unique_company_names)} companies...")
 
