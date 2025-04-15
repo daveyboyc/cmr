@@ -182,7 +182,7 @@
                 {% if company_count %}
                     Displaying <strong>{{ displayed_company_count|default:"0" }}</strong> of <strong>{{ company_count }}</strong> matching companies
                 {% elif component_count %}
-                    Displaying <strong>{{ displayed_component_count|default:"0" }}</strong> of <strong>{{ component_count }}</strong> matching components
+                    Displaying <strong>{{ page_obj.object_list|length }}</strong> of <strong>{{ component_count }}</strong> matching components
                 {% else %}
                     Displaying <strong>{{ displayed_count|default:"0" }}</strong> of <strong>{{ record_count }}</strong> matching records
                 {% endif %}
