@@ -231,14 +231,14 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 else:
                     # --- Filter is NOT empty, proceed with Step 1 logic --- 
                     # logger.warning("STEP 1: About to execute initial company filter query...") # Removed log
-                    logger.info(f"Company links: About to query Component DB with filter: {company_query_filter}")
+                    logger.warning(f"Company links: About to query Component DB with filter: {company_query_filter}")
                     # Query and build company links
                     all_matching_company_components = Component.objects.filter(company_query_filter).order_by(django_sort_field)
                     # logger.warning(f"STEP 1: Initial company filter query EXECUTED. Type: {type(all_matching_company_components)}") # Removed log
-                    logger.info(f"Company links: Initial query returned queryset. Calling _build_db_search_results.")
+                    logger.warning(f"Company links: Initial query returned queryset. Calling _build_db_search_results.")
                     company_links, render_time_links = _build_db_search_results(all_matching_company_components) # Use the actual queryset
                     company_link_count = len(company_links)
-                    logger.info(f"Company links: _build_db_search_results returned {company_link_count} links.")
+                    logger.warning(f"Company links: _build_db_search_results returned {company_link_count} links.")
                 # --- END OF STEP 1 --- 
                 
                 # --- 2. Find Matching Components (Paginated) ---
@@ -252,18 +252,18 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 )
                 
                 # Log the exact filter being used
-                logger.info(f"Attempting component query with filter: {component_query_filter}")
+                logger.warning(f"Attempting component query with filter: {component_query_filter}")
 
                 # Restore Component Sort Logic
                 comp_sort_order = request.GET.get('comp_sort', 'desc') # Default sort from template
                 comp_sort_prefix = '-' if comp_sort_order == 'desc' else ''
                 comp_django_sort_field = f'{comp_sort_prefix}delivery_year'
 
-                logger.info(f"Component Query Filter built. About to execute Component.objects.filter with sort: {comp_django_sort_field}...")
+                logger.warning(f"Component Query Filter built. About to execute Component.objects.filter with sort: {comp_django_sort_field}...")
                 all_components = Component.objects.filter(component_query_filter).order_by(comp_django_sort_field)
-                logger.info(f"Component.objects.filter executed. About to call .count()...")
+                logger.warning(f"Component.objects.filter executed. About to call .count()...")
                 component_count = all_components.count()
-                logger.info(f"Component query executed. Filter: {component_query_filter}. Found {component_count} components.")
+                logger.warning(f"Component query executed. Filter: {component_query_filter}. Found {component_count} components.")
 
                 # Restore Pagination Logic
                 paginator = Paginator(all_components, per_page)
@@ -302,7 +302,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                     "unified_search": True, # REQUIRED flag for template
                     "search_method": "Hybrid DB Search", # Restore original method name
                 }
-                logger.info(f"Successfully completed Hybrid DB search. Context keys: {list(context.keys())}")
+                logger.warning(f"Successfully completed Hybrid DB search. Context keys: {list(context.keys())}")
 
             # --- End of Option 2 Try Block ---
             
