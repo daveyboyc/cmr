@@ -214,13 +214,18 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                     Q(company_name__icontains=full_query_lower) 
                 )
                 
+                # Log the exact filter being used
+                logger.info(f"Attempting component query with filter: {component_query_filter}")
+
                 # Determine sort order for components (use comp_sort GET param like template expects)
                 comp_sort_order = request.GET.get('comp_sort', 'desc') # Default sort from template
                 comp_sort_prefix = '-' if comp_sort_order == 'desc' else ''
                 # TODO: Allow sorting components by different fields?
                 comp_django_sort_field = f'{comp_sort_prefix}delivery_year' # Default sort
 
+                logger.info(f"Component Query Filter built. About to execute Component.objects.filter...")
                 all_components = Component.objects.filter(component_query_filter).order_by(comp_django_sort_field)
+                logger.info(f"Component.objects.filter executed. About to call .count()...")
                 component_count = all_components.count()
                 logger.info(f"Component query executed. Filter: {component_query_filter}. Found {component_count} components.") # ADDED LOG
 
@@ -267,8 +272,8 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             
             except Exception as e:
                 # --- Fallback Option 1: DataFrame Search Logic (similar to e1da13d) ---
-                logger.error("!!!!!!!! HYBRID DB SEARCH FAILED! Falling back to DataFrame Search !!!!!!!!")
-                logger.exception(f"Error during Hybrid DB search: {e}")
+                logger.error(f"!!!!!!!! HYBRID DB SEARCH FAILED! Error: {e} !!!!!!!!")
+                logger.exception("Full traceback for Hybrid DB search failure:") # Log full traceback
                 api_time = time.time() - start_time # Recalculate time up to failure point
                 company_links_final = [] 
                 record_count = 0
