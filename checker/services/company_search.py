@@ -221,15 +221,25 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 else:
                     django_sort_field = 'company_name'
                 
-                logger.warning("STEP 1: About to execute initial company filter query...") # ADDED
-                logger.info(f"Company links: About to query Component DB with filter: {company_query_filter}")
-                # Query and build company links
-                all_matching_company_components = Component.objects.filter(company_query_filter).order_by(django_sort_field)
-                logger.warning(f"STEP 1: Initial company filter query EXECUTED. Type: {type(all_matching_company_components)}") # ADDED
-                logger.info(f"Company links: Initial query returned queryset. Calling _build_db_search_results.")
-                company_links, render_time_links = _build_db_search_results(all_matching_company_components)
-                company_link_count = len(company_links)
-                logger.info(f"Company links: _build_db_search_results returned {company_link_count} links.")
+                # --- ADD CHECK FOR EMPTY FILTER ---
+                if not company_query_filter:
+                    logger.warning("STEP 1: Company query filter is empty. Skipping company link generation.")
+                    all_matching_company_components = None # Indicate skipped
+                    company_links = []
+                    company_link_count = 0
+                    render_time_links = 0
+                else:
+                    # --- Filter is NOT empty, proceed with original Step 1 logic --- 
+                    logger.warning("STEP 1: About to execute initial company filter query...") # ADDED
+                    logger.info(f"Company links: About to query Component DB with filter: {company_query_filter}")
+                    # Query and build company links
+                    all_matching_company_components = Component.objects.filter(company_query_filter).order_by(django_sort_field)
+                    logger.warning(f"STEP 1: Initial company filter query EXECUTED. Type: {type(all_matching_company_components)}") # ADDED
+                    logger.info(f"Company links: Initial query returned queryset. Calling _build_db_search_results.")
+                    company_links, render_time_links = _build_db_search_results(all_matching_company_components) # Use the actual queryset
+                    company_link_count = len(company_links)
+                    logger.info(f"Company links: _build_db_search_results returned {company_link_count} links.")
+                # --- END OF STEP 1 --- 
                 
                 # --- 2. Find Matching Components (Paginated) ---
                 # Construct component filter using the FULL query string
@@ -1545,6 +1555,7 @@ def _build_db_search_results(company_queryset):
     if not unique_company_names:
         return [], 0.0 # No companies found, return early
     
+    logger.warning("_build_db_search_results: About to execute annotate query...") # ADDED LOG
     # 2. Perform ONE query to get counts for these specific company names
     # Use Coalesce to handle potential null cmu_ids gracefully in Count
     company_data = Component.objects.filter(company_name__in=unique_company_names) \
@@ -1555,6 +1566,7 @@ def _build_db_search_results(company_queryset):
                                     ) \
                                     .order_by('company_name') # Keep consistent order
     
+    logger.warning(f"_build_db_search_results: Annotate query EXECUTED. Found data for {len(company_data)} companies.") # ADDED LOG
     # Convert annotated data to a dictionary for easy lookup
     company_counts_dict = {item['company_name']: item for item in company_data}
     logger.info(f"Annotated counts retrieved for {len(company_counts_dict)} companies.")
