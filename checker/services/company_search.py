@@ -205,44 +205,44 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 if not full_query_lower:
                      raise ValueError("Search query is empty.")
 
-                # --- 1. Find Matching Companies (Links) ---
-                company_query_filter = Q()
-                company_query_terms = full_query_lower.split()
-                for term in company_query_terms:
-                    if len(term) >= 3:
-                        company_query_filter |= Q(company_name__icontains=term)
-                
-                if not company_query_filter:
-                     logger.warning("Company query filter is empty, only short terms provided.")
-                     # Proceed, company_links might be empty, rely on component search
-
-                # Determine sort order for companies (used by helper)
-                if sort_order == 'desc':
-                    django_sort_field = '-company_name'
-                else:
-                    django_sort_field = 'company_name'
-                
-                # --- ADD CHECK FOR EMPTY FILTER (Moved Before Query) ---
-                if not company_query_filter:
-                    logger.warning("Company query filter is empty. Skipping company link generation.")
-                    all_matching_company_components = None # Indicate skipped
-                    company_links = []
-                    company_link_count = 0
-                    render_time_links = 0
-                else:
-                    # --- Filter is NOT empty, proceed with Step 1 logic --- 
-                    # logger.warning("STEP 1: About to execute initial company filter query...") # Removed log
-                    logger.warning(f"Company links: About to query Component DB with filter: {company_query_filter}")
-                    # Query and build company links
-                    all_matching_company_components = Component.objects.filter(company_query_filter).order_by(django_sort_field)
-                    # logger.warning(f"STEP 1: Initial company filter query EXECUTED. Type: {type(all_matching_company_components)}") # Removed log
-                    logger.warning(f"Company links: Initial query returned queryset. Calling _build_db_search_results.")
-                    company_links, render_time_links = _build_db_search_results(all_matching_company_components, query) # Use the actual queryset
-                    company_link_count = len(company_links)
-                    logger.warning(f"Company links: _build_db_search_results returned {company_link_count} links.")
+                # --- 1. Find Matching Companies (Precise & Independent) ---
+                logger.info("Step 1: Performing precise company search...")
+                company_links = []
+                company_link_count = 0
+                render_time_links = 0
+                try:
+                    cmu_df, df_api_time = get_cmu_dataframe()
+                    api_time += df_api_time
+                    if cmu_df is not None:
+                        # Use _perform_company_search to get filtered & sorted DataFrame
+                        matching_companies_df = _perform_company_search(cmu_df, normalize(query))
+                        
+                        # Limit the number of companies passed to the link builder for performance
+                        limit_companies = 20 # Show top N matching companies
+                        unique_top_companies = list(matching_companies_df["Full Name"].unique())[:limit_companies]
+                        
+                        logger.info(f"Found {len(unique_top_companies)} high-scoring companies (limit {limit_companies}). Building links...")
+                        # Use _build_search_results (requires DataFrame)
+                        # Ensure _build_search_results uses the passed unique_companies list
+                        results_dict = _build_search_results(
+                            cmu_df, 
+                            unique_top_companies, 
+                            sort_order, 
+                            query, 
+                            cmu_limit=3, 
+                            add_debug_info=True
+                        )
+                        company_links = results_dict.get(query, [])
+                        company_link_count = len(company_links)
+                    else:
+                        logger.error("CMU DataFrame not available for company search.")
+                except Exception as comp_e:
+                    logger.error(f"Error during precise company search step: {comp_e}")
+                    # Continue to component search even if company search fails
+                logger.info(f"Step 1 complete. Found {company_link_count} company links.")
                 # --- END OF STEP 1 --- 
                 
-                # --- 2. Find Matching Components (Paginated) ---
+                # --- 2. Find Matching Components (Broad & Paginated) ---
                 # --- Use term-based filter for components --- 
                 component_query_filter = Q()
                 component_terms = full_query_lower.split()
@@ -534,34 +534,57 @@ def _perform_company_search(cmu_df, norm_query):
     Returns a DataFrame of matching records.
     """
     logger = logging.getLogger(__name__)
-    min_score = 75  # Minimum fuzzy match score
+    min_score = 80  # Minimum fuzzy match score
+    scorer = fuzz.token_set_ratio # Use token set ratio
 
-    # Prepare choices for fuzzy matching (Company Name and CMU ID)
-    # Drop duplicates and NaN to avoid errors and improve performance
+    # Prepare choices for fuzzy matching
     company_names = cmu_df["Normalized Full Name"].dropna().unique().tolist()
     cmu_ids = cmu_df["Normalized CMU ID"].dropna().unique().tolist()
 
-    # Perform fuzzy search on company names
-    company_results = process.extract(norm_query, company_names, scorer=fuzz.token_set_ratio, limit=None, score_cutoff=min_score)
-    matched_company_names = [name for name, score, index in company_results]
-    logger.debug(f"Fuzzy matched company names: {matched_company_names}")
+    # Perform fuzzy search on company names, getting scores
+    company_results = process.extract(norm_query, company_names, scorer=scorer, limit=None, score_cutoff=min_score)
+    # Perform fuzzy search on CMU IDs, getting scores
+    cmu_results = process.extract(norm_query, cmu_ids, scorer=scorer, limit=None, score_cutoff=min_score)
 
-    # Perform fuzzy search on CMU IDs
-    cmu_results = process.extract(norm_query, cmu_ids, scorer=fuzz.token_set_ratio, limit=None, score_cutoff=min_score)
-    matched_cmu_ids = [cmu_id for cmu_id, score, index in cmu_results]
-    logger.debug(f"Fuzzy matched CMU IDs: {matched_cmu_ids}")
+    # Combine matches and their scores (use normalized name/id for matching)
+    # Store as {normalized_identifier: score}
+    matches_with_scores = {}
+    for name, score, index in company_results:
+        matches_with_scores[name] = max(matches_with_scores.get(name, 0), score)
+    for cmu_id, score, index in cmu_results:
+         matches_with_scores[cmu_id] = max(matches_with_scores.get(cmu_id, 0), score)
 
-    # Filter the original DataFrame based on fuzzy matches
-    company_matches_df = cmu_df[cmu_df["Normalized Full Name"].isin(matched_company_names)]
-    cmu_id_matches_df = cmu_df[cmu_df["Normalized CMU ID"].isin(matched_cmu_ids)]
+    if not matches_with_scores:
+        logger.info(f"No fuzzy matches found above threshold {min_score} for '{norm_query}'")
+        return pd.DataFrame(columns=cmu_df.columns) # Return empty DataFrame
 
-    # Combine results and drop duplicates based on the *actual* full name
-    matching_records = pd.concat([company_matches_df, cmu_id_matches_df]).drop_duplicates(
-        subset=["Full Name"] # Use the non-normalized name for deduplication
+    # Filter the original DataFrame based on the matched normalized names/ids
+    matched_norm_names = {k for k, v in matches_with_scores.items() if k in company_names}
+    matched_norm_cmu_ids = {k for k, v in matches_with_scores.items() if k in cmu_ids}
+    
+    company_matches_df = cmu_df[cmu_df["Normalized Full Name"].isin(matched_norm_names)]
+    cmu_id_matches_df = cmu_df[cmu_df["Normalized CMU ID"].isin(matched_norm_cmu_ids)]
+
+    # Combine potential matches and drop duplicates based on Full Name
+    potential_matches_df = pd.concat([company_matches_df, cmu_id_matches_df]).drop_duplicates(
+        subset=["Full Name"]
     )
 
-    logger.info(f"Found {len(matching_records)} potential companies after fuzzy matching for '{norm_query}'")
-    return matching_records
+    # Add score to the potential matches DataFrame
+    def get_score(row):
+        norm_name_score = matches_with_scores.get(row["Normalized Full Name"], 0)
+        norm_cmu_id_score = matches_with_scores.get(row["Normalized CMU ID"], 0)
+        # Return the higher score associated with this row (either name or ID match)
+        return max(norm_name_score, norm_cmu_id_score)
+
+    potential_matches_df['match_score'] = potential_matches_df.apply(get_score, axis=1)
+
+    # Sort the DataFrame by score (descending)
+    final_sorted_df = potential_matches_df.sort_values(by='match_score', ascending=False).reset_index(drop=True)
+
+    logger.info(f"Found and sorted {len(final_sorted_df)} companies >= score {min_score} for query '{norm_query}'")
+    # Return the filtered and sorted DataFrame
+    return final_sorted_df
 
 
 def _build_search_results(
