@@ -1625,7 +1625,7 @@ def _build_db_search_results(company_queryset, query):
     name_score_list.sort(key=lambda item: item[1], reverse=True)
     
     # --- Filter by Score Threshold ---
-    score_threshold = 85
+    score_threshold = 80 # LOWERED THRESHOLD BACK TO 80
     filtered_name_score_list = [(name, score) for name, score in name_score_list if score >= score_threshold]
     logger.info(f"_build_db_search_results: Filtered {len(name_score_list)} names down to {len(filtered_name_score_list)} with score >= {score_threshold}")
 
