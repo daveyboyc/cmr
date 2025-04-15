@@ -200,6 +200,9 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 component_query_filter = Q()
                 for term in query_terms:
                     # Search across multiple component fields
+                    # Restore full search
+                    # logger.warning(f"TEMP DEBUG: Adding location__icontains={term} to component filter")
+                    # component_query_filter |= Q(location__icontains=term)
                     component_query_filter |= (
                         Q(cmu_id__icontains=term) | 
                         Q(location__icontains=term) | 
