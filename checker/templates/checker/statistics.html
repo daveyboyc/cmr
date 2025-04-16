@@ -58,17 +58,11 @@
                     <div class="btn-group btn-group-sm" role="group" aria-label="Sort companies by">
                          <a href="?company_sort=count&company_order={% if company_sort == 'count' and company_order == 'desc' %}asc{% else %}desc{% endif %}" 
                            class="btn {% if company_sort == 'count' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-                            Component Count 
-                            {% if company_sort == 'count' %}
-                                {% if company_order == 'desc' %}<i class="bi bi-arrow-down-short"></i>{% else %}<i class="bi bi-arrow-up-short"></i>{% endif %}
-                            {% endif %}
+                            Component
                         </a>
                         <a href="?company_sort=capacity&company_order={% if company_sort == 'capacity' and company_order == 'desc' %}asc{% else %}desc{% endif %}" 
                            class="btn {% if company_sort == 'capacity' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-                            Total Capacity (MW) 
-                            {% if company_sort == 'capacity' %}
-                                {% if company_order == 'desc' %}<i class="bi bi-arrow-down-short"></i>{% else %}<i class="bi bi-arrow-up-short"></i>{% endif %}
-                            {% endif %}
+                            Capacity (MW)
                         </a>
                     </div>
                 </div>
@@ -119,17 +113,11 @@
                     <div class="btn-group btn-group-sm" role="group" aria-label="Sort technologies by">
                         <a href="?tech_sort=count&tech_order={% if tech_sort == 'count' and tech_order == 'desc' %}asc{% else %}desc{% endif %}" 
                            class="btn {% if tech_sort == 'count' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-                            Component Count 
-                            {% if tech_sort == 'count' %}
-                                {% if tech_order == 'desc' %}<i class="bi bi-arrow-down-short"></i>{% else %}<i class="bi bi-arrow-up-short"></i>{% endif %}
-                            {% endif %}
+                            Component
                         </a>
                         <a href="?tech_sort=capacity&tech_order={% if tech_sort == 'capacity' and tech_order == 'desc' %}asc{% else %}desc{% endif %}" 
                            class="btn {% if tech_sort == 'capacity' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-                            Total Capacity (MW) 
-                            {% if tech_sort == 'capacity' %}
-                                {% if tech_order == 'desc' %}<i class="bi bi-arrow-down-short"></i>{% else %}<i class="bi bi-arrow-up-short"></i>{% endif %}
-                            {% endif %}
+                            Capacity (MW)
                         </a>
                     </div>
                 </div>
