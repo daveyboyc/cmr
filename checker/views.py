@@ -802,13 +802,33 @@ def statistics_view(request):
         
     top_companies_data = list(top_companies_data) # Convert queryset to list
 
-    # Get technology distribution - Reverted to Top N by count
-    tech_distribution = Component.objects.exclude(technology__isnull=True) \
+    # --- Technology Distribution Logic --- 
+    # First, get the count of ALL distinct technologies (including null/empty)
+    all_technologies_query = Component.objects.values('technology').annotate(count=Count('id'))
+    total_distinct_tech_count = all_technologies_query.count() 
+    logger.info(f"Total distinct technology entries (including null/empty): {total_distinct_tech_count}")
+
+    # Decide whether to show all or top N
+    TECH_DISPLAY_LIMIT = 25
+    show_all_techs = total_distinct_tech_count <= TECH_DISPLAY_LIMIT
+
+    if show_all_techs:
+        # If 25 or fewer total, show them all (still excluding null/empty for cleaner display)
+        tech_distribution = Component.objects.exclude(technology__isnull=True) \
                                  .exclude(technology='') \
                                  .values('technology') \
                                  .annotate(count=Count('id')) \
-                                 .order_by('-count')[:TECH_LIMIT] # Order by count desc, use TECH_LIMIT
-    
+                                 .order_by('-count')
+        logger.info(f"Displaying all {tech_distribution.count()} non-empty distinct technologies.")
+    else:
+        # If more than 25 total, show top N (excluding null/empty)
+        tech_distribution = Component.objects.exclude(technology__isnull=True) \
+                                 .exclude(technology='') \
+                                 .values('technology') \
+                                 .annotate(count=Count('id')) \
+                                 .order_by('-count')[:TECH_DISPLAY_LIMIT] # Order by count desc, use limit
+        logger.info(f"Displaying top {TECH_DISPLAY_LIMIT} non-empty distinct technologies.")
+
     # Get delivery year distribution - include all years
     year_distribution = Component.objects.exclude(delivery_year__isnull=True) \
                                  .exclude(delivery_year='') \
@@ -872,6 +892,7 @@ def statistics_view(request):
         'total_components': total_components,
         'total_cmus': total_cmus,
         'total_companies': total_companies,
+        'show_all_techs': show_all_techs, # Add flag to context
     }
     
     return render(request, "checker/statistics.html", context)

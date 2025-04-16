@@ -142,11 +142,13 @@
                 {% empty %}
                     <div class="list-group-item">No technology data available.</div>
                 {% endfor %}
-                 {# Show Full List Link #}
-                <div class="text-center mt-3">
-                     {# TODO: Create dedicated view/URL for all technologies #}
-                    <a href="{% url 'technology_list' %}">Show full list...</a>
-                </div>
+                 {# Show Full List Link only if not showing all techs #}
+                 {% if not show_all_techs %}
+                    <div class="text-center mt-3">
+                         {# TODO: Create dedicated view/URL for all technologies #}
+                        <a href="{% url 'technology_list' %}">Show full list...</a>
+                    </div>
+                 {% endif %}
             </div> {# --- End Technology Distribution Section --- #}
         </div> {# --- End Right Column --- #}
     </div> {# --- End Main Content Row --- #}
