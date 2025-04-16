@@ -53,26 +53,19 @@
                     <h2>Top {{ top_companies_data|length }} Companies</h2>
                     <!-- Sort Controls moved below description -->
                 </div>
-                <p class="text-muted">
-                    {% if company_sort == 'count' %}
-                        Showing companies ranked by the number of components they operate.
-                    {% else %}
-                        Showing companies ranked by their total de-rated capacity (MW).
-                    {% endif %}
-                </p>
                 <!-- Sort Controls -->
                 <div class="d-flex justify-content-end">
                     <div class="btn-group btn-group-sm" role="group" aria-label="Sort companies by">
                          <a href="?company_sort=count&company_order={% if company_sort == 'count' and company_order == 'desc' %}asc{% else %}desc{% endif %}" 
                            class="btn {% if company_sort == 'count' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-                            By Component Count 
+                            Component Count 
                             {% if company_sort == 'count' %}
                                 {% if company_order == 'desc' %}<i class="bi bi-arrow-down-short"></i>{% else %}<i class="bi bi-arrow-up-short"></i>{% endif %}
                             {% endif %}
                         </a>
                         <a href="?company_sort=capacity&company_order={% if company_sort == 'capacity' and company_order == 'desc' %}asc{% else %}desc{% endif %}" 
                            class="btn {% if company_sort == 'capacity' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-                            By Total Capacity (MW) 
+                            Total Capacity (MW) 
                             {% if company_sort == 'capacity' %}
                                 {% if company_order == 'desc' %}<i class="bi bi-arrow-down-short"></i>{% else %}<i class="bi bi-arrow-up-short"></i>{% endif %}
                             {% endif %}
@@ -97,7 +90,7 @@
                         {% if company_sort == 'count' %}
                         <div class="progress mt-1" style="height: 5px;">
                             <div class="progress-bar company-bar" role="progressbar" 
-                                 style="width: {{ company.percentage }}%" 
+                                 style="width: {{ company.percentage }} %" 
                                  aria-valuenow="{{ company.percentage }}" 
                                  aria-valuemin="0" 
                                  aria-valuemax="100"></div>
@@ -120,12 +113,26 @@
         <div class="col-lg-6 mb-4">
              {# --- Technology Distribution Section --- #}
             <div class="stats-card mb-4">
-                <h2>Top 25 by Technology</h2>
-                <p class="text-muted">
-                    Distribution of components by technology type
-                </p>
-                {# Add placeholder div to match company sort controls height/spacing #}
-                <div class="d-flex justify-content-end mb-3">&nbsp;</div>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h2>Top 25 by Technology</h2>
+                    <!-- Add Sort Controls for Technology -->
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Sort technologies by">
+                        <a href="?tech_sort=count&tech_order={% if tech_sort == 'count' and tech_order == 'desc' %}asc{% else %}desc{% endif %}" 
+                           class="btn {% if tech_sort == 'count' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+                            Component Count 
+                            {% if tech_sort == 'count' %}
+                                {% if tech_order == 'desc' %}<i class="bi bi-arrow-down-short"></i>{% else %}<i class="bi bi-arrow-up-short"></i>{% endif %}
+                            {% endif %}
+                        </a>
+                        <a href="?tech_sort=capacity&tech_order={% if tech_sort == 'capacity' and tech_order == 'desc' %}asc{% else %}desc{% endif %}" 
+                           class="btn {% if tech_sort == 'capacity' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+                            Total Capacity (MW) 
+                            {% if tech_sort == 'capacity' %}
+                                {% if tech_order == 'desc' %}<i class="bi bi-arrow-down-short"></i>{% else %}<i class="bi bi-arrow-up-short"></i>{% endif %}
+                            {% endif %}
+                        </a>
+                    </div>
+                </div>
                 
                 {% for tech in tech_distribution %}
                     <div class="mb-3">
@@ -134,11 +141,19 @@
                             <a href="{% url 'technology_search' technology_name_encoded=tech.technology|urlencode %}" class="text-decoration-none">
                                 {{ tech.technology|truncatechars:45 }}
                             </a>
-                            <span class="text-muted">{{ tech.count|intcomma }} ({{ tech.percentage|floatformat:1 }}%)</span>
+                            <span class="text-muted">
+                                {% if tech_sort == 'count' %}
+                                    {{ tech.count|intcomma }} components 
+                                {% else %}
+                                    {{ tech.total_capacity|floatformat:2|intcomma }} MW
+                                {% endif %}
+                                {% if tech.percentage > 0 %}({{ tech.percentage|floatformat:1 }}%){% endif %} {# Show percentage if available #}
+                            </span>
                         </div>
                         <div class="progress mt-1" style="height: 5px;">
+                            {# Note: Progress bar width might need adjustment if sorting by capacity #}
                             <div class="progress-bar tech-bar" role="progressbar" 
-                                 style="width: {{ tech.percentage }}%" 
+                                 style="width: {{ tech.percentage }} %" 
                                  aria-valuenow="{{ tech.percentage }}" 
                                  aria-valuemin="0" 
                                  aria-valuemax="100"></div>
@@ -174,7 +189,7 @@
                         </div>
                         <div class="progress mt-1" style="height: 5px;">
                             <div class="progress-bar year-bar" role="progressbar" 
-                                 style="width: {{ year.percentage }}%" 
+                                 style="width: {{ year.percentage }} %" 
                                  aria-valuenow="{{ year.percentage }}" 
                                  aria-valuemin="0" 
                                  aria-valuemax="100"></div>

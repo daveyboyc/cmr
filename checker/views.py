@@ -803,31 +803,44 @@ def statistics_view(request):
     top_companies_data = list(top_companies_data) # Convert queryset to list
 
     # --- Technology Distribution Logic --- 
-    # First, get the count of ALL distinct technologies (including null/empty)
-    all_technologies_query = Component.objects.values('technology').annotate(count=Count('id'))
-    total_distinct_tech_count = all_technologies_query.count() 
-    logger.info(f"Total distinct technology entries (including null/empty): {total_distinct_tech_count}")
+    # Determine Technology Sort Method
+    tech_sort = request.GET.get('tech_sort', 'count') # Default to count
+    tech_order = request.GET.get('tech_order', 'desc') # Default to descending
+    if tech_sort not in ['count', 'capacity']:
+        tech_sort = 'count'
+    if tech_order not in ['asc', 'desc']:
+        tech_order = 'desc'
+    tech_db_sort_prefix = '-' if tech_order == 'desc' else ''
 
-    # Decide whether to show all or top N
+    # Count total distinct technologies (only needed for show_all check now)
+    total_distinct_tech_count = Component.objects.values('technology').distinct().count()
     TECH_DISPLAY_LIMIT = 25
     show_all_techs = total_distinct_tech_count <= TECH_DISPLAY_LIMIT
 
-    if show_all_techs:
-        # If 25 or fewer total, show them all (still excluding null/empty for cleaner display)
-        tech_distribution = Component.objects.exclude(technology__isnull=True) \
-                                 .exclude(technology='') \
-                                 .values('technology') \
-                                 .annotate(count=Count('id')) \
-                                 .order_by('-count')
-        logger.info(f"Displaying all {tech_distribution.count()} non-empty distinct technologies.")
+    # Base query excluding nulls/empties
+    base_tech_query = Component.objects.exclude(technology__isnull=True).exclude(technology='')
+
+    # Annotate and order based on sort selection
+    if tech_sort == 'count':
+        tech_queryset = base_tech_query.values('technology') \
+                                     .annotate(count=Count('id')) \
+                                     .order_by(f'{tech_db_sort_prefix}count')
+        logger.info(f"Fetching technologies sorted by count ({tech_order}).")
+    else: # tech_sort == 'capacity'
+        # Exclude components with null capacity for this sort
+        tech_queryset = base_tech_query.exclude(derated_capacity_mw__isnull=True) \
+                                     .values('technology') \
+                                     .annotate(total_capacity=Sum('derated_capacity_mw')) \
+                                     .order_by(f'{tech_db_sort_prefix}total_capacity')
+        logger.info(f"Fetching technologies sorted by total capacity ({tech_order}).")
+
+    # Apply limit if not showing all
+    if not show_all_techs:
+        tech_distribution = tech_queryset[:TECH_DISPLAY_LIMIT]
+        logger.info(f"Displaying top {TECH_DISPLAY_LIMIT} technologies.")
     else:
-        # If more than 25 total, show top N (excluding null/empty)
-        tech_distribution = Component.objects.exclude(technology__isnull=True) \
-                                 .exclude(technology='') \
-                                 .values('technology') \
-                                 .annotate(count=Count('id')) \
-                                 .order_by('-count')[:TECH_DISPLAY_LIMIT] # Order by count desc, use limit
-        logger.info(f"Displaying top {TECH_DISPLAY_LIMIT} non-empty distinct technologies.")
+        tech_distribution = tech_queryset
+        logger.info(f"Displaying all {tech_distribution.count()} technologies.")
 
     # Get delivery year distribution - include all years
     year_distribution = Component.objects.exclude(delivery_year__isnull=True) \
@@ -869,16 +882,24 @@ def statistics_view(request):
     for company in top_companies_data:
         company['company_id'] = normalize(company['company_name'])
         
-    # Re-enable percentage calculation for tech distribution 
+    # Re-enable percentage calculation for tech distribution (always based on count for now)
+    total_components_for_pct = Component.objects.count()
     for tech in tech_distribution:
-        if total_components > 0:
-            tech['percentage'] = (tech['count'] / total_components) * 100
+        # If sorting by capacity, we need to add the component count separately if needed for display
+        # For simplicity, let's just calculate percentage based on total components count
+        # We might need to re-query the count if sorting by capacity and count is needed.
+        # For now, let's assume count is implicitly available or not strictly required for percentage display.
+        # A potential improvement: add count annotation even when sorting by capacity.
+        # Simplified approach: Calculate percentage based on total components if count field exists
+        current_count = tech.get('count', 0) # Get count if available
+        if total_components_for_pct > 0 and current_count > 0:
+            tech['percentage'] = (current_count / total_components_for_pct) * 100
         else:
-             tech['percentage'] = 0
+            tech['percentage'] = 0 # Default if count is missing or total is zero
         
     for year in year_distribution:
-        if total_components > 0:
-            year['percentage'] = (year['count'] / total_components) * 100
+        if total_components_for_pct > 0:
+            year['percentage'] = (year['count'] / total_components_for_pct) * 100
         else:
              year['percentage'] = 0
     
@@ -887,6 +908,8 @@ def statistics_view(request):
         'company_sort': company_sort, # Pass sort method to template
         'company_order': company_order, # Pass sort order to template
         'tech_distribution': tech_distribution,
+        'tech_sort': tech_sort, # Pass tech sort params
+        'tech_order': tech_order,
         'year_distribution': year_distribution,
         'top_derated_components': top_derated_components, # Add new list to context
         'total_components': total_components,
