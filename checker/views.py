@@ -1638,3 +1638,67 @@ def company_capacity_list(request):
     }
 
     return render(request, "checker/company_capacity_list.html", context)
+
+def technology_list_view(request):
+    """Displays a full, paginated list of technologies ranked by component count."""
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+    from django.db.models import Count
+    from ..models import Component
+    import logging
+    import time
+
+    logger = logging.getLogger(__name__)
+    start_time = time.time()
+
+    page = request.GET.get('page', 1)
+    per_page = 50  # Or adjust as needed
+    error_message = None
+
+    try:
+        # Query all non-empty technologies, count components, order by count
+        tech_queryset = Component.objects.exclude(technology__isnull=True) \
+                                 .exclude(technology='') \
+                                 .values('technology') \
+                                 .annotate(count=Count('id')) \
+                                 .order_by('-count')
+        
+        total_count = tech_queryset.count()
+        logger.info(f"Found {total_count} distinct non-empty technologies.")
+
+        # Apply pagination
+        paginator = Paginator(tech_queryset, per_page)
+        try:
+            tech_page = paginator.page(page)
+        except PageNotAnInteger:
+            tech_page = paginator.page(1)
+        except EmptyPage:
+            tech_page = paginator.page(paginator.num_pages)
+            
+        # Calculate percentages for display relative to total components
+        total_components = Component.objects.count()
+        for tech_data in tech_page.object_list:
+            if total_components > 0:
+                tech_data['percentage'] = (tech_data['count'] / total_components) * 100
+            else:
+                tech_data['percentage'] = 0
+
+    except Exception as e:
+        logger.error(f"Error processing technology list: {e}")
+        error_message = f"Error processing technology list: {e}"
+        # Ensure variables are in a safe state for the template
+        tech_page = None 
+        total_count = 0
+        paginator = Paginator([], per_page) # Empty paginator
+        tech_page = paginator.page(1)
+
+    api_time = time.time() - start_time
+
+    context = {
+        'page_obj': tech_page,
+        'total_count': total_count,
+        'paginator': paginator,
+        'api_time': api_time,
+        'error': error_message,
+    }
+
+    return render(request, 'checker/technology_list.html', context)

@@ -1,0 +1,89 @@
+{% extends "checker/base.html" %}
+{% load humanize %}
+{% load checker_tags %}
+
+{% block title %}Technologies by Component Count{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="page-header mb-3">
+        <a href="{% url 'statistics' %}" class="back-link">
+             <i class="bi bi-arrow-return-left"></i> Back to Statistics
+        </a>
+         <h1>Technologies Ranked by Component Count</h1>
+        <div></div> <!-- Placeholder for alignment -->
+    </div>
+
+    {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <p class="text-muted">Displaying {{ page_obj.start_index }}-{{ page_obj.end_index }} of {{ total_count|intcomma }} distinct technologies.</p>
+
+    <div class="list-group mb-4">
+        {% for tech in page_obj.object_list %}
+            <div class="list-group-item">
+                <div class="d-flex w-100 justify-content-between mb-1">
+                    <h5 class="mb-1">
+                         <a href="{% url 'technology_search' technology_name_encoded=tech.technology|urlencode %}" class="text-decoration-none">
+                            {{ tech.technology|truncatechars:60 }}
+                        </a>
+                    </h5>
+                    <small class="text-muted">{{ tech.count|intcomma }} components</small>
+                </div>
+                 {% if tech.percentage is not None %}
+                    <div class="progress mt-1" style="height: 5px;">
+                        <div class="progress-bar tech-bar" role="progressbar" 
+                             style="width: {{ tech.percentage }}%;" 
+                             aria-valuenow="{{ tech.percentage }}" 
+                             aria-valuemin="0" 
+                             aria-valuemax="100"
+                             title="{{ tech.percentage|floatformat:2 }}%"></div>
+                    </div>
+                    <small class="text-muted">{{ tech.percentage|floatformat:1 }}% of total components</small>
+                 {% endif %}
+            </div>
+        {% empty %}
+            <div class="list-group-item">No technology data available.</div>
+        {% endfor %}
+    </div>
+
+    {# --- Pagination --- #}
+    {% if paginator.num_pages > 1 %}
+        <nav aria-label="Technology navigation">
+            <ul class="pagination justify-content-center">
+                {% if page_obj.has_previous %}
+                    <li class="page-item"><a class="page-link" href="?page=1">First</a></li>
+                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">Previous</a></li>
+                {% else %}
+                    <li class="page-item disabled"><span class="page-link">First</span></li>
+                    <li class="page-item disabled"><span class="page-link">Previous</span></li>
+                {% endif %}
+
+                {% for i in paginator.get_elided_page_range %}
+                    {% if i == page_obj.number %}
+                        <li class="page-item active" aria-current="page"><span class="page-link">{{ i }}</span></li>
+                    {% elif i == paginator.ELLIPSIS %}
+                         <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% else %}
+                        <li class="page-item"><a class="page-link" href="?page={{ i }}">{{ i }}</a></li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if page_obj.has_next %}
+                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">Next</a></li>
+                    <li class="page-item"><a class="page-link" href="?page={{ paginator.num_pages }}">Last</a></li>
+                {% else %}
+                    <li class="page-item disabled"><span class="page-link">Next</span></li>
+                    <li class="page-item disabled"><span class="page-link">Last</span></li>
+                {% endif %}
+            </ul>
+        </nav>
+    {% endif %}
+    {# --- End Pagination --- #}
+
+    {% if api_time %}
+        <p class="text-muted mt-3 text-center"><small>Page loaded in {{ api_time|floatformat:2 }} seconds.</small></p>
+    {% endif %}
+</div>
+{% endblock %}

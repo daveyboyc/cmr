@@ -71,5 +71,5 @@ urlpatterns = [
     path('companies/by-total-capacity/', views.company_capacity_list, name='company_capacity_list'),
 
     # Placeholder URL for full technology list
-    path('technologies/', views.statistics_view, name='technology_list'), # Points to stats for now
+    path('technologies/', views.technology_list_view, name='technology_list'), # NOW points to the real view
 ]
