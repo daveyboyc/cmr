@@ -20,6 +20,12 @@ class Component(models.Model):
     additional_data = models.JSONField(default=dict, encoder=DjangoJSONEncoder)
     # New field for numeric de-rated capacity
     derated_capacity_mw = models.FloatField(null=True, blank=True, db_index=True) 
+    
+    # Add these new fields for maps
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    geocoded = models.BooleanField(default=False)  # Track which records have been processed
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -46,6 +52,22 @@ class Component(models.Model):
 
     def __str__(self):
         return f"{self.cmu_id} - {self.component_id} ({self.location[:30]})"
+
+    # Optional - add a method to get map info
+    def map_info(self):
+        """Return a dict with info needed for map markers"""
+        return {
+            'id': self.id,
+            'title': self.location or 'Unknown Location',
+            'description': self.description or '',
+            'technology': self.technology or 'Unknown',
+            'company': self.company_name or 'Unknown',
+            'cmu_id': self.cmu_id,
+            'lat': self.latitude,
+            'lng': self.longitude,
+            'delivery_year': self.delivery_year or '',
+            'url': f'/component/{self.id}/'  # Assuming you have a detail view URL named 'component_detail'
+        }
 
 
 class CMURegistry(models.Model):

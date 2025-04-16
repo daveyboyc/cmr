@@ -1795,3 +1795,97 @@ def technology_list_view(request):
     }
 
     return render(request, 'checker/technology_list.html', context)
+
+# -------- Map View and API --------- START --------
+
+def map_view(request):
+    """Render the map page with Google Maps integration"""
+    # Get technology options for filters
+    technologies = Component.objects.exclude(technology__isnull=True) \
+                               .exclude(technology='') \
+                               .values_list('technology', flat=True) \
+                               .distinct() \
+                               .order_by('technology')
+    
+    # Get company options for filters
+    companies = Component.objects.exclude(company_name__isnull=True) \
+                                .exclude(company_name='') \
+                                .values_list('company_name', flat=True) \
+                                .distinct() \
+                                .order_by('company_name')[:100]  # Limit to avoid too many options
+    
+    # Get stats
+    geocoded_count = Component.objects.filter(geocoded=True).count()
+    total_count = Component.objects.count()
+    
+    context = {
+        'api_key': settings.GOOGLE_MAPS_API_KEY,
+        'technologies': technologies,
+        'companies': companies,
+        'geocoded_count': geocoded_count,
+        'total_count': total_count,
+    }
+    
+    return render(request, 'checker/map.html', context)
+
+def map_data_api(request):
+    """API endpoint to provide map marker data in GeoJSON format"""
+    # Start with geocoded components only
+    components = Component.objects.filter(
+        geocoded=True, 
+        latitude__isnull=False,
+        longitude__isnull=False
+    )
+    
+    # Apply filters from request parameters
+    if tech := request.GET.get('technology'):
+        components = components.filter(technology=tech)
+        
+    if company := request.GET.get('company'):
+        components = components.filter(company_name=company)
+        
+    if delivery_year := request.GET.get('year'):
+        components = components.filter(delivery_year=delivery_year)
+        
+    if cmu_id := request.GET.get('cmu_id'):
+        components = components.filter(cmu_id=cmu_id)
+    
+    # For larger datasets, add pagination or limit
+    limit = int(request.GET.get('limit', 2000))  # Default limit of 2000 markers
+    components = components[:limit]
+    
+    # Build GeoJSON response
+    features = []
+    for comp in components:
+        features.append({
+            'type': 'Feature',
+            'geometry': {
+                'type': 'Point',
+                'coordinates': [comp.longitude, comp.latitude]  # GeoJSON uses [lng, lat] order
+            },
+            'properties': {
+                'id': comp.id,
+                'cmu_id': comp.cmu_id,
+                'title': comp.location or 'Unknown Location',
+                'technology': comp.technology or 'Unknown',
+                'company': comp.company_name or 'Unknown',
+                'description': comp.description or '',
+                'delivery_year': comp.delivery_year or '',
+                'detailUrl': f'/component/{comp.id}/' # Ensure you have a URL pattern for this!
+            }
+        })
+    
+    # Include count information
+    response_data = {
+        'type': 'FeatureCollection',
+        'features': features,
+        'metadata': {
+            'count': len(features),
+            'total': components.count(), # Note: this counts the filtered total, not the absolute total
+            'filtered': True if any([tech, company, delivery_year, cmu_id]) else False
+        }
+    }
+    
+    return JsonResponse(response_data)
+
+# -------- Map View and API --------- END ---------

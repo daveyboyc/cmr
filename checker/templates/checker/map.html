@@ -1,0 +1,441 @@
+{% extends "checker/base.html" %}
+{% load static %}
+
+{% block title %}Component Map - Capacity Market Checker{% endblock %}
+
+{% block extra_head %}
+<style>
+    #map-container {
+        position: relative;
+        width: 100%;
+        height: 700px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    
+    #map {
+        height: 100%;
+        width: 100%;
+    }
+    
+    .map-controls {
+        background-color: rgba(255, 255, 255, 0.9);
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+        margin-bottom: 15px;
+    }
+    
+    .map-legend {
+        position: absolute;
+        bottom: 30px;
+        right: 10px;
+        background-color: rgba(255, 255, 255, 0.9);
+        padding: 10px;
+        border-radius: 4px;
+        z-index: 1000;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .legend-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 5px;
+    }
+    
+    .legend-color {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        margin-right: 8px;
+    }
+    
+    .info-window h5 {
+        margin-bottom: 5px;
+    }
+    
+    .info-window .badges {
+        margin-bottom: 10px;
+    }
+    
+    .loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.8);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1>Component Map</h1>
+        <div>
+            <a href="{% url 'search_companies' %}" class="btn btn-outline-primary">
+                <i class="bi bi-arrow-left"></i> Back to Search
+            </a>
+        </div>
+    </div>
+    
+    {% if geocoded_count < total_count %}
+    <div class="alert alert-info mb-3">
+        <i class="bi bi-info-circle"></i> 
+        <strong>Geocoding Status:</strong> {{ geocoded_count }} of {{ total_count }} components have been geocoded ({{ geocoded_count|floatformat:"0"|default:"0" }}%).
+        Run the <code>python manage.py geocode_components</code> command to geocode more components.
+    </div>
+    {% endif %}
+    
+    <div class="map-controls">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label for="technology-filter" class="form-label">Technology</label>
+                <select id="technology-filter" class="form-select">
+                    <option value="">All Technologies</option>
+                    {% for tech in technologies %}
+                        <option value="{{ tech }}">{{ tech }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="col-md-3">
+                <label for="company-filter" class="form-label">Company</label>
+                <select id="company-filter" class="form-select">
+                    <option value="">All Companies</option>
+                    {% for company in companies %}
+                        <option value="{{ company }}">{{ company }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="col-md-3">
+                <label for="year-filter" class="form-label">Delivery Year</label>
+                <input type="text" id="year-filter" class="form-control" placeholder="e.g. 2024">
+            </div>
+            
+            <div class="col-md-3">
+                <label for="cmu-filter" class="form-label">CMU ID</label>
+                <input type="text" id="cmu-filter" class="form-control" placeholder="CMU ID">
+            </div>
+        </div>
+        
+        <div class="mt-3 d-flex justify-content-between">
+            <button id="apply-filters" class="btn btn-primary">
+                <i class="bi bi-filter"></i> Apply Filters
+            </button>
+            
+            <button id="reset-filters" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-counterclockwise"></i> Reset Filters
+            </button>
+        </div>
+    </div>
+    
+    <div id="map-container">
+        <div id="map"></div>
+        
+        <div class="loading-overlay" id="loading-overlay">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading map data...</span>
+            </div>
+            <span class="ms-2">Loading map data...</span>
+        </div>
+        
+        <div class="map-legend" id="map-legend">
+            <h6>Technology Types</h6>
+            <div id="legend-items">
+                <!-- Legend items will be added here dynamically -->
+            </div>
+        </div>
+    </div>
+    
+    <div class="mt-3">
+        <div class="d-flex justify-content-between">
+            <div>
+                <span id="marker-count" class="badge bg-primary">0</span> components displayed
+            </div>
+            <div>
+                <button id="toggle-clusters" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-grid"></i> Toggle Clustering
+                </button>
+                <button id="center-uk" class="btn btn-sm btn-outline-secondary ms-2">
+                    <i class="bi bi-geo-alt"></i> Center on UK
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<!-- Google Maps JavaScript -->
+<script src="https://maps.googleapis.com/maps/api/js?key={{ api_key }}&callback=initMap" async defer></script>
+<script src="https://unpkg.com/@googlemaps/markerclusterer/dist/index.min.js"></script>
+
+<script>
+    // Map variables
+    let map;
+    let markers = [];
+    let markerCluster;
+    let clusteringEnabled = true;
+    let infoWindows = [];
+    
+    // Technology color mapping
+    const techColors = {
+        'Gas': '#ff5252',
+        'DSR': '#f57c00',
+        'Nuclear': '#8d6e63',
+        'CHP': '#5c6bc0',
+        'Solar': '#fdd835',
+        'Wind': '#29b6f6',
+        'Battery': '#4caf50',
+        'Biomass': '#8bc34a',
+        'Hydro': '#0097a7',
+        'Pumped Storage': '#673ab7',
+        'Interconnector': '#9c27b0',
+        'Coal': '#424242',
+        // Default color for any other technology
+        'default': '#757575'
+    };
+    
+    // UK center and bounds
+    const UK_CENTER = { lat: 54.5, lng: -4.0 };
+    const UK_BOUNDS = {
+        north: 59.5, // Northern tip of Scotland
+        south: 49.5, // Southern tip of England
+        west: -10.5, // Western edge of Ireland
+        east: 2.0    // Eastern edge of England
+    };
+    
+    // Initialize the map
+    function initMap() {
+        // Create the map centered on the UK
+        map = new google.maps.Map(document.getElementById('map'), {
+            center: UK_CENTER,
+            zoom: 6,
+            maxZoom: 18,
+            minZoom: 5,
+            restriction: {
+                latLngBounds: UK_BOUNDS,
+                strictBounds: false
+            },
+            mapTypeControl: true,
+            mapTypeControlOptions: {
+                style: google.maps.MapTypeControlStyle.HORIZONTAL_BAR,
+                position: google.maps.ControlPosition.TOP_RIGHT
+            }
+        });
+        
+        // Add event listeners for filter buttons
+        document.getElementById('apply-filters').addEventListener('click', loadMarkers);
+        document.getElementById('reset-filters').addEventListener('click', resetFilters);
+        document.getElementById('toggle-clusters').addEventListener('click', toggleClustering);
+        document.getElementById('center-uk').addEventListener('click', centerMapOnUK);
+        
+        // Initialize legend
+        initLegend();
+        
+        // Load initial markers
+        loadMarkers();
+    }
+    
+    function initLegend() {
+        const legendEl = document.getElementById('legend-items');
+        legendEl.innerHTML = '';
+        
+        const technologies = Object.keys(techColors);
+        technologies.forEach(tech => {
+            if (tech === 'default') return;
+            
+            const item = document.createElement('div');
+            item.className = 'legend-item';
+            
+            const colorBox = document.createElement('div');
+            colorBox.className = 'legend-color';
+            colorBox.style.backgroundColor = techColors[tech];
+            
+            const label = document.createElement('span');
+            label.textContent = tech;
+            
+            item.appendChild(colorBox);
+            item.appendChild(label);
+            legendEl.appendChild(item);
+        });
+    }
+    
+    function loadMarkers() {
+        // Show loading indicator
+        document.getElementById('loading-overlay').style.display = 'flex';
+        
+        // Clear existing markers and info windows
+        clearMarkers();
+        
+        // Get filter values
+        const technology = document.getElementById('technology-filter').value;
+        const company = document.getElementById('company-filter').value;
+        const year = document.getElementById('year-filter').value;
+        const cmuId = document.getElementById('cmu-filter').value;
+        
+        // Build query parameters
+        const params = new URLSearchParams();
+        if (technology) params.append('technology', technology);
+        if (company) params.append('company', company);
+        if (year) params.append('year', year);
+        if (cmuId) params.append('cmu_id', cmuId);
+        
+        // Fetch data from API
+        fetch(`/api/map-data/?${params.toString()}`)
+            .then(response => response.json())
+            .then(data => {
+                // Create markers for each feature
+                data.features.forEach(feature => {
+                    const position = {
+                        lat: feature.geometry.coordinates[1],
+                        lng: feature.geometry.coordinates[0]
+                    };
+                    
+                    const tech = feature.properties.technology;
+                    const color = techColors[tech] || techColors.default;
+                    
+                    // Create marker
+                    const marker = new google.maps.Marker({
+                        position: position,
+                        map: map,
+                        title: feature.properties.title,
+                        icon: {
+                            path: google.maps.SymbolPath.CIRCLE,
+                            fillColor: color,
+                            fillOpacity: 0.8,
+                            strokeWeight: 1,
+                            scale: 8
+                        },
+                        animation: google.maps.Animation.DROP
+                    });
+                    
+                    // Create info window content
+                    const content = `
+                        <div class="info-window">
+                            <h5>${feature.properties.title}</h5>
+                            <div class="badges">
+                                <span class="badge bg-success">${feature.properties.company}</span>
+                                <span class="badge bg-primary">${feature.properties.technology}</span>
+                                ${feature.properties.delivery_year ? 
+                                  `<span class="badge bg-secondary">${feature.properties.delivery_year}</span>` : ''}
+                            </div>
+                            <p>${feature.properties.description || 'No description available.'}</p>
+                            <p><strong>CMU ID:</strong> ${feature.properties.cmu_id}</p>
+                            <a href="${feature.properties.detailUrl}" class="btn btn-sm btn-primary">
+                                View Component Details
+                            </a>
+                        </div>
+                    `;
+                    
+                    // Create info window
+                    const infoWindow = new google.maps.InfoWindow({
+                        content: content,
+                        maxWidth: 300
+                    });
+                    
+                    // Add click listener to show info window
+                    marker.addListener('click', () => {
+                        // Close any open info windows
+                        infoWindows.forEach(info => info.close());
+                        
+                        // Open this info window
+                        infoWindow.open(map, marker);
+                    });
+                    
+                    // Store marker and info window
+                    markers.push(marker);
+                    infoWindows.push(infoWindow);
+                });
+                
+                // Update marker count
+                document.getElementById('marker-count').textContent = markers.length;
+                
+                // Create marker clusters if enabled
+                if (clusteringEnabled && markers.length > 0) {
+                    markerCluster = new markerClusterer.MarkerClusterer({
+                        map,
+                        markers,
+                        algorithm: new markerClusterer.GridAlgorithm({
+                            maxZoom: 15,
+                            gridSize: 60
+                        })
+                    });
+                }
+                
+                // Hide loading indicator
+                document.getElementById('loading-overlay').style.display = 'none';
+                
+                // If we have markers and this is the initial load, fit the map to them
+                if (markers.length > 0 && !data.metadata.filtered) {
+                    fitMapToBounds();
+                }
+            })
+            .catch(error => {
+                console.error('Error loading map data:', error);
+                document.getElementById('loading-overlay').style.display = 'none';
+                alert('Error loading map data. Please try again.');
+            });
+    }
+    
+    function clearMarkers() {
+        // Clear existing markers
+        markers.forEach(marker => marker.setMap(null));
+        markers = [];
+        
+        // Clear info windows
+        infoWindows.forEach(info => info.close());
+        infoWindows = [];
+        
+        // Clear marker cluster
+        if (markerCluster) {
+            markerCluster.clearMarkers();
+            markerCluster = null;
+        }
+    }
+    
+    function resetFilters() {
+        document.getElementById('technology-filter').value = '';
+        document.getElementById('company-filter').value = '';
+        document.getElementById('year-filter').value = '';
+        document.getElementById('cmu-filter').value = '';
+        
+        loadMarkers();
+    }
+    
+    function toggleClustering() {
+        clusteringEnabled = !clusteringEnabled;
+        
+        // Update button text
+        const button = document.getElementById('toggle-clusters');
+        button.innerHTML = clusteringEnabled ? 
+            '<i class="bi bi-grid"></i> Toggle Clustering' : 
+            '<i class="bi bi-grid-3x3"></i> Enable Clustering';
+        
+        // Reload markers with new clustering setting
+        loadMarkers();
+    }
+    
+    function centerMapOnUK() {
+        map.setCenter(UK_CENTER);
+        map.setZoom(6);
+    }
+    
+    function fitMapToBounds() {
+        if (markers.length === 0) return;
+        
+        const bounds = new google.maps.LatLngBounds();
+        markers.forEach(marker => bounds.extend(marker.getPosition()));
+        map.fitBounds(bounds);
+    }
+</script>
+{% endblock %} 

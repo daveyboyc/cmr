@@ -28,6 +28,10 @@ urlpatterns = [
     path("company/<str:company_id>/",
          views.company_detail, name="company_detail"),
 
+    # Map view and API
+    path('map/', views.map_view, name='map_view'),
+    path('api/map-data/', views.map_data_api, name='map_data_api'),
+
     # Debug/admin endpoints
     path("debug/mapping-cache/",
          views.debug_mapping_cache, name="debug_mapping_cache"),

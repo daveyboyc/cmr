@@ -27,7 +27,10 @@ BASE_DIR = Path(__file__).resolve().parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-8hwucxzsrxcdtvd(kwfeh@ej-+936cfg%9b8ymh78w%%dl7(06"
+SECRET_KEY = 'django-insecure-h%b@s*+d7n9z0q!g2f_v#b^q8#)j&n@q+y3!+@e%n&_l6@9o'
+
+# Google Maps API Key
+GOOGLE_MAPS_API_KEY = 'AIzaSyDXSnvzc2VfdPIHH3HgPQkG-No-T70hbeI' # Replace with your actual API key for production using environment variables
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True  # Set to False in production
