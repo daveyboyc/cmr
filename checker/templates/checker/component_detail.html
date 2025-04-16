@@ -220,19 +220,43 @@
                         <ul class="list-group list-group-flush">
                             <li class="list-group-item d-flex justify-content-between align-items-center">
                                 <span>De-Rated Capacity (Component DB)</span>
-                                <span class="text-end">{{ component_derated_capacity|format_value|default:"N/A" }} MW</span>
+                                <span class="text-end">
+                                    {% if component_derated_capacity is not None %}
+                                        {{ component_derated_capacity|format_value }} MW
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </span>
                             </li>
                             <li class="list-group-item d-flex justify-content-between align-items-center">
                                 <span>De-Rated Capacity (CMU Registry)</span>
-                                <span class="text-end">{{ registry_derated_capacity|format_value|default:"N/A" }}</span> {# Assume MW is included or context implies it #}
+                                <span class="text-end">
+                                     {% if registry_derated_capacity is not None and registry_derated_capacity != 'N/A' %}
+                                        {{ registry_derated_capacity|format_value }}
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </span>
                             </li>
                             <li class="list-group-item d-flex justify-content-between align-items-center">
                                 <span>Connection Capacity (CMU Registry)</span>
-                                <span class="text-end">{{ connection_capacity|format_value|default:"N/A" }}</span> {# Assume MW is included #}
+                                <span class="text-end">
+                                     {% if connection_capacity is not None %}
+                                        {{ connection_capacity|format_value }} MW
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </span>
                             </li>
                             <li class="list-group-item d-flex justify-content-between align-items-center">
                                 <span>Anticipated Capacity (CMU Registry)</span>
-                                <span class="text-end">{{ anticipated_capacity|format_value|default:"N/A" }}</span> {# Assume MW is included #}
+                                <span class="text-end">
+                                     {% if anticipated_capacity is not None %}
+                                        {{ anticipated_capacity|format_value }} MW
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </span>
                             </li>
                         </ul>
                     </div>
@@ -258,11 +282,25 @@
                             </li>
                              <li class="list-group-item d-flex justify-content-between align-items-center">
                                 <span>Secondary Trading Email (CMU Registry)</span>
-                                <span class="text-end">{{ trading_email }}</span> {# Temporarily removed |default:"N/A" #}
+                                <span class="text-end">
+                                    {% if trading_email %}
+                                        <a href="mailto:{{ trading_email }}">{{ trading_email }}</a>
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </span>
                             </li>
                              <li class="list-group-item d-flex justify-content-between align-items-center">
                                 <span>Secondary Trading Phone (CMU Registry)</span>
-                                <span class="text-end">{{ trading_phone }}</span> {# Temporarily removed |default:"N/A" #}
+                                <span class="text-end">
+                                    {% if trading_phone %}
+                                        {% with cleaned_phone=trading_phone|strip_prefix:"'" %}
+                                            <a href="tel:{{ cleaned_phone }}">{{ cleaned_phone }}</a>
+                                        {% endwith %}
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </span>
                             </li>
                         </ul>
                     </div>

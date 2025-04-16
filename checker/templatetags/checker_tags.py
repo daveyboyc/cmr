@@ -126,3 +126,10 @@ def shorten_auction_name(value):
     else:
         # If no match, return the original string (or a truncated version)
         return value # Or perhaps value[:30] + '...' if you want to truncate unknowns
+
+@register.filter(name='strip_prefix')
+def strip_prefix(value, prefix):
+    """Removes a specific prefix from a string if it exists."""
+    if isinstance(value, str) and value.startswith(prefix):
+        return value[len(prefix):]
+    return value
