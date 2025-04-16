@@ -1477,21 +1477,39 @@ def _organize_year_data(company_records, sort_order):
     Organize year data for a company.
     Returns a list of year objects with auctions.
     """
-    # Extract unique years and auctions
+    # --- DEBUG: Log input DataFrame ---
+    logger.debug(f"_organize_year_data: Input DF shape: {company_records.shape}")
+    try:
+        logger.debug(f"_organize_year_data: Input DF head:\n{company_records.head().to_string()}")
+    except Exception: logger.debug("_organize_year_data: Could not log input DF head")
+    # --- END DEBUG ---
+
     year_auctions = {}
-    for _, row in company_records.iterrows():
+    for index, row in company_records.iterrows():
         # Use correct DataFrame column names
-        year = str(row.get("delivery_year", ""))
+        year = str(row.get("Delivery Year", ""))
+        auction = str(row.get("Auction Name", ""))
+        # --- DEBUG: Log extracted values ---
+        logger.debug(f"_organize_year_data: Row {index} - Extracted Year: '{year}', Auction: '{auction}'")
+        # --- END DEBUG ---
         if not year or year == "nan":
+            logger.debug(f"_organize_year_data: Row {index} - Skipping due to invalid year.")
             continue
 
         if year not in year_auctions:
             year_auctions[year] = {}
 
         # Use correct DataFrame column names
-        auction = str(row.get("auction_name", ""))
+        # auction = str(row.get("auction_name", "")) # Already got auction above
         if auction and auction != "nan":
             year_auctions[year][auction] = True
+            logger.debug(f"_organize_year_data: Row {index} - Added Auction '{auction}' for Year '{year}'")
+        else:
+            logger.debug(f"_organize_year_data: Row {index} - Skipping auction due to invalid value.")
+
+    # --- DEBUG: Log intermediate dictionary ---
+    logger.debug(f"_organize_year_data: Built year_auctions dict: {year_auctions}")
+    # --- END DEBUG ---
 
     # Convert to list of year objects
     year_data = []
