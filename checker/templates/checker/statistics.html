@@ -51,10 +51,7 @@
             <div class="stats-card mb-4">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <h2>Top {{ top_companies_data|length }} Companies</h2>
-                    <!-- Sort Controls moved below description -->
-                </div>
-                <!-- Sort Controls -->
-                <div class="d-flex justify-content-end">
+                    <!-- Sort Controls moved inside header div -->
                     <div class="btn-group btn-group-sm" role="group" aria-label="Sort companies by">
                          <a href="?company_sort=count&company_order={% if company_sort == 'count' and company_order == 'desc' %}asc{% else %}desc{% endif %}" 
                            class="btn {% if company_sort == 'count' %}btn-primary{% else %}btn-outline-secondary{% endif %}" style="min-width: 120px;">
@@ -72,40 +69,40 @@
                         </a>
                     </div>
                 </div>
+                {# Removed outer sort controls div #}
                 
-                <div class="list-container mt-2">
-                    {% for company in top_companies_data %}
-                        <div class="mb-3">
-                            <div class="d-flex justify-content-between">
-                                 <a href="{% url 'company_detail' company_id=company.company_id %}" class="text-decoration-none">
-                                    {{ company.company_name|truncatechars:45 }}
-                                </a>
-                                <span class="text-muted">
-                                    {% if company_sort == 'count' %}
-                                        {{ company.count|intcomma }} components
-                                    {% else %}
-                                        {{ company.total_capacity|floatformat:2|intcomma }} MW
-                                    {% endif %}
-                                </span>
-                            </div>
-                            {% if company_sort == 'count' %}
-                            <div class="progress mt-1" style="height: 5px;">
-                                <div class="progress-bar company-bar" role="progressbar" 
-                                     style="width: {{ company.percentage }} %" 
-                                     aria-valuenow="{{ company.percentage }}" 
-                                     aria-valuemin="0" 
-                                     aria-valuemax="100"></div>
-                            </div>
-                            {% endif %}
+                {# Removed list-container wrapper #}
+                {% for company in top_companies_data %}
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between">
+                             <a href="{% url 'company_detail' company_id=company.company_id %}" class="text-decoration-none">
+                                {{ company.company_name|truncatechars:45 }}
+                            </a>
+                            <span class="text-muted">
+                                {% if company_sort == 'count' %}
+                                    {{ company.count|intcomma }} components
+                                {% else %}
+                                    {{ company.total_capacity|floatformat:2|intcomma }} MW
+                                {% endif %}
+                            </span>
                         </div>
-                    {% empty %}
-                        <div class="list-group-item">No company data available.</div>
-                    {% endfor %}
-                    
-                    <div class="text-center mt-3">
-                        {# TODO: Create dedicated view/URL for all companies by count #}
-                        <a href="{% url 'company_capacity_list' %}">Show full list...</a> 
+                        {% if company_sort == 'count' %}
+                        <div class="progress mt-1" style="height: 5px;">
+                            <div class="progress-bar company-bar" role="progressbar" 
+                                 style="width: {{ company.percentage }} %" 
+                                 aria-valuenow="{{ company.percentage }}" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100"></div>
+                        </div>
+                        {% endif %}
                     </div>
+                {% empty %}
+                    <div class="list-group-item">No company data available.</div>
+                {% endfor %}
+                
+                <div class="text-center mt-3">
+                    {# TODO: Create dedicated view/URL for all companies by count #}
+                    <a href="{% url 'company_capacity_list' %}">Show full list...</a> 
                 </div>
             </div> {# --- End Top Companies Section --- #}
         </div> {# --- End Left Column --- #}
@@ -115,7 +112,7 @@
              {# --- Technology Distribution Section --- #}
             <div class="stats-card mb-4">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h2>Top 25 by Technology</h2>
+                    <h2>Top 25 by Tech</h2> {# Renamed header #}
                     <!-- Add Sort Controls for Technology -->
                     <div class="btn-group btn-group-sm" role="group" aria-label="Sort technologies by">
                         <a href="?tech_sort=count&tech_order={% if tech_sort == 'count' and tech_order == 'desc' %}asc{% else %}desc{% endif %}" 
@@ -135,44 +132,43 @@
                     </div>
                 </div>
                 
-                <div class="list-container mt-2">
-                    {% for tech in tech_distribution %}
-                        <div class="mb-3">
-                            <div class="d-flex justify-content-between">
-                                <!-- Link to dedicated technology search results page -->
-                                <a href="{% url 'technology_search' technology_name_encoded=tech.technology|urlencode %}" class="text-decoration-none">
-                                    {{ tech.technology|truncatechars:45 }}
-                                </a>
-                                <span class="text-muted">
-                                    {% if tech_sort == 'count' %}
-                                        {{ tech.count|intcomma }} components 
-                                    {% else %}
-                                        {{ tech.total_capacity|floatformat:2|intcomma }} MW
-                                    {% endif %}
-                                    {% if tech.percentage > 0 %}({{ tech.percentage|floatformat:1 }}%){% endif %} {# Show percentage if available #}
-                                </span>
-                            </div>
-                            <div class="progress mt-1" style="height: 5px;">
-                                {# Note: Progress bar width might need adjustment if sorting by capacity #}
-                                <div class="progress-bar tech-bar" role="progressbar" 
-                                     style="width: {{ tech.percentage }} %" 
-                                     aria-valuenow="{{ tech.percentage }}" 
-                                     aria-valuemin="0" 
-                                     aria-valuemax="100"></div>
-                            </div>
+                {# Removed list-container wrapper #}
+                {% for tech in tech_distribution %}
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between">
+                            <!-- Link to dedicated technology search results page -->
+                            <a href="{% url 'technology_search' technology_name_encoded=tech.technology|urlencode %}" class="text-decoration-none">
+                                {{ tech.technology|truncatechars:45 }}
+                            </a>
+                            <span class="text-muted">
+                                {% if tech_sort == 'count' %}
+                                    {{ tech.count|intcomma }} components 
+                                {% else %}
+                                    {{ tech.total_capacity|floatformat:2|intcomma }} MW
+                                {% endif %}
+                                {% if tech.percentage > 0 %}({{ tech.percentage|floatformat:1 }}%){% endif %} {# Show percentage if available #}
+                            </span>
                         </div>
-                    {% empty %}
-                        <div class="list-group-item">No technology data available.</div>
-                    {% endfor %}
-                    
-                    {# Show Full List Link only if not showing all techs #}
-                    {% if not show_all_techs %}
-                        <div class="text-center mt-3">
-                             {# TODO: Create dedicated view/URL for all technologies #}
-                            <a href="{% url 'technology_list' %}">Show full list...</a>
+                        <div class="progress mt-1" style="height: 5px;">
+                            {# Note: Progress bar width might need adjustment if sorting by capacity #}
+                            <div class="progress-bar tech-bar" role="progressbar" 
+                                 style="width: {{ tech.percentage }} %" 
+                                 aria-valuenow="{{ tech.percentage }}" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100"></div>
                         </div>
-                    {% endif %}
-                </div>
+                    </div>
+                {% empty %}
+                    <div class="list-group-item">No technology data available.</div>
+                {% endfor %}
+                
+                {# Show Full List Link only if not showing all techs #}
+                {% if not show_all_techs %}
+                    <div class="text-center mt-3">
+                         {# TODO: Create dedicated view/URL for all technologies #}
+                        <a href="{% url 'technology_list' %}">Show full list...</a>
+                    </div>
+                {% endif %}
             </div> {# --- End Technology Distribution Section --- #}
         </div> {# --- End Right Column --- #}
     </div> {# --- End Main Content Row --- #}
