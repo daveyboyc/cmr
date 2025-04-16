@@ -46,9 +46,15 @@
     <nav>
         <ul>
             <li><a href="{% url 'statistics' %}">Statistics</a></li>
-            <li><a href="{% url 'search_companies' %}?unified_search=True">Search</a></li>
-            <li><a href="{% url 'admin:index' %}">Admin</a></li>
-             <li><a href="{% url 'logout' %}">Logout</a></li>
+            <li><a href="{% url 'search_companies' %}">Search</a></li>
+            {% if user.is_staff %}
+                <li><a href="{% url 'admin:index' %}">Admin</a></li>
+            {% endif %}
+            {% if user.is_authenticated %}
+                <li><a href="{% url 'logout' %}">Logout</a></li>
+            {% else %}
+                <li><a href="{% url 'admin:login' %}">Login</a></li>
+            {% endif %}
         </ul>
     </nav>
     <hr>
