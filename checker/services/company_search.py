@@ -1092,17 +1092,24 @@ def company_detail(request, company_id):
     sort_field = request.GET.get(
         "sort_by", "location"  # Default sort changed to location
     )
-    sort_order = request.GET.get("sort", "asc")  # Default sort order changed to asc (displays Desc)
+    # Check if sort order was explicitly provided in the request
+    sort_order_provided = "sort" in request.GET 
+    # Get sort order, default to 'asc' initially
+    sort_order = request.GET.get("sort", "asc")  
     page = request.GET.get("page", 1)
     per_page = 50  # Components per page for capacity and all_components views
+
+    # Override default sort order to 'desc' for year_auction view if not provided
+    if view_mode == 'year_auction' and not sort_order_provided:
+        sort_order = 'desc'
 
     # Validate view_mode
     if view_mode not in ["year_auction", "capacity", "all_components"]:
         view_mode = "all_components"
 
-    # Validate sort_order (remains the same)
+    # Validate sort_order (apply default based on view_mode if invalid)
     if sort_order not in ["asc", "desc"]:
-        sort_order = "asc" # Default changed to asc
+        sort_order = 'desc' if view_mode == 'year_auction' else 'asc' 
 
     # Validate sort_field for 'all_components' view
     allowed_sort_fields = [

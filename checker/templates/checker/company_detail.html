@@ -267,18 +267,13 @@
             {# --- End Pagination --- #}
         </div>
 
-    {% else %}
-        {# --- YEAR/AUCTION VIEW (Existing Logic) --- #}
+    {% elif view_mode == 'year_auction' %}
+        {# --- YEAR/AUCTION VIEW --- #}
         <div class="year-auction-view">
-            <p class="text-muted mb-3">Showing components grouped by delivery year and auction.</p>
+            <p class="text-muted">Showing components grouped by delivery year and auction.</p>
             
-            <div class="alert alert-info">
-                <i class="bi bi-info-circle"></i> Click on a year to view details. Click on an auction to load components.
-            </div>
-
-            <!-- Sort toggle for years (Keep original logic if needed, or remove if only desc sort is desired) -->
-             <div class="mb-3 d-flex align-items-center">
-                <!-- Note: Sorting years might be less relevant now, consider removing? -->
+            <div class="mb-3 d-flex justify-content-between align-items-center">
+                {# Sort Years Link #}
                 {% if sort_order == "desc" %}
                     <a href="?view_mode=year_auction&sort=asc" class="sort-toggle">
                         <i class="bi bi-arrow-up-short"></i> Sort Years: Oldest First
@@ -326,93 +321,98 @@
                     <div class="alert alert-warning">No delivery year data found for this company.</div>
                 {% endfor %}
             </div>
+
         </div>
-    {% endif %} {# End view_mode conditional #}
 
-    <!-- API Time -->
-    {% if api_time > 0 %}
-        <p class="text-muted mt-3">API request took {{ api_time|floatformat:2 }} seconds.</p>
+    {% else %}
+        <div class="alert alert-info">Select a view mode above to see company data.</div>
     {% endif %}
-</div>
-{% endblock %}
 
-{% block extra_scripts %}
+    {# --- Debug API Time --- #}
+    {% if api_time is not None %}
+        <p class="text-muted small mt-4">Data fetch time: {{ api_time|floatformat:3 }}s</p>
+    {% endif %}
+
+</div>
+
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        // --- Year/Auction View JS --- 
-        const yearAuctionView = document.querySelector('.year-auction-view');
-        if (yearAuctionView) {
-            // Handle "Collapse All" button
-            const collapseAllBtn = document.getElementById('collapse-all-button');
-            if (collapseAllBtn) {
-                collapseAllBtn.addEventListener('click', function() {
-                    document.querySelectorAll('.year-content.show, .auction-content.show').forEach(content => {
-                        new bootstrap.Collapse(content).hide();
-                        const triggerBtn = document.querySelector(`[data-target="${content.id}"] i.bi`);
-                        if (triggerBtn) triggerBtn.classList.replace('bi-chevron-up', 'bi-chevron-down');
-                    });
+document.addEventListener('DOMContentLoaded', function () {
+    // Expand/Collapse Individual Year Sections
+    document.querySelectorAll('.year-button').forEach(button => {
+        button.addEventListener('click', function () {
+            const targetId = this.getAttribute('data-target');
+            const targetElement = document.getElementById(targetId);
+            if (targetElement) {
+                var bsCollapse = new bootstrap.Collapse(targetElement, {
+                    toggle: true
                 });
             }
+        });
+    });
 
-            // Handle year button clicks
-            document.querySelectorAll('.year-button').forEach(button => {
-                button.addEventListener('click', function() {
-                    const targetId = this.getAttribute('data-target');
-                    const targetContent = document.getElementById(targetId);
-                    const icon = this.querySelector('i.bi');
-                    if (targetContent) {
-                        const bsCollapse = new bootstrap.Collapse(targetContent, { toggle: false });
-                        bsCollapse.toggle();
-                        if (icon) icon.classList.toggle('bi-chevron-down');
-                        if (icon) icon.classList.toggle('bi-chevron-up');
-                    }
+    // Expand/Collapse Individual Auction Sections
+    document.querySelectorAll('.auction-button').forEach(button => {
+        button.addEventListener('click', function () {
+            const targetId = this.getAttribute('data-target');
+            const targetElement = document.getElementById(targetId);
+            if (targetElement) {
+                 var bsCollapse = new bootstrap.Collapse(targetElement, {
+                    toggle: true
                 });
-            });
+                // Trigger HTMX manually if it's the first time opening
+                if (!targetElement.classList.contains('show')) {
+                    htmx.trigger(targetElement, 'intersect');
+                }
+            }
+        });
+    });
 
-            // Handle auction button clicks - also triggers HTMX loading via event
-            document.querySelectorAll('.auction-button').forEach(button => {
-                button.addEventListener('click', function() {
-                    const targetId = this.getAttribute('data-target');
-                    const targetContent = document.getElementById(targetId);
-                    const icon = this.querySelector('i.bi');
-                    if (targetContent) {
-                        const bsCollapse = new bootstrap.Collapse(targetContent, { toggle: false });
-                        bsCollapse.toggle();
-                        if (icon) icon.classList.toggle('bi-chevron-down');
-                        if (icon) icon.classList.toggle('bi-chevron-up');
-                        
-                        // If opening, trigger HTMX load if not already loaded/loading
-                        if (targetContent.classList.contains('show')) {
-                             // Check if content is just the placeholder
-                            const placeholder = targetContent.querySelector('.loading-placeholder');
-                            if (placeholder) {
-                                htmx.trigger(targetContent, 'load-components');
-                            }
-                        }
-                    }
-                });
-            });
-            
-            // Add HTMX error handling
-            document.body.addEventListener('htmx:responseError', function(evt) {
-                const targetElement = evt.detail.elt;
-                console.error('HTMX Error:', evt.detail.xhr.status, evt.detail.xhr.statusText);
-                const auctionData = targetElement.querySelector('.auction-data');
-                if (auctionData) {
-                    auctionData.innerHTML = `<div class="alert alert-danger py-2">Error loading components.</div>`;
+    // Collapse All Button
+    const collapseAllButton = document.getElementById('collapse-all-button');
+    if (collapseAllButton) {
+        collapseAllButton.addEventListener('click', function() {
+            document.querySelectorAll('.year-content.show, .auction-content.show').forEach(element => {
+                var bsCollapse = bootstrap.Collapse.getInstance(element);
+                if (bsCollapse) {
+                    bsCollapse.hide();
                 }
             });
-            
-             // Optional: Use Bootstrap Collapse events for better HTMX trigger timing
-            document.querySelectorAll('.auction-content').forEach(el => {
-                el.addEventListener('shown.bs.collapse', event => {
-                    const placeholder = el.querySelector('.loading-placeholder');
-                    if (placeholder) {
-                        htmx.trigger(el, 'load-components');
-                    }
-                })
-            });
-        } // end if (yearAuctionView)
-    });
+        });
+    }
+});
+
+// HTMX event listener for afterSwap to show loading indicators
+htmx.on('htmx:beforeRequest', function(evt) {
+    const indicator = evt.detail.elt.querySelector('.htmx-indicator');
+    if (indicator) {
+        indicator.style.display = 'inline-block';
+    }
+});
+
+htmx.on('htmx:afterSwap', function(evt) {
+    const indicator = evt.detail.target.querySelector('.htmx-indicator');
+    if (indicator) {
+        indicator.style.display = 'none'; 
+    }
+    // Remove placeholder if content loaded
+    const placeholder = evt.detail.target.querySelector('.loading-placeholder');
+    if (placeholder && evt.detail.xhr.responseText.trim() !== '') {
+        placeholder.remove();
+    }
+});
+
+htmx.on('htmx:responseError', function(evt) {
+    console.error("HTMX Request Error:", evt.detail.error);
+    // Handle error display if needed, e.g., show an error message
+    const indicator = evt.detail.target.querySelector('.htmx-indicator');
+    if (indicator) {
+        indicator.style.display = 'none'; 
+    }
+     const placeholder = evt.detail.target.querySelector('.loading-placeholder');
+    if (placeholder) {
+        placeholder.innerHTML = '<div class="alert alert-danger">Error loading data. Please try again.</div>';
+    }
+});
 </script>
+
 {% endblock %}
