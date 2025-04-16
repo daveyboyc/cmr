@@ -585,7 +585,7 @@ def _perform_company_search(cmu_df, norm_query):
     # --- END DEBUG ---
 
     # Find matches using fuzzywuzzy
-    matches = process.extractBests(
+    matches = process.extract(
         norm_query, company_names, scorer=fuzz.token_set_ratio, score_cutoff=min_score, limit=None
     )
 
