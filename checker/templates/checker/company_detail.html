@@ -215,7 +215,7 @@
                         </div>
                         <div class="d-flex justify-content-start align-items-center mt-1 small text-muted">
                            {% if component.cmu_id %}
-                               <a href="{% url 'search_companies' %}?q={{ component.cmu_id }}" class="text-decoration-none me-2">
+                               <a href="{% url 'search_companies' %}?q={{ component.cmu_id }}&search_type=cmu" class="text-decoration-none me-2">
                                    <span class="badge bg-light text-dark border">CMU: {{ component.cmu_id }}</span>
                                </a>
                            {% endif %}

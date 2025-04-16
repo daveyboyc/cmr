@@ -296,7 +296,7 @@
                                     </a>
                                 {% endif %}
                                 {% if component.cmu_id %}
-                                    <a href="{% url 'search_companies' %}?q={{ component.cmu_id }}" class="text-decoration-none">
+                                    <a href="{% url 'search_companies' %}?q={{ component.cmu_id }}&search_type=cmu" class="text-decoration-none">
                                         <span class="badge bg-secondary me-1">CMU: {{ component.cmu_id }}</span>
                                     </a>
                                 {% endif %}

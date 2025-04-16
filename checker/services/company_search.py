@@ -60,6 +60,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
     api_time = 0
     query = request.GET.get("q", "").strip()
     sort_order = request.GET.get("sort", "desc")
+    search_type = request.GET.get("search_type", "general") # Get search type, default to general
     note = None # Initialize note
 
     # Check cache first (can be removed later if cache is not desired)
@@ -211,17 +212,29 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                 
                 # --- 2. Find Matching Components (Broad & Paginated) ---
                 component_query_filter = Q()
-                component_terms = query.split()
-                for term in component_terms:
-                    if len(term) >= 2:
-                        term_filter = (
-                            Q(location__icontains=term) | Q(description__icontains=term) |
-                            Q(technology__icontains=term) | Q(company_name__icontains=term) |
-                            Q(cmu_id__icontains=term)
-                        )
-                        component_query_filter |= term_filter
-                if query: component_query_filter |= Q(cmu_id__iexact=query)
-
+                
+                # Check if the search is specifically for a CMU ID
+                if search_type == 'cmu' and query:
+                    logger.info(f"CMU ID specific search detected for query: '{query}'. Applying exact match filter.")
+                    component_query_filter = Q(cmu_id__iexact=query)
+                    # Optionally disable company search if only CMU results are needed
+                    # company_links = [] 
+                    # company_link_count = 0
+                elif query: 
+                    # Original broad search logic for general queries
+                    logger.info(f"General search detected for query: '{query}'. Applying broad filters.")
+                    component_terms = query.split()
+                    for term in component_terms:
+                        if len(term) >= 2:
+                            term_filter = (
+                                Q(location__icontains=term) | Q(description__icontains=term) |
+                                Q(technology__icontains=term) | Q(company_name__icontains=term) |
+                                Q(cmu_id__icontains=term) # Keep icontains here for general search
+                            )
+                            component_query_filter |= term_filter
+                    # Add exact CMU ID match as well for general search
+                    component_query_filter |= Q(cmu_id__iexact=query)
+                
                 if not component_query_filter:
                      logger.warning("Component query filter is empty. No components searched.")
                      all_components = Component.objects.none()
