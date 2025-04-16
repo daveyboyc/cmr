@@ -551,7 +551,7 @@ def search_companies_service(request, extra_context=None, return_data_only=False
 def _perform_company_search(cmu_df, norm_query):
     """
     Perform search for companies based on normalized query using RapidFuzz.
-    Returns a DataFrame of matching records.
+    Returns a DataFrame of matching records, sorted by score.
     """
     logger = logging.getLogger(__name__)
     min_score = 80  # Minimum fuzzy match score
@@ -559,15 +559,14 @@ def _perform_company_search(cmu_df, norm_query):
 
     # Prepare choices for fuzzy matching
     company_names = cmu_df["Normalized Full Name"].dropna().unique().tolist()
-    cmu_ids = cmu_df["Normalized CMU ID"].dropna().unique().tolist()
+    # cmu_ids = cmu_df["Normalized CMU ID"].dropna().unique().tolist() # Not searching CMU IDs here anymore
 
-    # --- DEBUG: Check if expected name exists ---
+    # --- DEBUG: Check if expected name exists --- 
     expected_norm_name = "gridbeyondlimited" # For exact match debugging
     if expected_norm_name in company_names:
         logger.warning(f"DEBUG: Expected normalized name '{expected_norm_name}' FOUND in company_names list.")
     else:
         logger.warning(f"DEBUG: Expected normalized name '{expected_norm_name}' NOT FOUND in company_names list.")
-        # Log a few similar names if not found
         try:
             similar_names = process.extract(expected_norm_name, company_names, limit=5)
             logger.warning(f"DEBUG: Closest names found in list: {similar_names}")
@@ -575,27 +574,28 @@ def _perform_company_search(cmu_df, norm_query):
             logger.error(f"DEBUG: Error finding similar names: {e_sim}")
     # --- END DEBUG ---
 
-    # --- DEBUG: Log normalized query ---
+    # --- DEBUG: Log normalized query --- 
     logger.debug(f"Normalized search query: '{norm_query}'")
     # --- END DEBUG ---
 
-    # --- DEBUG: Log sample of company names for fuzzy matching ---
+    # --- DEBUG: Log sample of company names for fuzzy matching --- 
     sample_size = min(10, len(company_names))
     logger.debug(f"Performing fuzzy match against {len(company_names)} unique normalized company names. Sample: {company_names[:sample_size]}")
     # --- END DEBUG ---
 
-    # Find matches using fuzzywuzzy
-    matches = process.extract(
-        norm_query, company_names, scorer=fuzz.token_set_ratio, score_cutoff=min_score, limit=None
+    # Find matches using rapidfuzz process.extract
+    # It returns a list of tuples: (name, score, index)
+    matches_list = process.extract(
+        norm_query, company_names, scorer=scorer, score_cutoff=min_score, limit=None
     )
 
-    # --- DEBUG: Log raw fuzzy matches and scores ---
-    logger.debug(f"Fuzzy matches found (score >= {min_score}): {matches}")
+    # --- DEBUG: Log raw fuzzy matches and scores --- 
+    logger.debug(f"Fuzzy matches list found (score >= {min_score}): {matches_list}")
     # --- END DEBUG ---
 
-    if not matches:
+    if not matches_list:
         logger.info(f"No companies found for query '{norm_query}' with score >= {min_score}")
-        # --- DEBUG: Log score for the specific expected match if it was missed ---
+        # --- DEBUG: Log score for the specific expected match if it was missed --- 
         if expected_norm_name == norm_query and expected_norm_name in company_names:
             try:
                 exact_score = fuzz.token_set_ratio(norm_query, expected_norm_name)
@@ -605,28 +605,29 @@ def _perform_company_search(cmu_df, norm_query):
         # --- END DEBUG ---
         return pd.DataFrame(columns=cmu_df.columns)
 
-    # Filter the original DataFrame based on the matched normalized names/ids
-    matched_norm_names = {k for k, v in matches.items() if k in company_names}
-    matched_norm_cmu_ids = {k for k, v in matches.items() if k in cmu_ids}
+    # --- Build dictionary and filter DataFrame correctly --- 
+    # Create a dictionary {normalized_name: score} from the list
+    matches_with_scores = {match[0]: match[1] for match in matches_list}
+    # Get the set of matched normalized names
+    matched_norm_names = set(matches_with_scores.keys())
     
-    company_matches_df = cmu_df[cmu_df["Normalized Full Name"].isin(matched_norm_names)]
-    cmu_id_matches_df = cmu_df[cmu_df["Normalized CMU ID"].isin(matched_norm_cmu_ids)]
+    # Filter the original DataFrame based *only* on the matched normalized names
+    potential_matches_df = cmu_df[cmu_df["Normalized Full Name"].isin(matched_norm_names)]
+    
+    # Drop duplicates based on the actual company name (Full Name)
+    potential_matches_df = potential_matches_df.drop_duplicates(subset=["Full Name"])
 
-    # Combine potential matches and drop duplicates based on Full Name
-    potential_matches_df = pd.concat([company_matches_df, cmu_id_matches_df]).drop_duplicates(
-        subset=["Full Name"]
-    )
-
-    # Add score to the potential matches DataFrame
+    # Add score to the potential matches DataFrame using the dictionary
     def get_score(row):
-        # Use only the score associated with the Normalized Full Name for sorting
-        norm_name_score = matches.get(row["Normalized Full Name"], 0)
-        # norm_cmu_id_score = matches.get(row["Normalized CMU ID"], 0)
-        # Return the higher score associated with this row (either name or ID match)
-        # return max(norm_name_score, norm_cmu_id_score)
-        return norm_name_score # Return only the name score
+        return matches_with_scores.get(row["Normalized Full Name"], 0)
 
-    potential_matches_df['match_score'] = potential_matches_df.apply(get_score, axis=1)
+    # Apply scoring function - handle potential empty DataFrame after drop_duplicates
+    if potential_matches_df.empty:
+        logger.warning("Potential matches DataFrame is empty after filtering and dropping duplicates.")
+        return potential_matches_df # Return empty DataFrame
+    else:
+        potential_matches_df = potential_matches_df.copy() # Avoid SettingWithCopyWarning
+        potential_matches_df['match_score'] = potential_matches_df.apply(get_score, axis=1)
 
     # Sort the DataFrame by score (descending)
     final_sorted_df = potential_matches_df.sort_values(by='match_score', ascending=False).reset_index(drop=True)
