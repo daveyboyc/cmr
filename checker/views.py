@@ -751,9 +751,9 @@ def statistics_view(request):
     import logging # Add logging
     logger = logging.getLogger(__name__)
     
-    # Increase limits for existing lists
-    COMPANY_LIMIT = 50 # Increased from 20
-    TECH_LIMIT = 25    # Increased from 10
+    # Adjust limits
+    COMPANY_LIMIT = 25 # Changed from 50
+    TECH_LIMIT = 25    # Stays at 25
     DERATED_LIMIT = 20 # Limit for the new list
     
     # --- Determine Company Sort Method --- 

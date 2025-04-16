@@ -43,10 +43,11 @@
         </div>
     </div>
 
+    {# --- Main Content Row --- #}
     <div class="row">
-        <!-- Left Column: Companies & Technologies -->
+        {# --- Left Column --- #}
         <div class="col-lg-6 mb-4">
-            <!-- Top Companies Section -->
+            {# --- Top Companies Section --- #}
             <div class="stats-card mb-4">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <h2>Top {{ top_companies_data|length }} Companies</h2>
@@ -77,7 +78,8 @@
                 </p>
                 
                 {% for company in top_companies_data %}
-                    <div class="mb-3">
+                    {# ... existing company item display ... #}
+                     <div class="mb-3">
                         <div class="d-flex justify-content-between">
                              <a href="{% url 'company_detail' company_id=company.company_id %}" class="text-decoration-none">
                                 {{ company.company_name|truncatechars:45 }}
@@ -104,20 +106,23 @@
                     <div class="list-group-item">No company data available.</div>
                 {% endfor %}
                 
-                <!-- Show Full List Link (only when sorted by capacity) -->
-                {% if company_sort == 'capacity' and top_companies_data %}
-                    <div class="text-center mt-3">
-                        <a href="{% url 'company_capacity_list' %}">Show full list...</a>
-                    </div>
-                {% endif %}
-            </div>
+                {# Show Full List Link - Use capacity link for now, needs dedicated count link later #}
+                <div class="text-center mt-3">
+                    {# TODO: Create dedicated view/URL for all companies by count #}
+                    <a href="{% url 'company_capacity_list' %}">Show full list...</a> 
+                </div>
+            </div> {# --- End Top Companies Section --- #}
+        </div> {# --- End Left Column --- #}
 
-            <!-- Technology Distribution Section -->
+        {# --- Right Column --- #}
+        <div class="col-lg-6 mb-4">
+             {# --- Technology Distribution Section --- #}
             <div class="stats-card mb-4">
                 <h2>Top {{ tech_distribution|length }} Technologies by Components</h2>
                 <p class="text-muted">Distribution of components by technology type</p>
                 
                 {% for tech in tech_distribution %}
+                    {# ... existing tech item display ... #}
                     <div class="mb-3">
                         <div class="d-flex justify-content-between">
                             <!-- Link to dedicated technology search results page -->
@@ -137,17 +142,25 @@
                 {% empty %}
                     <div class="list-group-item">No technology data available.</div>
                 {% endfor %}
-            </div>
-        </div>
+                 {# Show Full List Link #}
+                <div class="text-center mt-3">
+                     {# TODO: Create dedicated view/URL for all technologies #}
+                    <a href="#">Show full list...</a> {# Placeholder link #}
+                </div>
+            </div> {# --- End Technology Distribution Section --- #}
+        </div> {# --- End Right Column --- #}
+    </div> {# --- End Main Content Row --- #}
 
-        <!-- Right Column: Delivery Years & Top Capacity -->
-        <div class="col-lg-6">
-            <!-- Delivery Year Distribution Section -->
+    {# --- Lower Content Row --- #}
+    <div class="row">
+        <div class="col-lg-6 mb-4">
+             {# --- Delivery Year Distribution Section --- #}
             <div class="stats-card mb-4">
                 <h2>Delivery Year Distribution</h2>
                 <p class="text-muted">Distribution of components by delivery year</p>
                 
                 {% for year in year_distribution %}
+                    {# ... existing year item display ... #}
                     <div class="mb-3">
                         <div class="d-flex justify-content-between">
                             <span>{{ year.delivery_year }}</span>
@@ -164,13 +177,15 @@
                 {% empty %}
                     <div class="list-group-item">No delivery year data available.</div>
                 {% endfor %}
-            </div>
-
-            <!-- Top Components by De-rated Capacity -->
-            <div class="card mb-4 stats-card">
+            </div> {# --- End Delivery Year Distribution Section --- #}
+        </div>
+        <div class="col-lg-6 mb-4">
+            {# --- Top Components by De-rated Capacity --- #}
+            <div class="card stats-card">
                 <div class="card-header">Top {{ top_derated_components|length }} Components by De-rated Capacity (MW)</div>
                 <ul class="list-group list-group-flush">
                     {% for comp in top_derated_components %}
+                        {# ... existing derated component item display ... #}
                         <li class="list-group-item">
                             <div class="d-flex justify-content-between align-items-center mb-1">
                                 <!-- Link to component detail page -->
@@ -187,15 +202,15 @@
                         <li class="list-group-item">No de-rated capacity data available or processed.</li>
                     {% endfor %}
                 </ul>
-                <!-- Add Show More link -->
+                {# Show More link #}
                 {% if top_derated_components %}
                 <div class="card-footer text-center">
                     <a href="{% url 'derated_capacity_list' %}">Show full list...</a>
                 </div>
                 {% endif %}
-            </div>
+            </div> {# --- End Top Components by De-rated Capacity --- #}
         </div>
-    </div>
+    </div> {# --- End Lower Content Row --- #}
 
 </div>
 {% endblock %}
