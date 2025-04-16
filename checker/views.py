@@ -903,6 +903,52 @@ def statistics_view(request):
         else:
              year['percentage'] = 0
     
+    # --- Prepare Data for Charts --- #
+    # Top Companies (limit to e.g., 10 for readability in chart, plus 'Other')
+    CHART_LIMIT = 10
+    
+    # Company Chart Data (by Count)
+    company_count_chart_data = Component.objects.exclude(company_name__isnull=True).exclude(company_name='') \
+                                     .values('company_name') \
+                                     .annotate(count=Count('id')) \
+                                     .order_by('-count')
+    company_count_chart_labels = [c['company_name'] for c in company_count_chart_data[:CHART_LIMIT]]
+    company_count_chart_values = [c['count'] for c in company_count_chart_data[:CHART_LIMIT]]
+    # Add 'Other' category if needed
+    if company_count_chart_data.count() > CHART_LIMIT:
+        other_count = sum(c['count'] for c in company_count_chart_data[CHART_LIMIT:])
+        company_count_chart_labels.append('Other')
+        company_count_chart_values.append(other_count)
+
+    # Company Chart Data (by Capacity)
+    company_capacity_chart_data = Component.objects.exclude(company_name__isnull=True).exclude(company_name='') \
+                                        .exclude(derated_capacity_mw__isnull=True) \
+                                        .values('company_name') \
+                                        .annotate(total_capacity=Sum('derated_capacity_mw')) \
+                                        .order_by('-total_capacity')
+    company_capacity_chart_labels = [c['company_name'] for c in company_capacity_chart_data[:CHART_LIMIT]]
+    company_capacity_chart_values = [float(c['total_capacity']) for c in company_capacity_chart_data[:CHART_LIMIT]] # Ensure float
+    # Add 'Other' category if needed
+    if company_capacity_chart_data.count() > CHART_LIMIT:
+        other_capacity = sum(float(c['total_capacity']) for c in company_capacity_chart_data[CHART_LIMIT:])
+        company_capacity_chart_labels.append('Other')
+        company_capacity_chart_values.append(other_capacity)
+
+    # Technology Chart Data (by Count)
+    tech_chart_data = Component.objects.exclude(technology__isnull=True).exclude(technology='') \
+                          .values('technology') \
+                          .annotate(count=Count('id')) \
+                          .order_by('-count')
+    tech_chart_labels = [t['technology'] for t in tech_chart_data[:CHART_LIMIT]]
+    tech_chart_values = [t['count'] for t in tech_chart_data[:CHART_LIMIT]]
+    # Add 'Other' category if needed
+    if tech_chart_data.count() > CHART_LIMIT:
+        other_tech_count = sum(t['count'] for t in tech_chart_data[CHART_LIMIT:])
+        tech_chart_labels.append('Other')
+        tech_chart_values.append(other_tech_count)
+
+    # --- End Chart Data Preparation ---
+
     context = {
         'top_companies_data': top_companies_data, # Use the fetched data
         'company_sort': company_sort, # Pass sort method to template
@@ -916,6 +962,13 @@ def statistics_view(request):
         'total_cmus': total_cmus,
         'total_companies': total_companies,
         'show_all_techs': show_all_techs, # Add flag to context
+        # Chart Data
+        'company_count_chart_labels': company_count_chart_labels,
+        'company_count_chart_values': company_count_chart_values,
+        'company_capacity_chart_labels': company_capacity_chart_labels,
+        'company_capacity_chart_values': company_capacity_chart_values,
+        'tech_chart_labels': tech_chart_labels,
+        'tech_chart_values': tech_chart_values,
     }
     
     return render(request, "checker/statistics.html", context)

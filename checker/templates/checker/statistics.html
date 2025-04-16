@@ -43,7 +43,29 @@
         </div>
     </div>
 
-    {# --- Main Content Row --- #}
+    {# --- Pie Charts Row --- #}
+    <div class="row mb-5 text-center">
+        <div class="col-md-6">
+            <div class="chart-container mb-3" style="position: relative; height:40vh; width:80vw; max-width: 400px; margin: auto;">
+                <h4 class="mb-2">Company Distribution</h4>
+                <div class="btn-group btn-group-sm mb-2" role="group">
+                    <button type="button" class="btn btn-outline-primary active chart-toggle-btn" data-chart="companyPieChart" data-type="count">By Count</button>
+                    <button type="button" class="btn btn-outline-primary chart-toggle-btn" data-chart="companyPieChart" data-type="capacity">By Capacity</button>
+                </div>
+                <canvas id="companyPieChart"></canvas>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="chart-container mb-3" style="position: relative; height:40vh; width:80vw; max-width: 400px; margin: auto;">
+                <h4 class="mb-2">Technology Distribution</h4>
+                 {# No toggle needed for tech chart #}
+                <canvas id="techPieChart"></canvas>
+            </div>
+        </div>
+    </div>
+    {# --- End Pie Charts Row --- #}
+
+    {# --- Main Content Row (Top 25 Lists) --- #}
     <div class="row">
         {# --- Left Column --- #}
         <div class="col-lg-6 mb-4">
@@ -228,4 +250,146 @@
     </div> {# --- End Delivery Year Distribution Section --- #}
 
 </div>
+
+{# Embed chart data as JSON #}
+{{ company_count_chart_labels|json_script:"company-count-labels" }}
+{{ company_count_chart_values|json_script:"company-count-data" }}
+{{ company_capacity_chart_labels|json_script:"company-capacity-labels" }}
+{{ company_capacity_chart_values|json_script:"company-capacity-data" }}
+{{ tech_chart_labels|json_script:"tech-labels" }}
+{{ tech_chart_values|json_script:"tech-data" }}
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Function to generate random colors for charts
+        const getRandomColor = () => {
+            const letters = '0123456789ABCDEF';
+            let color = '#';
+            for (let i = 0; i < 6; i++) {
+                color += letters[Math.floor(Math.random() * 16)];
+            }
+            return color;
+        };
+
+        // Helper to parse JSON script tags
+        const getJsonData = (id) => JSON.parse(document.getElementById(id).textContent);
+
+        // --- Chart Data --- 
+        const companyCountLabels = getJsonData('company-count-labels');
+        const companyCountData = getJsonData('company-count-data');
+        const companyCapacityLabels = getJsonData('company-capacity-labels');
+        const companyCapacityData = getJsonData('company-capacity-data');
+        const techLabels = getJsonData('tech-labels');
+        const techData = getJsonData('tech-data');
+        
+        // Generate Colors
+        const companyCountColors = companyCountLabels.map(() => getRandomColor());
+        const companyCapacityColors = companyCapacityLabels.map(() => getRandomColor());
+        const techColors = techLabels.map(() => getRandomColor());
+
+        // --- Chart Configs --- 
+        const commonOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        boxWidth: 12,
+                        padding: 15
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.parsed !== null) {
+                                // Attempt to format number nicely
+                                try {
+                                     label += new Intl.NumberFormat('en-GB', { maximumFractionDigits: 2 }).format(context.parsed);
+                                } catch (e) {
+                                     label += context.parsed; // Fallback
+                                }
+                            }
+                            // Add percentage for count-based charts
+                            if (context.dataset.label === 'Component Count' || context.dataset.label === 'Tech Distribution') {
+                                const total = context.dataset.data.reduce((acc, value) => acc + value, 0);
+                                const percentage = total > 0 ? ((context.parsed / total) * 100).toFixed(1) : 0;
+                                label += ` (${percentage}%)`;
+                            }
+                            return label;
+                        }
+                    }
+                }
+            }
+        };
+
+        const companyChartConfig = {
+            type: 'pie',
+            data: {
+                labels: companyCountLabels,
+                datasets: [{
+                    label: 'Component Count',
+                    data: companyCountData,
+                    backgroundColor: companyCountColors,
+                    hoverOffset: 4
+                }]
+            },
+            options: commonOptions
+        };
+
+        const techChartConfig = {
+            type: 'pie',
+            data: {
+                labels: techLabels,
+                datasets: [{
+                    label: 'Tech Distribution',
+                    data: techData,
+                    backgroundColor: techColors,
+                    hoverOffset: 4
+                }]
+            },
+            options: commonOptions
+        };
+
+        // --- Render Charts --- 
+        const companyCtx = document.getElementById('companyPieChart').getContext('2d');
+        const companyChart = new Chart(companyCtx, companyChartConfig);
+
+        const techCtx = document.getElementById('techPieChart').getContext('2d');
+        const techChart = new Chart(techCtx, techChartConfig);
+
+        // --- Company Chart Toggle Logic --- 
+        document.querySelectorAll('.chart-toggle-btn[data-chart="companyPieChart"]').forEach(button => {
+            button.addEventListener('click', function() {
+                const dataType = this.getAttribute('data-type');
+                
+                // Update button active state
+                document.querySelectorAll('.chart-toggle-btn[data-chart="companyPieChart"]').forEach(btn => btn.classList.remove('active'));
+                this.classList.add('active');
+
+                // Update chart data
+                if (dataType === 'count') {
+                    companyChart.data.labels = companyCountLabels;
+                    companyChart.data.datasets[0].data = companyCountData;
+                    companyChart.data.datasets[0].backgroundColor = companyCountColors;
+                    companyChart.data.datasets[0].label = 'Component Count';
+                } else { // dataType === 'capacity'
+                    companyChart.data.labels = companyCapacityLabels;
+                    companyChart.data.datasets[0].data = companyCapacityData;
+                    companyChart.data.datasets[0].backgroundColor = companyCapacityColors;
+                    companyChart.data.datasets[0].label = 'Total Capacity (MW)';
+                }
+                companyChart.update();
+            });
+        });
+    });
+</script>
 {% endblock %}
