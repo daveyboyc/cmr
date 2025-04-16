@@ -32,6 +32,12 @@ from .data_access import (
 
 logger = logging.getLogger(__name__)
 
+# --- Moved imports here ---
+from django.db.models import Q, Count, Value
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+from ..models import Component
+from ..utils import normalize # Ensure utils are imported too
+# --- End moved imports ---
 
 def search_companies_service(request, extra_context=None, return_data_only=False):
     """Service function for searching companies with improved caching and performance"""
