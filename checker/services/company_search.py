@@ -35,6 +35,14 @@ logger = logging.getLogger(__name__)
 
 def search_companies_service(request, extra_context=None, return_data_only=False):
     """Service function for searching companies with improved caching and performance"""
+    # --- DEBUG: Force cache clear ---
+    try:
+        cache.delete("cmu_df")
+        logger.warning("DEBUG: Cleared 'cmu_df' cache key.")
+    except Exception as e:
+        logger.error(f"DEBUG: Failed to clear 'cmu_df' cache: {e}")
+    # --- END DEBUG ---
+    
     # Imports at the top
     import logging
 
@@ -216,15 +224,20 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                     if cmu_df is not None:
                         # Use _perform_company_search to get filtered & sorted DataFrame
                         matching_companies_df = _perform_company_search(cmu_df, normalize(query))
-                        
+                        logger.warning(f"DEBUG: _perform_company_search returned DF shape: {matching_companies_df.shape}")
+                        try:
+                            logger.warning(f"DEBUG: matching_companies_df head:\n{matching_companies_df.head().to_string()}")
+                        except Exception: logger.warning("DEBUG: Could not log matching_companies_df head")
+
                         # Limit the number of companies passed to the link builder for performance
                         limit_companies = 20 # Show top N matching companies
                         unique_top_companies = list(matching_companies_df["Full Name"].unique())[:limit_companies]
-                        
+                        logger.warning(f"DEBUG: unique_top_companies (limit {limit_companies}): {unique_top_companies}")
+
                         logger.info(f"Found {len(unique_top_companies)} high-scoring companies (limit {limit_companies}). Building links...")
                         # Use _build_search_results (requires DataFrame)
                         # Ensure _build_search_results uses the passed unique_companies list
-                        results_dict = _build_search_results(
+                        results_dict, render_time_links_ = _build_search_results(
                             cmu_df, 
                             unique_top_companies, 
                             sort_order, 
@@ -234,6 +247,10 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                         )
                         company_links = results_dict.get(query, [])
                         company_link_count = len(company_links)
+                        # Add render time if needed: render_time_links += render_time_links_
+                        logger.warning(f"DEBUG: _build_search_results returned company_links count: {company_link_count}")
+                        # logger.warning(f"DEBUG: company_links content (first 500 chars): {str(company_links)[:500]}") # Log content carefully
+
                     else:
                         logger.error("CMU DataFrame not available for company search.")
                 except Exception as comp_e:
