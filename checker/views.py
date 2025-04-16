@@ -1643,7 +1643,7 @@ def technology_list_view(request):
     """Displays a full, paginated list of technologies ranked by component count."""
     from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
     from django.db.models import Count
-    from ..models import Component
+    from .models import Component
     import logging
     import time
 
