@@ -1489,10 +1489,10 @@ def _organize_year_data(company_records, sort_order):
 
     year_auctions = {}
     for index, row in company_records.iterrows():
-        # <<<< CHANGE: Use lowercase field names consistent with DataFrame creation
-        year = str(row.get("delivery_year", ""))
-        auction = str(row.get("auction_name", ""))
-        # <<<< END CHANGE
+        # --- FIX: Handle both Title Case and lowercase field names ---
+        year = str(row.get("Delivery Year", row.get("delivery_year", ""))) # Check both
+        auction = str(row.get("Auction Name", row.get("auction_name", ""))) # Check both
+        # --- END FIX ---
         # --- DEBUG: Log extracted values ---
         logger.debug(f"_organize_year_data: Row {index} - Extracted Year: '{year}', Auction: '{auction}'")
         # --- END DEBUG ---
