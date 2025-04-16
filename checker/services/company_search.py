@@ -101,63 +101,77 @@ def search_companies_service(request, extra_context=None, return_data_only=False
             search_method = "Hybrid DB Search"
             try:
                 # --- 1. Find Matching Companies --- 
-                logger.info("Step 1: Performing company search (DB icontains + Fuzzy Sort)...")
+                logger.info("Step 1: Performing company search (DB startswith/icontains + Fuzzy Sort)...")
                 company_links = []
                 company_link_count = 0
                 render_time_links = 0 
                 unique_top_companies = [] 
+                candidate_companies = [] # Initialize candidate list
 
                 try:
-                    # --- DB Query for Candidates ---
+                    # --- DB Query for Candidates --- 
                     db_limit = 50 # Limit initial candidates from DB
+                    
+                    # Try istartswith first (faster)
+                    logger.debug(f"Attempting DB istartswith query for '{query}'")
                     candidate_companies_qs = Component.objects.filter(
-                        company_name__icontains=query
+                        company_name__istartswith=query
                     ).values_list('company_name', flat=True).distinct()[:db_limit]
                     candidate_companies = list(candidate_companies_qs)
-                    logger.info(f"Found {len(candidate_companies)} distinct candidate companies via DB icontains (limit {db_limit}).")
+                    logger.info(f"DB istartswith found {len(candidate_companies)} candidates.")
 
+                    # If startswith yields no results, fallback to icontains
+                    if not candidate_companies:
+                        logger.debug(f"No results via istartswith, falling back to icontains for '{query}'")
+                        candidate_companies_qs = Component.objects.filter(
+                            company_name__icontains=query
+                        ).values_list('company_name', flat=True).distinct()[:db_limit]
+                        candidate_companies = list(candidate_companies_qs)
+                        logger.info(f"DB icontains found {len(candidate_companies)} candidates.")
+                    
+                    # --- Score, Sort, and Limit the Candidates (only if candidates found) --- 
                     if candidate_companies:
-                        # --- Score & Sort Candidates ---
                         scorer = fuzz.token_set_ratio
-                        scored_candidates = []
+                        name_score_list = []
                         for name in candidate_companies:
                             if not name: continue
-                            score = scorer(query, name) 
-                            # Optional: Add a small boost for exact matches if needed later?
-                            # if normalize(query) == normalize(name): score = 100 
-                            scored_candidates.append((name, score))
-                        
-                        # Sort by score descending
-                        scored_candidates.sort(key=lambda item: item[1], reverse=True)
-                        logger.debug(f"Scored candidates (Top 10): {scored_candidates[:10]}")
+                            try:
+                                score = scorer(query, name)
+                                name_score_list.append((name, score))
+                            except Exception as score_e:
+                                logger.error(f"Error scoring company name '{name}': {score_e}")
+                                name_score_list.append((name, 0))
 
-                        # --- Limit & Prepare for Link Building ---
-                        limit_display = 20 # How many to actually build links for
-                        unique_top_companies = [name for name, score in scored_candidates][:limit_display]
-                        logger.warning(f"DEBUG: Top unique companies after scoring/sorting (limit {limit_display}): {unique_top_companies}")
+                        name_score_list.sort(key=lambda item: item[1], reverse=True)
+                        logger.debug(f"Scored candidates (Top 10): {name_score_list[:10]}...")
 
-                        # --- Build links --- 
+                        display_limit = 20 # Limit final display
+                        unique_top_companies = [name for name, score in name_score_list[:display_limit]]
+                        logger.info(f"Processing top {len(unique_top_companies)} companies after sorting.")
+
+                        # --- Build links for the top N --- 
                         if unique_top_companies:
-                            # Need the cmu_df for _build_search_results
-                            cmu_df, df_api_time = get_cmu_dataframe()
-                            api_time += df_api_time
-                            if cmu_df is not None:
-                                logger.info(f"Building links for {len(unique_top_companies)} companies...")
-                                results_dict, render_time_links_ = _build_search_results(
-                                    cmu_df, unique_top_companies, sort_order, query, cmu_limit=3, add_debug_info=True
-                                )
-                                company_links = results_dict.get(query, [])
-                                company_link_count = len(company_links)
-                                render_time_links += render_time_links_
-                                logger.warning(f"DEBUG: _build_search_results returned company_links count: {company_link_count}")
-                            else:
-                                logger.error("CMU DataFrame not available for building company links.")
-                                company_links = [] # Reset if df fails
-                                company_link_count = 0
-                        else:
-                            logger.warning("No companies remained after scoring/sorting.")
+                            try:
+                                cmu_df, df_api_time = get_cmu_dataframe()
+                                api_time += df_api_time
+                                if cmu_df is not None:
+                                    results_dict, render_time_links_ = _build_search_results(
+                                        cmu_df, unique_top_companies, sort_order, query, cmu_limit=3, add_debug_info=True
+                                    )
+                                    company_links = results_dict.get(query, [])
+                                    company_link_count = len(company_links)
+                                    render_time_links += render_time_links_
+                                    logger.warning(f"DEBUG: _build_search_results returned company_links count: {company_link_count}")
+                                else:
+                                    logger.error("CMU DataFrame not available for building links.")
+                                    company_links = []
+                                    company_link_count = 0
+                            except Exception as build_e:
+                                 logger.error(f"Error building company links: {build_e}")
+                                 company_links = []
+                                 company_link_count = 0
                     else:
-                        logger.warning("No candidate companies found via DB icontains.")
+                        logger.warning("No candidate companies found via DB startswith or icontains.")
 
                 except Exception as comp_e:
                     logger.error(f"Error during company search step: {comp_e}")
@@ -165,8 +179,8 @@ def search_companies_service(request, extra_context=None, return_data_only=False
                     company_link_count = 0
                     render_time_links = 0
 
-                logger.info(f"Step 1 complete. Found {company_link_count} company links.")
-                # --- END OF STEP 1 ---
+                logger.warning(f"Company links final count: {company_link_count}") # Log final count
+                # --- END OF STEP 1 (Company Links) ---
                 
                 # --- 2. Find Matching Components (Broad & Paginated) ---
                 component_query_filter = Q()
@@ -297,7 +311,7 @@ def _perform_company_search(cmu_df, query):
     """
     logger = logging.getLogger(__name__)
     min_score = 70
-    scorer = fuzz.token_set_ratio
+    scorer = fuzz.partial_token_set_ratio
     norm_query = normalize(query) # Normalize the incoming query
 
     # Prepare choices for fuzzy matching
