@@ -572,10 +572,12 @@ def _perform_company_search(cmu_df, norm_query):
 
     # Add score to the potential matches DataFrame
     def get_score(row):
+        # Use only the score associated with the Normalized Full Name for sorting
         norm_name_score = matches_with_scores.get(row["Normalized Full Name"], 0)
-        norm_cmu_id_score = matches_with_scores.get(row["Normalized CMU ID"], 0)
+        # norm_cmu_id_score = matches_with_scores.get(row["Normalized CMU ID"], 0)
         # Return the higher score associated with this row (either name or ID match)
-        return max(norm_name_score, norm_cmu_id_score)
+        # return max(norm_name_score, norm_cmu_id_score)
+        return norm_name_score # Return only the name score
 
     potential_matches_df['match_score'] = potential_matches_df.apply(get_score, axis=1)
 
