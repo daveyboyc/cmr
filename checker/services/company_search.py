@@ -1088,7 +1088,7 @@ def company_detail(request, company_id):
     logger.info(f"Company detail page requested for company_id: {company_id}")
 
     # Determine view mode and sort order from GET parameters
-    view_mode = request.GET.get("view_mode", "year_auction")
+    view_mode = request.GET.get("view_mode", "all_components")
     sort_field = request.GET.get(
         "sort_by", "location"  # Default sort changed to location
     )
@@ -1098,7 +1098,7 @@ def company_detail(request, company_id):
 
     # Validate view_mode
     if view_mode not in ["year_auction", "capacity", "all_components"]:
-        view_mode = "year_auction"
+        view_mode = "all_components"
 
     # Validate sort_order (remains the same)
     if sort_order not in ["asc", "desc"]:
