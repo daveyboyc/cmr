@@ -947,6 +947,20 @@ def statistics_view(request):
         tech_chart_labels.append('Other')
         tech_chart_values.append(other_tech_count)
 
+    # Technology Chart Data (by Capacity)
+    tech_capacity_chart_data = Component.objects.exclude(technology__isnull=True).exclude(technology='') \
+                                   .exclude(derated_capacity_mw__isnull=True) \
+                                   .values('technology') \
+                                   .annotate(total_capacity=Sum('derated_capacity_mw')) \
+                                   .order_by('-total_capacity')
+    tech_capacity_chart_labels = [t['technology'] for t in tech_capacity_chart_data[:CHART_LIMIT]]
+    tech_capacity_chart_values = [float(t['total_capacity']) for t in tech_capacity_chart_data[:CHART_LIMIT]] # Ensure float
+    # Add 'Other' category if needed
+    if tech_capacity_chart_data.count() > CHART_LIMIT:
+        other_tech_capacity = sum(float(t['total_capacity']) for t in tech_capacity_chart_data[CHART_LIMIT:])
+        tech_capacity_chart_labels.append('Other')
+        tech_capacity_chart_values.append(other_tech_capacity)
+
     # --- End Chart Data Preparation ---
 
     context = {
@@ -969,6 +983,9 @@ def statistics_view(request):
         'company_capacity_chart_values': company_capacity_chart_values,
         'tech_chart_labels': tech_chart_labels,
         'tech_chart_values': tech_chart_values,
+        # New Tech Capacity Chart Data
+        'tech_capacity_chart_labels': tech_capacity_chart_labels,
+        'tech_capacity_chart_values': tech_capacity_chart_values,
     }
     
     return render(request, "checker/statistics.html", context)

@@ -58,7 +58,10 @@
         <div class="col-md-6">
             <div class="chart-container mb-3" style="position: relative; height:40vh; width:80vw; max-width: 400px; margin: auto;">
                 <h4 class="mb-2">Technology Distribution</h4>
-                 {# No toggle needed for tech chart #}
+                <div class="btn-group btn-group-sm mb-2" role="group">
+                    <button type="button" class="btn btn-outline-primary active chart-toggle-btn" data-chart="techPieChart" data-type="count">By Count</button>
+                    <button type="button" class="btn btn-outline-primary chart-toggle-btn" data-chart="techPieChart" data-type="capacity">By Capacity</button>
+                </div>
                 <canvas id="techPieChart"></canvas>
             </div>
         </div>
@@ -258,6 +261,9 @@
 {{ company_capacity_chart_values|json_script:"company-capacity-data" }}
 {{ tech_chart_labels|json_script:"tech-labels" }}
 {{ tech_chart_values|json_script:"tech-data" }}
+{# Add new json_script tags for tech capacity data #}
+{{ tech_capacity_chart_labels|json_script:"tech-capacity-labels" }}
+{{ tech_capacity_chart_values|json_script:"tech-capacity-data" }}
 
 {% endblock %}
 
@@ -285,11 +291,14 @@
         const companyCapacityData = getJsonData('company-capacity-data');
         const techLabels = getJsonData('tech-labels');
         const techData = getJsonData('tech-data');
+        const techCapacityLabels = getJsonData('tech-capacity-labels');
+        const techCapacityData = getJsonData('tech-capacity-data');
         
         // Generate Colors
         const companyCountColors = companyCountLabels.map(() => getRandomColor());
         const companyCapacityColors = companyCapacityLabels.map(() => getRandomColor());
         const techColors = techLabels.map(() => getRandomColor());
+        const techCapacityColors = techCapacityLabels.map(() => getRandomColor());
 
         // --- Chart Configs --- 
         const commonOptions = {
@@ -319,7 +328,7 @@
                                 }
                             }
                             // Add percentage for count-based charts
-                            if (context.dataset.label === 'Component Count' || context.dataset.label === 'Tech Distribution') {
+                            if (context.dataset.label === 'Component Count' || context.dataset.label === 'Tech Distribution by Count') {
                                 const total = context.dataset.data.reduce((acc, value) => acc + value, 0);
                                 const percentage = total > 0 ? ((context.parsed / total) * 100).toFixed(1) : 0;
                                 label += ` (${percentage}%)`;
@@ -350,7 +359,7 @@
             data: {
                 labels: techLabels,
                 datasets: [{
-                    label: 'Tech Distribution',
+                    label: 'Tech Distribution by Count',
                     data: techData,
                     backgroundColor: techColors,
                     hoverOffset: 4
@@ -388,6 +397,31 @@
                     companyChart.data.datasets[0].label = 'Total Capacity (MW)';
                 }
                 companyChart.update();
+            });
+        });
+        
+        // --- NEW: Technology Chart Toggle Logic --- 
+        document.querySelectorAll('.chart-toggle-btn[data-chart="techPieChart"]').forEach(button => {
+            button.addEventListener('click', function() {
+                const dataType = this.getAttribute('data-type');
+                
+                // Update button active state
+                document.querySelectorAll('.chart-toggle-btn[data-chart="techPieChart"]').forEach(btn => btn.classList.remove('active'));
+                this.classList.add('active');
+
+                // Update chart data
+                if (dataType === 'count') {
+                    techChart.data.labels = techLabels;
+                    techChart.data.datasets[0].data = techData;
+                    techChart.data.datasets[0].backgroundColor = techColors;
+                    techChart.data.datasets[0].label = 'Tech Distribution by Count';
+                } else { // dataType === 'capacity'
+                    techChart.data.labels = techCapacityLabels;
+                    techChart.data.datasets[0].data = techCapacityData;
+                    techChart.data.datasets[0].backgroundColor = techCapacityColors;
+                    techChart.data.datasets[0].label = 'Tech Distribution by Capacity (MW)';
+                }
+                techChart.update();
             });
         });
     });
