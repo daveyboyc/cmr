@@ -554,7 +554,7 @@ def _perform_company_search(cmu_df, norm_query):
     Returns a DataFrame of matching records, sorted by score.
     """
     logger = logging.getLogger(__name__)
-    min_score = 80  # Minimum fuzzy match score
+    min_score = 70  # <<<< ENSURED THIS IS 70
     scorer = fuzz.token_set_ratio # Use token set ratio
 
     # Prepare choices for fuzzy matching
@@ -1486,9 +1486,10 @@ def _organize_year_data(company_records, sort_order):
 
     year_auctions = {}
     for index, row in company_records.iterrows():
-        # Use correct DataFrame column names
-        year = str(row.get("Delivery Year", ""))
-        auction = str(row.get("Auction Name", ""))
+        # <<<< CHANGE: Use lowercase field names consistent with DataFrame creation
+        year = str(row.get("delivery_year", ""))
+        auction = str(row.get("auction_name", ""))
+        # <<<< END CHANGE
         # --- DEBUG: Log extracted values ---
         logger.debug(f"_organize_year_data: Row {index} - Extracted Year: '{year}', Auction: '{auction}'")
         # --- END DEBUG ---
