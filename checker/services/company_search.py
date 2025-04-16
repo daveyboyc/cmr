@@ -39,59 +39,34 @@ def search_companies_service(request, extra_context=None, return_data_only=False
     logger = logging.getLogger(__name__) 
     
     # --- DEBUG: Force cache clear ---
-    try:
-        cache.delete("cmu_df")
-        logger.warning("DEBUG: Cleared 'cmu_df' cache key.")
-    except Exception as e:
-        logger.error(f"DEBUG: Failed to clear 'cmu_df' cache: {e}")
+    # try:
+    #     cache.delete("cmu_df")
+    #     logger.warning("DEBUG: Cleared 'cmu_df' cache key.")
+    # except Exception as e:
+    #     logger.error(f"DEBUG: Failed to clear 'cmu_df' cache: {e}")
     # --- END DEBUG ---
     
-    # Imports at the top
-    # import logging # Removed from here
-
-    # logger = logging.getLogger(__name__) # Removed from here
     logger.warning("--- ENTERING search_companies_service ---")
 
     # Initialize variables
-    results = {}
+    results = {} # Fallback results dict
     error_message = None
     api_time = 0
     query = request.GET.get("q", "").strip()
-    sort_order = request.GET.get(
-        "sort", "desc"
-    )  # Get sort order, default to desc (newest first)
+    sort_order = request.GET.get("sort", "desc")
+    note = None # Initialize note
 
-    # Check cache first for any query
-    if query:
-        # Use a safe cache key that doesn't contain spaces
-        cache_key = get_cache_key("search_results", query.lower())
-        cached_results = cache.get(cache_key)
-
-        if cached_results:
-            logger.info(f"Using cached search results for '{query}'")
-            if return_data_only:
-                return cached_results
-
-            # Handle non-return_data_only case with cached results - CORRECTED CONTEXT
-            context = {
-                "company_links": cached_results,  # Correct key: "company_links"
-                "company_count": len(
-                    cached_results
-                ),  # Correct count based on list length
-                "displayed_company_count": len(
-                    cached_results
-                ),  # Correct count based on list length
-                "record_count": len(
-                    cached_results
-                ),  # Correct count based on list length
-                "api_time": 0.1,  # Fast because from cache
-                "query": query,
-                "sort_order": sort_order,
-                "note": "Using cached results",
-            }
-            if extra_context:
-                context.update(extra_context)
-            return render(request, "checker/search.html", context)
+    # Check cache first (can be removed later if cache is not desired)
+    # if query:
+    #     cache_key = get_cache_key("search_results", query.lower())
+    #     cached_data = cache.get(cache_key)
+    #     if cached_data:
+    #         logger.info(f"Using cached search data for '{query}'")
+    #         if return_data_only:
+    #             return cached_data.get("page_obj", []) # Adjust based on cached structure
+    #         # Add note about cached results
+    #         cached_data.setdefault("note", "Using cached results")
+    #         return render(request, "checker/search.html", cached_data)
 
     # Add safety limit for search terms
     if len(query) > 100:
@@ -99,453 +74,211 @@ def search_companies_service(request, extra_context=None, return_data_only=False
         error_message = "Search query too long, truncated to 100 characters"
         logger.warning(f"Search query truncated: '{query}'")
 
-    logger.warning(
-        f"--- Starting live search for query: '{query}' ---"
-    )  # LOG START (WARNING LEVEL)
+    logger.warning(f"--- Starting live search for query: '{query}' ---")
+
+    # Initialize context variables that might be needed later
+    company_links = []
+    company_link_count = 0
+    page_obj = None
+    paginator = None
+    component_count = 0
+    render_time_links = 0
+    per_page = 50
+    page = 1
+    comp_sort_order = 'desc'
+    search_method = "Initial"
 
     # Process GET requests
     if request.method == "GET":
-        logger.warning("Inside GET request block.")  # ADDED LOG
-        # Shortcut for component results
-        if query.startswith("CM_"):
-            logger.warning("Entering CM_ shortcut block.")  # ADDED LOG
-            component_id = query
-            logger.info(f"Direct component ID query: {component_id}")
-            components = get_component_data_from_json(component_id)
-
-            if components:
-                logger.info(
-                    f"Found {len(components)} components for direct CMU ID: {component_id}"
-                )
-                # Use component name if available
-                company_name = None
-                if (
-                    components
-                    and len(components) > 0
-                    and "Company Name" in components[0]
-                ):
-                    company_name = components[0]["Company Name"]
-
-                if company_name:
-                    # Instead of redirecting, perform a company search
-                    logger.info(f"Searching for company: {company_name}")
-                    norm_query = normalize(company_name)
-                    cmu_df, df_api_time = get_cmu_dataframe()
-                    api_time += df_api_time
-
-                    if cmu_df is not None:
-                        matching_records = _perform_company_search(cmu_df, norm_query)
-                        unique_companies = list(matching_records["Full Name"].unique())
-
-                        # Make sure the company is included
-                        if company_name not in unique_companies:
-                            unique_companies.append(company_name)
-
-                        results = _build_search_results(
-                            cmu_df, unique_companies, sort_order, company_name
-                        )
-
-                        if return_data_only:
-                            return results
-
-                        context = {
-                            "results": results,
-                            "record_count": len(cmu_df),
-                            "error": error_message,
-                            "api_time": api_time,
-                            "query": company_name,
-                            "sort_order": sort_order,
-                        }
-
-                        if extra_context:
-                            context.update(extra_context)
-
-                        return render(request, "checker/search.html", context)
-
-        elif "debug" in request.GET:
-            logger.warning("Entering debug block.")  # ADDED LOG
-            # Show all companies (for debugging)
-            cmu_df, df_api_time = get_cmu_dataframe()
-            api_time += df_api_time
-
-            if cmu_df is not None:
-                sample_companies = list(cmu_df["Full Name"].sample(5).unique())
-                results = _build_search_results(
-                    cmu_df, sample_companies, sort_order, "Debug Sample"
-                )
-
-                if return_data_only:
-                    return results
-
-                context = {
-                    "results": results,
-                    "record_count": len(cmu_df),
-                    "debug": True,
-                    "sample_companies": sample_companies,
-                    "sort_order": sort_order,
-                }
-
-                if extra_context:
-                    context.update(extra_context)
-
-                return render(request, "checker/search.html", context)
-
-        elif query:
-            logger.warning("Entering main query block (elif query:).")  # ADDED LOG
+        if query:
             start_time = time.time()
-            api_time = 0
-            context = {}
-            error_message = None  # Ensure error message is initialized
-
-            logger.warning("+++ Pre-TRY Block: About to attempt Hybrid DB Search +++")
-            # --- Try Option 2: Hybrid DB Search (Companies + Components) ---
+            search_method = "Hybrid DB Search"
             try:
                 # --- Prerequisites ---
-                per_page = 50  # Components per page
                 page = request.GET.get('page', 1)
                 try: page = int(page) 
                 except (ValueError, TypeError): page = 1
+                comp_sort_order = request.GET.get('comp_sort', 'desc') # Default sort from template
                 
                 from ..models import Component
                 from django.db.models import Count, Q
                 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
                 from ..utils import normalize # Use corrected import
 
-                # --- Keep the original query, lowercased ---
                 full_query_lower = query.lower()
                 if not full_query_lower:
                      raise ValueError("Search query is empty.")
 
-                # --- 1. Find Matching Companies (Precise & Independent) ---
-                logger.info("Step 1: Performing precise company search...")
+                # --- 1. Find Matching Companies --- 
+                logger.info("Step 1: Performing company search...") # Simplified log
                 company_links = []
                 company_link_count = 0
-                render_time_links = 0
+                render_time_links = 0 # Initialize render time
+                unique_top_companies = [] # Initialize
+
                 try:
                     cmu_df, df_api_time = get_cmu_dataframe()
                     api_time += df_api_time
                     if cmu_df is not None:
-                        # Use _perform_company_search to get filtered & sorted DataFrame
-                        matching_companies_df = _perform_company_search(cmu_df, normalize(query))
+                        limit_companies = 20 # Limit fuzzy results
+
+                        # --- Perform combined fuzzy/substring search --- 
+                        matching_companies_df = _perform_company_search(cmu_df, query) # Pass original query
                         logger.warning(f"DEBUG: _perform_company_search returned DF shape: {matching_companies_df.shape}")
-                        try:
-                            logger.warning(f"DEBUG: matching_companies_df head:\n{matching_companies_df.head().to_string()}")
-                        except Exception: logger.warning("DEBUG: Could not log matching_companies_df head")
+                        if not matching_companies_df.empty:
+                            try:
+                                logger.warning(f"DEBUG: matching_companies_df head:\n{matching_companies_df.head().to_string()}")
+                            except Exception: logger.warning("DEBUG: Could not log matching_companies_df head")
+                            # Limit the number of companies passed to the link builder
+                            unique_top_companies = list(matching_companies_df["Full Name"].unique())[:limit_companies]
+                        logger.warning(f"DEBUG: Top unique companies (limit {limit_companies}): {unique_top_companies}")
 
-                        # Limit the number of companies passed to the link builder for performance
-                        limit_companies = 20 # Show top N matching companies
-                        unique_top_companies = list(matching_companies_df["Full Name"].unique())[:limit_companies]
-                        logger.warning(f"DEBUG: unique_top_companies (limit {limit_companies}): {unique_top_companies}")
-
-                        logger.info(f"Found {len(unique_top_companies)} high-scoring companies (limit {limit_companies}). Building links...")
-                        # Use _build_search_results (requires DataFrame)
-                        # Ensure _build_search_results uses the passed unique_companies list
-                        results_dict, render_time_links_ = _build_search_results(
-                            cmu_df, 
-                            unique_top_companies, 
-                            sort_order, 
-                            query, 
-                            cmu_limit=3, 
-                            add_debug_info=True
-                        )
-                        company_links = results_dict.get(query, [])
-                        company_link_count = len(company_links)
-                        # Add render time if needed: render_time_links += render_time_links_
-                        logger.warning(f"DEBUG: _build_search_results returned company_links count: {company_link_count}")
-                        # logger.warning(f"DEBUG: company_links content (first 500 chars): {str(company_links)[:500]}") # Log content carefully
+                        # --- Build links --- 
+                        if unique_top_companies:
+                            logger.info(f"Building links for {len(unique_top_companies)} companies...")
+                            results_dict, render_time_links_ = _build_search_results(
+                                cmu_df, unique_top_companies, sort_order, query, cmu_limit=3, add_debug_info=True
+                            )
+                            company_links = results_dict.get(query, [])
+                            company_link_count = len(company_links)
+                            render_time_links += render_time_links_
+                            logger.warning(f"DEBUG: _build_search_results returned company_links count: {company_link_count}")
+                        else:
+                            logger.warning("No company matches found to build links for.")
+                            # Keep company_links and count as 0
 
                     else:
                         logger.error("CMU DataFrame not available for company search.")
+
                 except Exception as comp_e:
-                    logger.error(f"Error during precise company search step: {comp_e}")
-                    # Continue to component search even if company search fails
+                    logger.error(f"Error during company search step: {comp_e}")
+                    # Ensure lists are empty on error
+                    company_links = []
+                    company_link_count = 0
+                    render_time_links = 0
+
                 logger.info(f"Step 1 complete. Found {company_link_count} company links.")
-                # --- END OF STEP 1 --- 
+                # --- END OF STEP 1 ---
                 
                 # --- 2. Find Matching Components (Broad & Paginated) ---
-                # --- Use term-based filter for components --- 
                 component_query_filter = Q()
                 component_terms = full_query_lower.split()
-                terms_added = 0
                 for term in component_terms:
-                    # Use a slightly lower length threshold for component search maybe?
-                    if len(term) >= 2: 
+                    if len(term) >= 2:
                         term_filter = (
-                            Q(location__icontains=term) | 
-                            Q(description__icontains=term) | 
-                            Q(technology__icontains=term) | 
-                            Q(company_name__icontains=term) | # Match term in company name
+                            Q(location__icontains=term) | Q(description__icontains=term) |
+                            Q(technology__icontains=term) | Q(company_name__icontains=term) |
                             Q(cmu_id__icontains=term)
                         )
                         component_query_filter |= term_filter
-                        terms_added += 1
-                
-                # Add exact CMU ID match as a high-priority option
-                # Use the original query case for potential exact match
-                if query: # Ensure query is not empty
-                    component_query_filter |= Q(cmu_id__iexact=query)
+                if query: component_query_filter |= Q(cmu_id__iexact=query)
 
-                # If no terms were added (e.g., only very short words), the filter might be empty
                 if not component_query_filter:
-                     logger.warning("Component query filter is empty after processing terms. No components will be searched.")
-                     all_components = Component.objects.none() # Return an empty queryset
+                     logger.warning("Component query filter is empty. No components searched.")
+                     all_components = Component.objects.none()
                      component_count = 0
                 else:
-                    # Log the exact filter being used
-                    logger.warning(f"Attempting component query with term-based filter: {component_query_filter}")
-
-                    # Restore Component Sort Logic
-                    comp_sort_order = request.GET.get('comp_sort', 'desc') # Default sort from template
+                    logger.warning(f"Attempting component query with filter: {component_query_filter}")
                     comp_sort_prefix = '-' if comp_sort_order == 'desc' else ''
                     comp_django_sort_field = f'{comp_sort_prefix}delivery_year'
-
-                    logger.warning(f"Component Query Filter built. About to execute Component.objects.filter with sort: {comp_django_sort_field}...")
-                    all_components = Component.objects.filter(component_query_filter).order_by(comp_django_sort_field).distinct() # Add distinct()
-                    logger.warning(f"Component.objects.filter executed. About to call .count()...")
+                    all_components = Component.objects.filter(component_query_filter).order_by(comp_django_sort_field).distinct()
                     component_count = all_components.count()
-                    logger.warning(f"Component query executed. Filter: {component_query_filter}. Found {component_count} components.")
-                # --- END Component Filter Logic ---
+                    logger.warning(f"Component query found {component_count} components.")
 
-                # Restore Pagination Logic
-                paginator = Paginator(all_components, per_page)
-                try:
-                    page_obj = paginator.page(page) # Use 'page_obj' to match template
-                except PageNotAnInteger:
-                    page_obj = paginator.page(1)
-                except EmptyPage:
-                    page_obj = paginator.page(paginator.num_pages)
+                # Pagination for Components
+                if component_count > 0:
+                    paginator = Paginator(all_components, per_page)
+                    try:
+                        page_obj = paginator.page(page)
+                    except PageNotAnInteger: page_obj = paginator.page(1)
+                    except EmptyPage: page_obj = paginator.page(paginator.num_pages)
+                else:
+                    paginator = None
+                    page_obj = None # Ensure page_obj is None if no components
 
-                # --- 3. Build Context for Option 2 ---
                 api_time = time.time() - start_time
-                context = {
-                    "query": query,
-                    "company_links": company_links, 
-                    "company_count": company_link_count, # Use count of links generated
-                    "displayed_company_count": company_link_count,
-                    
-                    "page_obj": page_obj, # Use the name expected by template
-                    "paginator": paginator, # Pass the paginator object
-                    "component_count": component_count, # Total components matched
-                    "total_component_count": component_count, # Use same count for clarity?
-                    "total_pages": paginator.num_pages, # For pagination display
-                    "page": page, # Pass current page number
-                    "has_prev": page_obj.has_previous(), # Pagination flags
-                    "has_next": page_obj.has_next(),
-                    "page_range": paginator.get_elided_page_range(number=page, on_each_side=2, on_ends=1), # For pagination display
-
-                    "comp_sort": comp_sort_order, # Pass component sort order
-                    "per_page": per_page, # Pass items per page
-                    
-                    "error": error_message,
-                    "api_time": api_time,
-                    "render_time_links": render_time_links, 
-                    "sort_order": sort_order, # Original sort order for companies (if needed)
-                    "unified_search": True, # REQUIRED flag for template
-                    "search_method": "Hybrid DB Search", # Restore original method name
-                }
-                logger.warning(f"Successfully completed Hybrid DB search. Context keys: {list(context.keys())}")
-
-            # --- End of Option 2 Try Block ---
+                logger.warning(f"Successfully completed {search_method}. API time: {api_time:.4f}s")
+                # --- END OF STEP 2 & Main Try Block ---
             
             except Exception as e:
-                # --- Fallback Option 1: DataFrame Search Logic (similar to e1da13d) ---
-                logger.error(f"!!!!!!!! HYBRID DB SEARCH FAILED! Error: {e} !!!!!!!!")
-                logger.exception("Full traceback for Hybrid DB search failure:") # Log full traceback
-                api_time = (
-                    time.time() - start_time
-                )  # Recalculate time up to failure point
-                company_links_final = []
-                record_count = 0
-                results = {}  # Use the old results structure for fallback
-                context = {}  # Reset context
+                search_method = "Search Failed"
+                logger.error(f"!!!!!!!! MAIN SEARCH FAILED! Error: {e} !!!!!!!!")
+                logger.exception("Full traceback for main search failure:")
+                error_message = f"An unexpected error occurred during the search: {e}"
+                api_time = time.time() - start_time # Time until failure
+                # Reset potentially partially populated variables
+                company_links = []
+                company_link_count = 0
+                page_obj = None
+                paginator = None
+                component_count = 0
+                render_time_links = 0
+            # --- End of Main Except Block --- 
 
-                logger.info("Executing Fallback DataFrame Search...")
-                component_limit = 20
-                cmu_limit = 3
-
-                try:
-                    cmu_df, df_api_time = get_cmu_dataframe()
-                    api_time += df_api_time
-                except Exception as df_e:
-                    logger.error(f"Failed to get CMU DataFrame for fallback: {df_e}")
-                    cmu_df = None
-
-                if cmu_df is None:
-                    logger.error(
-                        "CMU Dataframe could not be loaded for fallback search."
-                    )
-                    error_message = (
-                        "Error fetching CMU registry data for fallback search."
-                    )
-                    context = {
-                        "error": error_message,
-                        "api_time": api_time,
-                        "query": query,
-                        "sort_order": sort_order,
-                        "search_method": "Fallback Failed (No DataFrame)",
-                    }
-                else:
-                    record_count = len(cmu_df)
-                    try:
-                        from ..utils import (
-                            normalize,
-                        )  # Ensure normalize is available here too
-
-                        matching_records = _perform_company_search(
-                            cmu_df, normalize(query)
-                        )
-                        logger.info(
-                            f"Fallback: Found {len(matching_records)} records via _perform_company_search."
-                        )
-                        unique_companies = list(matching_records["Full Name"].unique())[
-                            :component_limit
-                        ]
-                        logger.info(
-                            f"Fallback: Processing {len(unique_companies)} unique companies."
-                        )
-
-                        results = _build_search_results(
-                            cmu_df,
-                            unique_companies,
-                            sort_order,
-                            query,
-                            cmu_limit=cmu_limit,
-                            add_debug_info=True,
-                        )
-                        company_links_final = results.get(query, [])
-                        logger.info(
-                            f"Fallback: _build_search_results generated {len(company_links_final)} links."
-                        )
-
-                        # Build context for successful fallback (NO unified_search flag)
-                        context = {
-                            "query": query,
-                            "results": results,  # Use old structure for fallback compatibility
-                            "company_links": company_links_final,  # Also pass links directly for consistency?
-                            "company_count": len(company_links_final),
-                            "displayed_company_count": len(company_links_final),
-                            "record_count": record_count,
-                            "error": error_message,
-                            "api_time": api_time,
-                            "sort_order": sort_order,
-                            "search_method": "Fallback DataFrame Search",
-                            "unified_search": False,  # Explicitly False for fallback
-                        }
-                        logger.info(
-                            f"Successfully completed Fallback DataFrame search. Context keys: {list(context.keys())}"
-                        )
-
-                        # Cache fallback results (optional, based on old logic)
-                        if query:
-                            try:
-                                cache_key = get_cache_key(
-                                    "search_results", query.lower()
-                                )
-                                total_items = sum(
-                                    len(matches) for matches in results.values()
-                                )
-                                if total_items < 10:
-                                    cache_time = 7200
-                                elif total_items < 100:
-                                    cache_time = 3600
-                                elif total_items < 500:
-                                    cache_time = 1800
-                                else:
-                                    cache_time = 600
-                                cache.set(cache_key, results, cache_time)
-                                logger.info(
-                                    f"Cached {total_items} DataFrame results for query '{query}' for {cache_time}s"
-                                )
-                            except Exception as cache_e:
-                                logger.error(
-                                    f"Failed to cache DataFrame search results: {cache_e}"
-                                )
-
-                    except Exception as build_e:
-                        logger.error(
-                            f"Error during fallback DataFrame processing (_perform/_build): {build_e}"
-                        )
-                        error_message = "Error processing fallback search results."
-                        context = {
-                            "error": error_message,
-                            "api_time": api_time,
-                            "query": query,
-                            "sort_order": sort_order,
-                            "search_method": "Fallback Failed (Processing Error)",
-                        }
-            # --- End of Fallback Logic ---
-
-            # --- Final Steps (executed after either try or except) ---
-            # Handle return_data_only
-            if return_data_only:
-                logger.info(
-                    f"Returning data only from {context.get('search_method', 'Unknown')} path."
-                )
-                # Return structure depends on which path was taken
-                if context.get("search_method") == "Hybrid DB Search":
-                    # Return component objects? Or just links?
-                    return (
-                        context.get("page_obj").object_list
-                        if context.get("page_obj")
-                        else []
-                    )
-                else:  # Fallback or failed
-                    return context.get("results", {})  # Return old results dict
-
-            # Add extra context if provided
-            if extra_context:
-                context.update(extra_context)
-
-            # Ensure essential keys are present even if search failed badly
-            context.setdefault("query", query)
-            context.setdefault("sort_order", sort_order)
-            context.setdefault("api_time", api_time)
-            # Use our tracker if context['search_method'] wasn't set by try/except paths
-            context.setdefault("search_method", context.get("search_method", "Unknown/Failed"))
-            # Ensure template doesn't crash if pagination variables are missing
-            context.setdefault("page_obj", None)
-            context.setdefault("paginator", None)
-            context.setdefault("unified_search", False)
-
-            logger.info(f"Rendering search results page via {context['search_method']} path.")
-            return render(request, "checker/search.html", context)
-            # --- End of main elif query: block ---
-
-        else:
-            if "search_results" in request.session:
-                request.session.pop("search_results", None)
-            if "api_time" in request.session:
-                request.session.pop("api_time", None)
-
-            if return_data_only:
-                return {}
-
+            # --- Build Final Context --- 
             context = {
-                "results": {},
-                "api_time": api_time,
                 "query": query,
+                "company_links": company_links, 
+                "company_count": company_link_count, 
+                "displayed_company_count": company_link_count,
+                "page_obj": page_obj, 
+                "paginator": paginator, 
+                "component_count": component_count, 
+                "total_component_count": component_count,
+                "total_pages": paginator.num_pages if paginator else 0,
+                "page": page,
+                "has_prev": page_obj.has_previous() if page_obj else False,
+                "has_next": page_obj.has_next() if page_obj else False,
+                "page_range": paginator.get_elided_page_range(number=page, on_each_side=2, on_ends=1) if paginator else [],
+                "comp_sort": comp_sort_order,
+                "per_page": per_page,
+                "error": error_message,
+                "api_time": api_time,
+                "render_time_links": render_time_links, 
                 "sort_order": sort_order,
+                "unified_search": True, # Assume unified unless error 
+                "search_method": search_method,
+                "note": note,
             }
-
+            
             if extra_context:
                 context.update(extra_context)
-
+            
+            # Cache results if successful?
+            # if query and not error_message and search_method == "Hybrid DB Search":
+            #    try:
+            #       cache_key = get_cache_key("search_results", query.lower())
+            #       # Decide cache time based on results?
+            #       cache_time = 1800 # e.g., 30 mins
+            #       cache.set(cache_key, context, cache_time) 
+            #    except Exception as cache_e: logger.error(f"Failed to cache results: {cache_e}")
+                
             return render(request, "checker/search.html", context)
+            # --- End of if query: block ---
 
-    if return_data_only:
-        return {}
-
+        else: # No query provided
+            # Clear session data if needed
+            # if "search_results" in request.session: request.session.pop("search_results", None)
+            # if "api_time" in request.session: request.session.pop("api_time", None)
+            pass # Just render empty search page
+    
+    # Default context if not GET or no query
     context = {
-        "results": {},
-        "api_time": api_time,
         "query": query,
+        "company_links": company_links,
+        "company_count": company_link_count,
+        "page_obj": page_obj,
+        "component_count": component_count,
+        "error": error_message,
+        "api_time": api_time,
         "sort_order": sort_order,
+        "unified_search": True,
+        "search_method": search_method,
+        "note": note,
     }
-
-    if extra_context:
-        context.update(extra_context)
-
+    if extra_context: context.update(extra_context)
     return render(request, "checker/search.html", context)
+# --- End of search_companies_service ---
 
 
 def _perform_company_search(cmu_df, norm_query):
@@ -555,7 +288,7 @@ def _perform_company_search(cmu_df, norm_query):
     """
     logger = logging.getLogger(__name__)
     min_score = 70  # <<<< ENSURED THIS IS 70
-    scorer = fuzz.token_set_ratio # Use token set ratio
+    scorer = fuzz.token_set_ratio # <<<< CHANGE BACK: Use token_set_ratio scorer
 
     # Prepare choices for fuzzy matching
     company_names = cmu_df["Normalized Full Name"].dropna().unique().tolist()
@@ -583,57 +316,71 @@ def _perform_company_search(cmu_df, norm_query):
     logger.debug(f"Performing fuzzy match against {len(company_names)} unique normalized company names. Sample: {company_names[:sample_size]}")
     # --- END DEBUG ---
 
+    # --- 1. FUZZY Search --- 
     # Find matches using rapidfuzz process.extract
     # It returns a list of tuples: (name, score, index)
-    matches_list = process.extract(
+    fuzzy_matches_list = process.extract(
         norm_query, company_names, scorer=scorer, score_cutoff=min_score, limit=None
     )
+    logger.debug(f"Fuzzy matches list found (score >= {min_score}): {fuzzy_matches_list}")
+    # Create a dictionary {normalized_name: score} from the fuzzy list
+    fuzzy_scores = {match[0]: match[1] for match in fuzzy_matches_list}
+    fuzzy_matched_names = set(fuzzy_scores.keys())
 
-    # --- DEBUG: Log raw fuzzy matches and scores --- 
-    logger.debug(f"Fuzzy matches list found (score >= {min_score}): {matches_list}")
-    # --- END DEBUG ---
+    # --- 2. SUBSTRING Search --- 
+    # Find names containing the normalized query as a substring (case-insensitive handled by normalization)
+    # Ensure we don't crash if the column isn't string type, though it should be
+    try:
+        substring_matches_df = cmu_df[cmu_df["Normalized Full Name"].astype(str).str.contains(norm_query, regex=False)]
+        substring_names = set(substring_matches_df["Normalized Full Name"].unique())
+        logger.debug(f"Substring search found {len(substring_names)} unique names containing '{norm_query}'")
+    except Exception as sub_e:
+        logger.error(f"Error during substring search for '{norm_query}': {sub_e}")
+        substring_names = set() # Empty set on error
 
-    if not matches_list:
-        logger.info(f"No companies found for query '{norm_query}' with score >= {min_score}")
-        # --- DEBUG: Log score for the specific expected match if it was missed --- 
-        if expected_norm_name == norm_query and expected_norm_name in company_names:
-            try:
-                exact_score = fuzz.token_set_ratio(norm_query, expected_norm_name)
-                logger.warning(f"DEBUG: Score for exact match '{norm_query}' vs '{expected_norm_name}' was {exact_score} (cutoff {min_score})")
-            except Exception as e_score:
-                 logger.error(f"DEBUG: Error calculating exact score: {e_score}")
-        # --- END DEBUG ---
+    # --- 3. COMBINE Results & Filter --- 
+    # Combine unique names from both methods
+    all_matched_names = fuzzy_matched_names | substring_names
+
+    if not all_matched_names:
+        logger.info(f"No companies found via fuzzy or substring for query '{norm_query}'")
+        # ... (debug score logging for exact match, optional now) ...
         return pd.DataFrame(columns=cmu_df.columns)
-
-    # --- Build dictionary and filter DataFrame correctly --- 
-    # Create a dictionary {normalized_name: score} from the list
-    matches_with_scores = {match[0]: match[1] for match in matches_list}
-    # Get the set of matched normalized names
-    matched_norm_names = set(matches_with_scores.keys())
     
-    # Filter the original DataFrame based *only* on the matched normalized names
-    potential_matches_df = cmu_df[cmu_df["Normalized Full Name"].isin(matched_norm_names)]
+    logger.info(f"Found {len(all_matched_names)} total potential matches via fuzzy/substring.")
+
+    # Filter the original DataFrame based on the combined set of matched normalized names
+    potential_matches_df = cmu_df[cmu_df["Normalized Full Name"].isin(all_matched_names)]
     
     # Drop duplicates based on the actual company name (Full Name)
     potential_matches_df = potential_matches_df.drop_duplicates(subset=["Full Name"])
 
-    # Add score to the potential matches DataFrame using the dictionary
+    # --- 4. SCORE & SORT --- 
+    # Add score, prioritizing fuzzy score. Give substring-only matches a fixed low score (e.g., 50?)
+    substring_only_score = 50 # Score for matches only found by substring
     def get_score(row):
-        return matches_with_scores.get(row["Normalized Full Name"], 0)
+        norm_name = row["Normalized Full Name"]
+        # Return fuzzy score if available, otherwise the substring score if it was a substring match
+        score = fuzzy_scores.get(norm_name, 0)
+        if score == 0 and norm_name in substring_names:
+             return substring_only_score
+        return score # Return fuzzy score (or 0 if not found by either)
 
-    # Apply scoring function - handle potential empty DataFrame after drop_duplicates
+    # Apply scoring function
     if potential_matches_df.empty:
         logger.warning("Potential matches DataFrame is empty after filtering and dropping duplicates.")
-        return potential_matches_df # Return empty DataFrame
+        return potential_matches_df
     else:
-        potential_matches_df = potential_matches_df.copy() # Avoid SettingWithCopyWarning
+        potential_matches_df = potential_matches_df.copy()
         potential_matches_df['match_score'] = potential_matches_df.apply(get_score, axis=1)
+        # Filter out any rows that somehow ended up with a score of 0 (shouldn't happen with current logic)
+        potential_matches_df = potential_matches_df[potential_matches_df['match_score'] > 0]
 
     # Sort the DataFrame by score (descending)
     final_sorted_df = potential_matches_df.sort_values(by='match_score', ascending=False).reset_index(drop=True)
 
-    logger.info(f"Found and sorted {len(final_sorted_df)} companies >= score {min_score} for query '{norm_query}'")
-    # Return the filtered and sorted DataFrame
+    # Log based on the final count AFTER scoring and potential filtering
+    logger.info(f"Found and sorted {len(final_sorted_df)} companies with score > 0 for query '{norm_query}'")
     return final_sorted_df
 
 
