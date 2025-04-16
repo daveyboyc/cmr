@@ -142,16 +142,21 @@ def get_component_details(request, pk):
             if not key_exists:
                 organized_data["Additional Information"][k] = v
 
-        # Explicitly get component and registry capacity values
-        component_derated_capacity = target_component_obj.derated_capacity_mw # Get FloatField directly
-        registry_derated_capacity = raw_cmu_data.get("De-Rated Capacity") if raw_cmu_data else None
-        
-        # Remove the old De-Rated Capacity entry from organized_data
-        if "Technical Details" in organized_data:
-            organized_data["Technical Details"].pop("De-Rated Capacity", None)
-
         # Remove empty sections (including Technical Details if it becomes empty)
         organized_data = {k: v for k, v in organized_data.items() if v}
+
+        # --- Explicitly get values for template --- 
+        # Component Capacity
+        component_derated_capacity = target_component_obj.derated_capacity_mw 
+        # CMU Registry Data (use .get() with defaults)
+        registry_derated_capacity = raw_cmu_data.get("De-Rated Capacity") if raw_cmu_data else None
+        # Use CORRECTED keys based on sample data
+        connection_capacity = raw_cmu_data.get("Connection / DSR Capacity") if raw_cmu_data else None 
+        anticipated_capacity = raw_cmu_data.get("Anticipated De-Rated Capacity") if raw_cmu_data else None
+        parent_company = raw_cmu_data.get("Parent Company") if raw_cmu_data else None
+        trading_email = raw_cmu_data.get("Secondary Trading Contact - Email") if raw_cmu_data else None
+        trading_phone = raw_cmu_data.get("Secondary Trading Contact - Telephone") if raw_cmu_data else None
+        # --- End explicit value fetching --- 
 
         logger.info(
             f"Rendering component detail page for Component PK: {pk}, CMU ID: {cmu_id}")
@@ -165,8 +170,14 @@ def get_component_details(request, pk):
             "raw_component_data": raw_component_data,
             "raw_cmu_data": raw_cmu_data,
             "source": "database",
-            "component_derated_capacity": component_derated_capacity, # Pass component value
-            "registry_derated_capacity": registry_derated_capacity  # Pass registry value
+            # Pass individual values for clarity
+            "component_derated_capacity": component_derated_capacity, 
+            "registry_derated_capacity": registry_derated_capacity,  
+            "connection_capacity": connection_capacity,
+            "anticipated_capacity": anticipated_capacity,
+            "parent_company": parent_company,
+            "trading_email": trading_email,
+            "trading_phone": trading_phone,
         })
 
     except Exception as e:
