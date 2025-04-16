@@ -1090,9 +1090,9 @@ def company_detail(request, company_id):
     # Determine view mode and sort order from GET parameters
     view_mode = request.GET.get("view_mode", "year_auction")
     sort_field = request.GET.get(
-        "sort_by", "delivery_year"
-    )  # Default sort for all_components
-    sort_order = request.GET.get("sort", "desc")  # Keep this consistent
+        "sort_by", "location"  # Default sort changed to location
+    )
+    sort_order = request.GET.get("sort", "asc")  # Default sort order changed to asc (displays Desc)
     page = request.GET.get("page", 1)
     per_page = 50  # Components per page for capacity and all_components views
 
@@ -1102,7 +1102,7 @@ def company_detail(request, company_id):
 
     # Validate sort_order (remains the same)
     if sort_order not in ["asc", "desc"]:
-        sort_order = "desc"
+        sort_order = "asc" # Default changed to asc
 
     # Validate sort_field for 'all_components' view
     allowed_sort_fields = [
@@ -1112,7 +1112,7 @@ def company_detail(request, company_id):
         "location",
     ]
     if view_mode == "all_components" and sort_field not in allowed_sort_fields:
-        sort_field = "delivery_year"  # Default if invalid
+        sort_field = "location"  # Default if invalid changed to location
 
     context = {
         "company_id": company_id,
