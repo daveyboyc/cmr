@@ -35,6 +35,9 @@ logger = logging.getLogger(__name__)
 
 def search_companies_service(request, extra_context=None, return_data_only=False):
     """Service function for searching companies with improved caching and performance"""
+    # Define logger earlier
+    logger = logging.getLogger(__name__) 
+    
     # --- DEBUG: Force cache clear ---
     try:
         cache.delete("cmu_df")
@@ -44,9 +47,9 @@ def search_companies_service(request, extra_context=None, return_data_only=False
     # --- END DEBUG ---
     
     # Imports at the top
-    import logging
+    # import logging # Removed from here
 
-    logger = logging.getLogger(__name__)
+    # logger = logging.getLogger(__name__) # Removed from here
     logger.warning("--- ENTERING search_companies_service ---")
 
     # Initialize variables
