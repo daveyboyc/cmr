@@ -6,6 +6,7 @@ from ..utils import normalize # Import normalize function
 from django.utils.html import format_html
 from django.contrib.humanize.templatetags.humanize import intcomma
 import logging
+import re
 
 
 register = template.Library()
@@ -102,3 +103,26 @@ def format_value(value):
     except (ValueError, TypeError):
         # If it's not a number, return the original value as a string
         return str(value)
+
+@register.filter(name='shorten_auction_name')
+def shorten_auction_name(value):
+    """Shortens auction names like '2024-25 (T-4) Four Year Ahead Capacity Auction' to '2024-25 (T-4)'."""
+    if not isinstance(value, str):
+        return value
+    
+    # Regex to capture the year range and auction type (T-1, T-3, T-4, TR)
+    # Allows for year formats like 2024/25, 2024-25, 2024
+    # Allows for T-1, T1, T-3, T3, T-4, T4, TR
+    match = re.match(r"^\s*(\d{4}[/-]?\d{2,4}|\d{4})\s*\((T[-]?\d|TR)\).*", value, re.IGNORECASE)
+    
+    if match:
+        year_part = match.group(1)
+        type_part = match.group(2).upper().replace('-', '') # Normalize to T1, T3, T4, TR
+        # Re-add hyphen for T-1, T-3, T-4
+        if type_part in ['T1', 'T3', 'T4']:
+            type_part = f"T-{type_part[1]}"
+            
+        return f"{year_part} ({type_part})"
+    else:
+        # If no match, return the original string (or a truncated version)
+        return value # Or perhaps value[:30] + '...' if you want to truncate unknowns
