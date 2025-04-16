@@ -561,26 +561,53 @@ def _perform_company_search(cmu_df, norm_query):
     company_names = cmu_df["Normalized Full Name"].dropna().unique().tolist()
     cmu_ids = cmu_df["Normalized CMU ID"].dropna().unique().tolist()
 
-    # Perform fuzzy search on company names, getting scores
-    company_results = process.extract(norm_query, company_names, scorer=scorer, limit=None, score_cutoff=min_score)
-    # Perform fuzzy search on CMU IDs, getting scores
-    cmu_results = process.extract(norm_query, cmu_ids, scorer=scorer, limit=None, score_cutoff=min_score)
+    # --- DEBUG: Check if expected name exists ---
+    expected_norm_name = "gridbeyondlimited" # For exact match debugging
+    if expected_norm_name in company_names:
+        logger.warning(f"DEBUG: Expected normalized name '{expected_norm_name}' FOUND in company_names list.")
+    else:
+        logger.warning(f"DEBUG: Expected normalized name '{expected_norm_name}' NOT FOUND in company_names list.")
+        # Log a few similar names if not found
+        try:
+            similar_names = process.extract(expected_norm_name, company_names, limit=5)
+            logger.warning(f"DEBUG: Closest names found in list: {similar_names}")
+        except Exception as e_sim:
+            logger.error(f"DEBUG: Error finding similar names: {e_sim}")
+    # --- END DEBUG ---
 
-    # Combine matches and their scores (use normalized name/id for matching)
-    # Store as {normalized_identifier: score}
-    matches_with_scores = {}
-    for name, score, index in company_results:
-        matches_with_scores[name] = max(matches_with_scores.get(name, 0), score)
-    for cmu_id, score, index in cmu_results:
-         matches_with_scores[cmu_id] = max(matches_with_scores.get(cmu_id, 0), score)
+    # --- DEBUG: Log normalized query ---
+    logger.debug(f"Normalized search query: '{norm_query}'")
+    # --- END DEBUG ---
 
-    if not matches_with_scores:
-        logger.info(f"No fuzzy matches found above threshold {min_score} for '{norm_query}'")
-        return pd.DataFrame(columns=cmu_df.columns) # Return empty DataFrame
+    # --- DEBUG: Log sample of company names for fuzzy matching ---
+    sample_size = min(10, len(company_names))
+    logger.debug(f"Performing fuzzy match against {len(company_names)} unique normalized company names. Sample: {company_names[:sample_size]}")
+    # --- END DEBUG ---
+
+    # Find matches using fuzzywuzzy
+    matches = process.extractBests(
+        norm_query, company_names, scorer=fuzz.token_set_ratio, score_cutoff=min_score, limit=None
+    )
+
+    # --- DEBUG: Log raw fuzzy matches and scores ---
+    logger.debug(f"Fuzzy matches found (score >= {min_score}): {matches}")
+    # --- END DEBUG ---
+
+    if not matches:
+        logger.info(f"No companies found for query '{norm_query}' with score >= {min_score}")
+        # --- DEBUG: Log score for the specific expected match if it was missed ---
+        if expected_norm_name == norm_query and expected_norm_name in company_names:
+            try:
+                exact_score = fuzz.token_set_ratio(norm_query, expected_norm_name)
+                logger.warning(f"DEBUG: Score for exact match '{norm_query}' vs '{expected_norm_name}' was {exact_score} (cutoff {min_score})")
+            except Exception as e_score:
+                 logger.error(f"DEBUG: Error calculating exact score: {e_score}")
+        # --- END DEBUG ---
+        return pd.DataFrame(columns=cmu_df.columns)
 
     # Filter the original DataFrame based on the matched normalized names/ids
-    matched_norm_names = {k for k, v in matches_with_scores.items() if k in company_names}
-    matched_norm_cmu_ids = {k for k, v in matches_with_scores.items() if k in cmu_ids}
+    matched_norm_names = {k for k, v in matches.items() if k in company_names}
+    matched_norm_cmu_ids = {k for k, v in matches.items() if k in cmu_ids}
     
     company_matches_df = cmu_df[cmu_df["Normalized Full Name"].isin(matched_norm_names)]
     cmu_id_matches_df = cmu_df[cmu_df["Normalized CMU ID"].isin(matched_norm_cmu_ids)]
@@ -593,8 +620,8 @@ def _perform_company_search(cmu_df, norm_query):
     # Add score to the potential matches DataFrame
     def get_score(row):
         # Use only the score associated with the Normalized Full Name for sorting
-        norm_name_score = matches_with_scores.get(row["Normalized Full Name"], 0)
-        # norm_cmu_id_score = matches_with_scores.get(row["Normalized CMU ID"], 0)
+        norm_name_score = matches.get(row["Normalized Full Name"], 0)
+        # norm_cmu_id_score = matches.get(row["Normalized CMU ID"], 0)
         # Return the higher score associated with this row (either name or ID match)
         # return max(norm_name_score, norm_cmu_id_score)
         return norm_name_score # Return only the name score
@@ -630,6 +657,12 @@ def _build_search_results(
     logger = logging.getLogger(__name__)
     results = {query: []}
     company_count = len(unique_companies)
+
+    # --- FIX: Return early if no companies were found ---
+    if company_count == 0:
+        logger.warning(f"No unique companies provided to _build_search_results for query '{query}'. Returning empty results.")
+        return results, 0.0 # Match return signature (results, render_time)
+    # --- END FIX ---
 
     # Debug info for component retrieval
     debug_info = {
@@ -779,7 +812,7 @@ def _build_search_results(
     if add_debug_info:
         logger.info(f"Search results debug: {debug_info}")
 
-    return results
+    return results, 0.0
 
 
 def _prepare_year_auction_data(records, company_id):
