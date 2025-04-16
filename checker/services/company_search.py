@@ -380,6 +380,8 @@ def _build_search_results(
     logger = logging.getLogger(__name__)
     results = {query: []}
     company_count = len(unique_companies)
+    processed_normalized_names = set() # --- ADDED: Track processed normalized names ---
+    start_render_time = time.time() # Start timing here
 
     # --- FIX: Return early if no companies were found ---
     if company_count == 0:
@@ -401,6 +403,14 @@ def _build_search_results(
         # Skip empty company names
         if not company:
             continue
+        
+        # --- ADDED: Check if normalized name already processed ---
+        normalized_company_id = normalize(company)
+        if normalized_company_id in processed_normalized_names:
+            logger.debug(f"Skipping duplicate normalized company: '{company}' (normalized: '{normalized_company_id}')")
+            continue
+        processed_normalized_names.add(normalized_company_id)
+        # --- END ADDED ---
 
         # Get all CMU IDs for this company
         company_records = cmu_df[cmu_df["Full Name"] == company]
@@ -495,8 +505,7 @@ def _build_search_results(
             debug_info["total_components"] += company_component_count
 
             # Generate a simple blue link for the company
-            company_id = normalize(company)
-            company_html = f'<a href="/company/{company_id}/" style="color: blue; text-decoration: underline;">{company}</a>'
+            company_html = f'<a href="/company/{normalized_company_id}/" style="color: blue; text-decoration: underline;">{company}</a>'
 
             # Add additional information about CMU IDs and components count
             if len(cmu_ids) <= 3:
@@ -525,7 +534,7 @@ def _build_search_results(
                         f"At least {company_component_count} components found"
                     )
 
-            company_html = f"""
+            company_html_with_details = f"""
             <div>
                 <strong>{company_html}</strong>
                 <div class="mt-1 mb-1"><span class="text-muted">CMU IDs: {cmu_ids_str}</span></div>
@@ -533,12 +542,16 @@ def _build_search_results(
             </div>
             """
 
-            results[query].append(company_html)
+            results[query].append(company_html_with_details)
+
+    # Calculate total render time
+    render_time = time.time() - start_render_time
 
     if add_debug_info:
-        logger.info(f"Search results debug: {debug_info}")
-
-    return results, 0.0
+        logger.debug(f"_build_search_results Debug Info: {debug_info}")
+    
+    logger.info(f"_build_search_results generated {len(results[query])} links for {company_count} initial companies in {render_time:.4f}s.")
+    return results, render_time
 
 
 def _prepare_year_auction_data(records, company_id):
