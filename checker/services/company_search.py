@@ -682,6 +682,9 @@ def _build_search_results(
 
         # Get all CMU IDs for this company
         company_records = cmu_df[cmu_df["Full Name"] == company]
+        # --- DEBUG: Log shape of slice passed to _organize_year_data ---
+        logger.debug(f"_build_search_results: Processing company '{company}'. Records slice shape: {company_records.shape}")
+        # --- END DEBUG ---
         cmu_ids = company_records["CMU ID"].unique().tolist()
 
         debug_info["total_cmu_ids"] += len(cmu_ids)
