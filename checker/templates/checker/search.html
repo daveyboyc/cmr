@@ -8,6 +8,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Capacity Market Search</title>
     {% load static %}
+    {% load checker_tags %}
     <!-- Favicon -->
     <link rel="icon" type="image/x-icon" href="{% static 'images/favicon.png' %}" sizes="32x32">
     <link rel="icon" type="image/png" href="{% static 'images/favicon.png' %}" sizes="32x32">
@@ -295,13 +296,19 @@
                             </p>
                             <div>
                                 {% if component.company_name %}
-                                    <span class="badge bg-success me-1">{{ component.company_name }}</span>
+                                    <a href="{% url 'company_detail' company_id=component.company_name|normalize %}" class="text-decoration-none">
+                                        <span class="badge bg-success me-1">{{ component.company_name }}</span>
+                                    </a>
                                 {% endif %}
                                 {% if component.cmu_id %}
-                                    <span class="badge bg-secondary me-1">CMU: {{ component.cmu_id }}</span>
+                                    <a href="{% url 'component_list' %}?q={{ component.cmu_id }}" class="text-decoration-none">
+                                        <span class="badge bg-secondary me-1">CMU: {{ component.cmu_id }}</span>
+                                    </a>
                                 {% endif %}
                                 {% if component.technology %}
-                                    <span class="badge bg-primary me-1">{{ component.technology }}</span>
+                                    <a href="{% url 'search' %}?q={{ component.technology|urlencode }}" class="text-decoration-none">
+                                        <span class="badge bg-primary me-1">{{ component.technology }}</span>
+                                    </a>
                                 {% endif %}
                                 
                                 {# Calculated Display Capacity (current logic) - Clarify it relates to CMU #}
