@@ -306,7 +306,7 @@
                                     </a>
                                 {% endif %}
                                 {% if component.technology %}
-                                    <a href="{% url 'search' %}?q={{ component.technology|urlencode }}" class="text-decoration-none">
+                                    <a href="{% url 'search_companies' %}?q={{ component.technology|urlencode }}" class="text-decoration-none">
                                         <span class="badge bg-primary me-1">{{ component.technology }}</span>
                                     </a>
                                 {% endif %}
