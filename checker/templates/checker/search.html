@@ -208,9 +208,11 @@
                     <span class="bi bi-info-circle"></span> Click on company names to view details and components.
                 </div>
                 <div class="list-group">
-                    {% for link in company_links %}
-                        <div class="list-group-item">{{ link|safe }}</div>
+                    {# --- TEMPORARY SIMPLIFICATION FOR DEBUGGING DUPLICATES --- #}
+                    {% for link_html in company_links %}
+                        <p>LINK: {{ link_html|safe }}</p> {# Just output raw link #}
                     {% endfor %}
+                    {# --- END TEMPORARY SIMPLIFICATION --- #}
                 </div>
             </div>
         {% endif %}
