@@ -212,6 +212,63 @@
                     </a>
                 </div>
 
+                {# --- START Technical Capacity Information --- #}
+                <div class="detail-section">
+                    <h3 class="detail-title">Technical Capacity Information</h3>
+                    <div class="card mb-3">
+                        <div class="card-header">Capacity Metrics</div>
+                        <ul class="list-group list-group-flush">
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <span>De-Rated Capacity (Component DB)</span>
+                                <span class="text-end">{{ component_derated_capacity|format_value|default:"N/A" }} MW</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <span>De-Rated Capacity (CMU Registry)</span>
+                                <span class="text-end">{{ registry_derated_capacity|format_value|default:"N/A" }}</span> {# Assume MW is included or context implies it #}
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <span>Connection Capacity (CMU Registry)</span>
+                                <span class="text-end">{{ connection_capacity|format_value|default:"N/A" }}</span> {# Assume MW is included #}
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <span>Anticipated Capacity (CMU Registry)</span>
+                                <span class="text-end">{{ anticipated_capacity|format_value|default:"N/A" }}</span> {# Assume MW is included #}
+                            </li>
+                        </ul>
+                    </div>
+                    <p class="small text-muted">
+                        Note: De-rated capacity typically accounts for availability factors. Connection capacity represents the maximum grid connection size. Values sourced from Component database or CMU Registry as indicated.
+                    </p>
+                </div>
+                {# --- END Technical Capacity Information --- #}
+                
+                {# --- START Contact & Ownership Information --- #}
+                <div class="detail-section">
+                    <h3 class="detail-title">Contact & Ownership</h3>
+                    <div class="card mb-3">
+                        <div class="card-header">Company Information</div>
+                        <ul class="list-group list-group-flush">
+                             <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <span>Applicant / Company Name</span>
+                                <span class="text-end">{{ component_detail.Company|default:"N/A" }}</span>
+                            </li>
+                             <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <span>Parent Company (CMU Registry)</span>
+                                <span class="text-end">{{ parent_company|default:"N/A" }}</span>
+                            </li>
+                             <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <span>Secondary Trading Email (CMU Registry)</span>
+                                <span class="text-end">{{ trading_email }}</span> {# Temporarily removed |default:"N/A" #}
+                            </li>
+                             <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <span>Secondary Trading Phone (CMU Registry)</span>
+                                <span class="text-end">{{ trading_phone }}</span> {# Temporarily removed |default:"N/A" #}
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                {# --- END Contact & Ownership Information --- #}
+
                 {% for section_title, section_data in organized_data.items %}
                     <div class="detail-section">
                         <h3 class="detail-title">{{ section_title }}</h3>
@@ -229,19 +286,6 @@
                                         </span>
                                     </li>
                                 {% endfor %}
-                                
-                                {# --- Add specific De-Rated Capacity lines for Technical Details --- #}
-                                {% if section_title == "Technical Details" %}
-                                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                                        <span>De-Rated Capacity (Component)</span>
-                                        <span class="text-end">{{ component_derated_capacity|format_value|default:"N/A" }}</span>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                                        <span>De-Rated Capacity (Registry)</span>
-                                        <span class="text-end">{{ registry_derated_capacity|format_value|default:"N/A" }}</span>
-                                    </li>
-                                {% endif %}
-                                {# --- End specific De-Rated Capacity lines --- #}
                             </ul>
                         </div>
                     </div>
