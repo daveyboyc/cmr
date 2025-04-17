@@ -186,6 +186,8 @@
     let markerCluster;
     let clusteringEnabled = true;
     let infoWindows = [];
+    let initialLoad = true; // Flag to control initial fitting
+    let mapIdleListener = null; // To store the listener reference
     
     // Technology color mapping
     const techColors = {
@@ -214,8 +216,8 @@
         east: 2.0    // Eastern edge of England
     };
     
-    // Initialize the map
-    function initMap() {
+    // Initialize the map - Assign to window scope for Google Maps callback
+    window.initMap = function() {
         // Create the map centered on the UK
         map = new google.maps.Map(document.getElementById('map'), {
             center: UK_CENTER,
@@ -242,6 +244,19 @@
         // Initialize legend
         initLegend();
         
+        // Add listener for map becoming idle (user stops panning/zooming)
+        // We add it *before* the initial loadMarkers to ensure it's ready
+        if (mapIdleListener) {
+             google.maps.event.removeListener(mapIdleListener); // Remove previous listener if exists
+        }
+        mapIdleListener = map.addListener('idle', () => {
+            // Don't reload on initial map load, only on user interaction
+            if (!initialLoad) {
+                 console.log('Map idle, reloading markers for new bounds...');
+                 loadMarkers();
+            }
+        });
+
         // Load initial markers
         loadMarkers();
     }
@@ -271,6 +286,12 @@
     }
     
     function loadMarkers() {
+        // If map hasn't loaded yet, do nothing (prevents errors on initial calls)
+        if (!map) {
+            console.log("Map not ready yet, skipping loadMarkers call.");
+            return; 
+        }
+
         // Show loading indicator
         document.getElementById('loading-overlay').style.display = 'flex';
         
@@ -289,6 +310,21 @@
         if (company) params.append('company', company);
         if (year) params.append('year', year);
         if (cmuId) params.append('cmu_id', cmuId);
+
+        // Get map bounds for viewport filtering
+        const bounds = map.getBounds();
+        if (bounds) {
+            const ne = bounds.getNorthEast();
+            const sw = bounds.getSouthWest();
+            params.append('north', ne.lat());
+            params.append('south', sw.lat());
+            params.append('east', ne.lng());
+            params.append('west', sw.lng());
+            console.log(`Requesting markers within bounds: N:${ne.lat().toFixed(4)}, S:${sw.lat().toFixed(4)}, E:${ne.lng().toFixed(4)}, W:${sw.lng().toFixed(4)}`);
+        } else {
+            console.log("Map bounds not available yet.");
+            // Optionally, you could use default bounds like UK_BOUNDS here if needed
+        }
         
         // Fetch data from API
         fetch(`/api/map-data/?${params.toString()}`)
@@ -316,7 +352,8 @@
                             strokeWeight: 1,
                             scale: 8
                         },
-                        animation: google.maps.Animation.DROP
+                        // Consider removing animation if performance is critical with many markers
+                        // animation: google.maps.Animation.DROP 
                     });
                     
                     // Create info window content
@@ -375,15 +412,21 @@
                 // Hide loading indicator
                 document.getElementById('loading-overlay').style.display = 'none';
                 
-                // If we have markers and this is the initial load, fit the map to them
-                if (markers.length > 0 && !data.metadata.filtered) {
-                    fitMapToBounds();
+                // Only fit map to bounds on the very first load
+                if (initialLoad && markers.length > 0 && !data.metadata.filtered) {
+                    // fitMapToBounds(); // We might not want to fit bounds anymore if loading dynamically
+                    initialLoad = false; // Set flag so we don't fit again
+                }
+                 // Ensure initialLoad is set to false even if no markers are returned initially
+                if (initialLoad) {
+                    initialLoad = false;
                 }
             })
             .catch(error => {
                 console.error('Error loading map data:', error);
                 document.getElementById('loading-overlay').style.display = 'none';
                 alert('Error loading map data. Please try again.');
+                initialLoad = false; // Also set flag on error
             });
     }
     
@@ -431,6 +474,9 @@
     }
     
     function fitMapToBounds() {
+        // This might be less relevant now, or needs adjusting
+        // It could cause the map to jump around as the user pans
+        // If needed, might be better to fit only if no viewport filtering is active
         if (markers.length === 0) return;
         
         const bounds = new google.maps.LatLngBounds();

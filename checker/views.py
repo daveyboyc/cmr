@@ -1831,29 +1831,78 @@ def map_view(request):
 def map_data_api(request):
     """API endpoint to provide map marker data in GeoJSON format"""
     # Start with geocoded components only
-    components = Component.objects.filter(
-        geocoded=True, 
+    base_query = Component.objects.filter(
+        geocoded=True,
         latitude__isnull=False,
         longitude__isnull=False
     )
-    
-    # Apply filters from request parameters
-    if tech := request.GET.get('technology'):
-        components = components.filter(technology=tech)
+
+    # Check if specific filters are provided
+    specific_year_requested = request.GET.get('year')
+    specific_tech_requested = request.GET.get('technology')
+    default_filters_applied = False
+
+    # Apply default year filter (>= 2025) only if no specific year is requested
+    if not specific_year_requested:
+        base_query = base_query.filter(delivery_year__gte='2025')
+        default_filters_applied = True
+
+    # Apply default technology filter (CHP) only if no specific technology is requested
+    if not specific_tech_requested:
+        base_query = base_query.filter(technology='Combined Heat and Power (CHP)')
+        default_filters_applied = True
+
+    # Apply viewport filtering if bounds are provided
+    viewport_filtered = False
+    try:
+        north = float(request.GET.get('north'))
+        south = float(request.GET.get('south'))
+        east = float(request.GET.get('east'))
+        west = float(request.GET.get('west'))
+        # Check if east < west (dateline crossing) - handle if necessary, simple case for now
+        if east < west: # Basic dateline wrap handling
+            # Query components in two parts: west to 180 and -180 to east
+            viewport_query = Q(latitude__gte=south, latitude__lte=north) & \
+                             (Q(longitude__gte=west) | Q(longitude__lte=east))
+
+        else: # Standard case
+             viewport_query = Q(latitude__gte=south, latitude__lte=north,
+                                longitude__gte=west, longitude__lte=east)
+
+        base_query = base_query.filter(viewport_query)
+        viewport_filtered = True
+        print(f"Applying viewport filter: N:{north}, S:{south}, E:{east}, W:{west}") # Simple logging
+    except (TypeError, ValueError, KeyError):
+        # One or more bounds parameters missing or invalid, don't filter by viewport
+        pass
+
+    # Apply specific filters if they were provided (overriding defaults)
+    if tech := specific_tech_requested:
+        # This filter was already applied if it wasn't the default, 
+        # but we apply it again here to ensure it overrides the default if both are somehow present.
+        # A better approach might be to conditionally apply the default earlier.
+        # Re-applying for simplicity ensures the specific request wins.
+        base_query = base_query.filter(technology=tech)
         
     if company := request.GET.get('company'):
-        components = components.filter(company_name=company)
-        
-    if delivery_year := request.GET.get('year'):
-        components = components.filter(delivery_year=delivery_year)
-        
+        base_query = base_query.filter(company_name=company)
+
+    # Apply the specific year filter if it was provided
+    if delivery_year := specific_year_requested:
+        base_query = base_query.filter(delivery_year=delivery_year)
+
     if cmu_id := request.GET.get('cmu_id'):
-        components = components.filter(cmu_id=cmu_id)
-    
-    # For larger datasets, add pagination or limit
-    limit = int(request.GET.get('limit', 2000))  # Default limit of 2000 markers
-    components = components[:limit]
-    
+        base_query = base_query.filter(cmu_id=cmu_id)
+
+    # Calculate total count *before* limiting
+    total_filtered_count = base_query.count()
+
+    # Apply limit *after* filtering
+    # Consider removing or reducing the hard limit when viewport filtering is active
+    # For now, keep the limit logic but maybe make it larger if viewport is used?
+    limit = int(request.GET.get('limit', 5000 if viewport_filtered else 2000)) # Increase limit if viewport filtered
+    components = base_query[:limit]
+
     # Build GeoJSON response
     features = []
     for comp in components:
@@ -1874,18 +1923,28 @@ def map_data_api(request):
                 'detailUrl': f'/component/{comp.id}/' # Ensure you have a URL pattern for this!
             }
         })
-    
+
+    # Determine if any filters were applied (specific requests, default filters, viewport)
+    is_filtered = any([
+        specific_tech_requested,
+        request.GET.get('company'),
+        specific_year_requested,
+        request.GET.get('cmu_id'),
+        default_filters_applied, # True if default year or tech was applied
+        viewport_filtered
+    ])
+
     # Include count information
     response_data = {
         'type': 'FeatureCollection',
         'features': features,
         'metadata': {
-            'count': len(features),
-            'total': components.count(), # Note: this counts the filtered total, not the absolute total
-            'filtered': True if any([tech, company, delivery_year, cmu_id]) else False
+            'count': len(features), # Count of items returned (after limit)
+            'total': total_filtered_count, # Total matching filters (before limit)
+            'filtered': is_filtered # Was any filter applied?
         }
     }
-    
+
     return JsonResponse(response_data)
 
 # -------- Map View and API --------- END ---------
