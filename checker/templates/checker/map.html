@@ -36,12 +36,55 @@
         border-radius: 4px;
         z-index: 1000;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        max-height: 300px;
+        overflow-y: auto;
+        transition: transform 0.3s ease;
+    }
+    
+    .map-legend.collapsed {
+        transform: translateX(calc(100% - 30px));
+    }
+    
+    .legend-toggle {
+        position: absolute;
+        left: -25px;
+        top: 10px;
+        width: 25px;
+        height: 25px;
+        background-color: white;
+        border-radius: 4px 0 0 4px;
+        border: 1px solid #ccc;
+        border-right: none;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+        box-shadow: -2px 0 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .legend-title {
+        font-weight: bold;
+        margin-bottom: 10px;
+        padding-right: 15px;
     }
     
     .legend-item {
         display: flex;
         align-items: center;
         margin-bottom: 5px;
+        padding: 4px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+    
+    .legend-item:hover {
+        background-color: rgba(0, 0, 0, 0.05);
+    }
+    
+    .legend-item.active {
+        background-color: rgba(0, 0, 0, 0.1);
+        font-weight: bold;
     }
     
     .legend-color {
@@ -49,6 +92,7 @@
         height: 20px;
         border-radius: 50%;
         margin-right: 8px;
+        flex-shrink: 0;
     }
     
     .info-window h5 {
@@ -148,7 +192,10 @@
         </div>
         
         <div class="map-legend" id="map-legend">
-            <h6>Technology Types</h6>
+            <div class="legend-toggle" id="legend-toggle" title="Toggle Legend">
+                <i class="bi bi-chevron-right"></i>
+            </div>
+            <div class="legend-title">Technology Types</div>
             <div id="legend-items">
                 <!-- Legend items will be added here dynamically -->
             </div>
@@ -188,6 +235,7 @@
     let infoWindows = [];
     let initialLoad = true; // Flag to control initial fitting
     let mapIdleListener = null; // To store the listener reference
+    let activeTechFilter = null; // To track the currently active technology filter
     
     // Technology color mapping
     const techColors = {
@@ -241,6 +289,9 @@
         document.getElementById('toggle-clusters').addEventListener('click', toggleClustering);
         document.getElementById('center-uk').addEventListener('click', centerMapOnUK);
         
+        // Add toggle function for legend
+        document.getElementById('legend-toggle').addEventListener('click', toggleLegend);
+        
         // Initialize legend
         initLegend();
         
@@ -271,6 +322,9 @@
             
             const item = document.createElement('div');
             item.className = 'legend-item';
+            if (tech === activeTechFilter) {
+                item.classList.add('active');
+            }
             
             const colorBox = document.createElement('div');
             colorBox.className = 'legend-color';
@@ -281,8 +335,59 @@
             
             item.appendChild(colorBox);
             item.appendChild(label);
+            
+            // Add click handler to filter by this technology
+            item.addEventListener('click', () => {
+                // Update technology dropdown to match clicked legend item
+                const techSelect = document.getElementById('technology-filter');
+                
+                if (activeTechFilter === tech) {
+                    // If already active, clicking again clears the filter
+                    techSelect.value = '';
+                    activeTechFilter = null;
+                } else {
+                    // Set as the active filter
+                    techSelect.value = tech;
+                    activeTechFilter = tech;
+                }
+                
+                // Reload markers with the new filter
+                loadMarkers();
+                
+                // Refresh legend to update active state
+                initLegend();
+            });
+            
             legendEl.appendChild(item);
         });
+        
+        // Add an "All Technologies" option at the top
+        const allItem = document.createElement('div');
+        allItem.className = 'legend-item';
+        if (activeTechFilter === null) {
+            allItem.classList.add('active');
+        }
+        
+        const allColorBox = document.createElement('div');
+        allColorBox.className = 'legend-color';
+        allColorBox.style.backgroundColor = '#888';
+        
+        const allLabel = document.createElement('span');
+        allLabel.textContent = 'All Technologies';
+        
+        allItem.appendChild(allColorBox);
+        allItem.appendChild(allLabel);
+        
+        // Add click handler to show all technologies
+        allItem.addEventListener('click', () => {
+            const techSelect = document.getElementById('technology-filter');
+            techSelect.value = '';
+            activeTechFilter = null;
+            loadMarkers();
+            initLegend();
+        });
+        
+        legendEl.insertBefore(allItem, legendEl.firstChild);
     }
     
     function loadMarkers() {
@@ -482,6 +587,23 @@
         const bounds = new google.maps.LatLngBounds();
         markers.forEach(marker => bounds.extend(marker.getPosition()));
         map.fitBounds(bounds);
+    }
+    
+    function toggleLegend() {
+        const legend = document.getElementById('map-legend');
+        const toggleIcon = document.querySelector('#legend-toggle i');
+        
+        if (legend.classList.contains('collapsed')) {
+            // Expand the legend
+            legend.classList.remove('collapsed');
+            toggleIcon.classList.remove('bi-chevron-right');
+            toggleIcon.classList.add('bi-chevron-left');
+        } else {
+            // Collapse the legend
+            legend.classList.add('collapsed');
+            toggleIcon.classList.remove('bi-chevron-left');
+            toggleIcon.classList.add('bi-chevron-right');
+        }
     }
 </script>
 {% endblock %} 
