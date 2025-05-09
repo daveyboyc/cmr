@@ -61,6 +61,8 @@ cover/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+capacity_checker/settings.py
+!capacity_checker/settings_example.py
 
 # Flask stuff:
 instance/
@@ -142,4 +144,9 @@ venv.bak/
 
 # Crawler checkpoints
 checkpoints/
-capacity_checker/checkpoints/ 
+capacity_checker/checkpoints/
+
+# Data cache files
+data_cache/
+**/data_cache/
+**/map_data_*.json 

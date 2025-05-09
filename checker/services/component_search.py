@@ -10,6 +10,7 @@ from django.template.loader import render_to_string
 from ..models import Component, CMURegistry
 import json
 from django.db.models import Q
+import re
 
 from ..utils import normalize, get_cache_key
 from .data_access import (
@@ -17,38 +18,81 @@ from .data_access import (
     get_components_from_database
 )
 from .company_search import _perform_company_search, get_cmu_dataframe, _build_search_results
+from .postcode_helpers import get_location_to_postcodes_mapping, get_all_postcodes_for_area
 
 logger = logging.getLogger(__name__)
 
 
 def search_components_service(request, extra_context=None, return_data_only=False):
     """Service function for searching companies AND components in a unified interface."""
+    # --- PERFORMANCE TIMING --- START ---
+    perf_timings = {}
+    overall_start_time = time.time()
+    perf_checkpoint = time.time()
+    # --- PERFORMANCE TIMING --- END ---
+    
+    # --- REMOVE LOG ENTRY POINT ---
+    # --- REMOVED TEMPORARY CACHE CLEAR ---
+    start_time = time.time() # Start timer earlier
     # Get query and pagination parameters
     query = request.GET.get("q", "").strip()
     page = int(request.GET.get("page", 1))
-    per_page = int(request.GET.get("per_page", 50))  # Default to 50 items per page
-    sort_order = request.GET.get("comp_sort", "desc")
-    sort_field = request.GET.get("sort_field", "date")
-
+    default_per_page = 10
+    try:
+        per_page = int(request.GET.get('per_page', str(default_per_page)))
+        if per_page <= 0: per_page = default_per_page
+    except ValueError:
+        per_page = default_per_page
+        
+    # --- REMOVE TEMPORARY LOGGING --- START ---
+    sort_by = request.GET.get('sort_by', 'relevance').lower()
+    sort_order = request.GET.get('sort_order', 'desc').lower()
+    if sort_order not in ['asc', 'desc']:
+        sort_order = 'desc'
+    # logger.critical(f"--- search_components_service RAW PARAMS: ...") # Keep commented or remove
+    # --- REMOVE TEMPORARY LOGGING --- END ---
+    
+    # --- Standardize Sort Parameters --- START ---
+    # Parameters are now extracted above
+        
+    # Map UI sort fields to backend fields if necessary
+    valid_sort_fields = {
+        'location': 'location',
+        'date': 'delivery_year', 
+        'relevance': 'relevance'
+    }
+    backend_sort_by = valid_sort_fields.get(sort_by, 'relevance')
+    ui_sort_by = sort_by # Store the original UI sort value
+    if backend_sort_by != ui_sort_by:
+        logger.warning(f"Service sort_by '{ui_sort_by}' mapped to backend field '{backend_sort_by}'.")
+    # --- Standardize Sort Parameters --- END ---
+    
+    # --- Cache Key Generation (using mapped backend_sort_by) --- START ---
+    normalized_query = query.lower().strip() # Keep this for potential non-cache use
+    # Use the backend sort field name in the key for consistency with querying
+    cache_key = f"search_service_{normalized_query}_p{page}_pp{per_page}_sort{backend_sort_by}_{sort_order}"
+    logger.info(f"Generated Cache Key: {cache_key}")
+    # --- Cache Key Generation --- END ---
+    
     # Initialize context variables
     company_links = []
-    component_results_dict = {}
+    # component_results_dict = {} # No longer needed if we pass list directly
+    components_list = []
     total_component_count = 0
-    displayed_component_count = 0
-    total_pages = 1
-    has_prev = False
-    has_next = False
-    page_range = range(1, 2)
     error_message = None
     api_time = 0
-    note = None # For messages like "Using cached results"
+    note = None
+    from_cache = False # Flag for cache hits
+    page_obj = None # Initialize page object
 
-    # Debug info
+    # Debug info - update with new params
     debug_info = {
         "query": query,
         "page": page,
         "per_page": per_page,
+        "sort_by": ui_sort_by, # Use original UI value here
         "sort_order": sort_order,
+        "backend_sort_by": backend_sort_by,
         "company_search_attempted": False,
         "component_search_attempted": False,
         "final_total_components": 0,
@@ -56,271 +100,521 @@ def search_components_service(request, extra_context=None, return_data_only=Fals
         "data_source": "unknown"
     }
 
-    # If no query, just render the empty search page
+    # If no query, render empty search page
     if not query:
         logger.info("Rendering empty search page (no query)")
-        return render(request, "checker/search.html", {
-            "query": query,
-            "company_links": [],
-            "component_results": {},
-            "component_count": 0,
-            "displayed_component_count": 0,
-            "page": 1,
-            "total_pages": 1,
-            "has_prev": False,
-            "has_next": False,
-            "page_range": range(1, 2),
-            "sort_order": sort_order,
-            "debug_info": debug_info
-        })
+        # Pass sort defaults and ensure expected context variables are present
+        initial_context = {
+            "query": query, 
+            "sort_by": ui_sort_by, # Use the UI sort parameter
+            "sort_order": sort_order, 
+            "per_page": per_page,
+            "is_initial_load": True, 
+            "company_links": [], # Add empty list for company links
+            "page_obj": None, # Add None for the paginator object
+            "error": None, # Add None for error messages
+            "debug_info": debug_info, # Include basic debug info
+            "note": None, # Add None for notes
+            "total_component_count": 0, # Add zero count
+            "from_cache": False # Add from_cache flag
+        }
+        return render(request, "checker/search.html", initial_context)
 
     # --- START SEARCH LOGIC (if query exists) --- 
-    start_time = time.time()
     
-    # Check cache first
-    cache_key_base = get_cache_key("search_results", query.lower())
-    cache_key = f"{cache_key_base}_p{page}_s{per_page}_sort{sort_order}"
-    cached_results = cache.get(cache_key)
+    # --- Cache Check (Simplified key using new params) --- START ---
+    # cached_context = cache.get(cache_key)
+    # 
+    # if cached_context:
+    #     # --- REMOVE LOGGING FOR CACHE HIT ---
+    #     logger.info(f"Using cached context for query '{query}' (page {page}, sort {ui_sort_by} {sort_order})")
+    #     cached_context['from_cache'] = True
+    #     cached_context['api_time'] = 0
+    #     cached_context.setdefault('query', query)
+    #     cached_context.setdefault('per_page', per_page)
+    #     cached_context.setdefault('sort_by', ui_sort_by)
+    #     cached_context.setdefault('sort_order', sort_order)
+    #     return render(request, "checker/search.html", cached_context)
+    # --- Cache Check --- END ---
     
-    # Also try to get the total count from cache
-    total_count_cache_key = f"{cache_key_base}_total_count"
-    cached_total_count = cache.get(total_count_cache_key)
+    # --- PERFORMANCE TIMING: Setup complete ---
+    perf_timings['setup'] = time.time() - perf_checkpoint
+    perf_checkpoint = time.time()
+    # --- END PERFORMANCE TIMING ---
     
-    if cached_results and cached_total_count:
-        logger.info(f"Using cached results for query '{query}' (page {page})")
-        note = "Using cached results"
-        component_results_dict = cached_results
-        total_component_count = cached_total_count
-        displayed_component_count = min(per_page, len(component_results_dict.get(query, [])))
-        api_time = 0
-    else:
-        # STEP 1: Search for matching companies (using dataframe approach)
+    # If not cached, proceed with fetching data
+    try:
+        # --- STEP 1: Search for matching companies --- 
         debug_info["company_search_attempted"] = True
         try:
+            # --- PERFORMANCE TIMING: Start company search ---
+            company_search_start = time.time()
+            # --- END PERFORMANCE TIMING ---
+            
             cmu_df, df_api_time = get_cmu_dataframe()
             api_time += df_api_time
+            
+            # --- PERFORMANCE TIMING: CMU dataframe load ---
+            perf_timings['cmu_df_load'] = time.time() - company_search_start
+            company_search_checkpoint = time.time()
+            # --- END PERFORMANCE TIMING ---
+            
             if cmu_df is not None:
                 norm_query = normalize(query)
                 matching_records = _perform_company_search(cmu_df, norm_query)
-                # Limit companies shown for performance, use _build_search_results for formatting
+                
+                # --- PERFORMANCE TIMING: Company fuzzy search ---
+                perf_timings['company_fuzzy_search'] = time.time() - company_search_checkpoint
+                company_search_checkpoint = time.time()
+                # --- END PERFORMANCE TIMING ---
+                
                 unique_companies = list(matching_records["Full Name"].unique())[:20] 
-                company_results_built = _build_search_results(cmu_df, unique_companies, sort_order, query, cmu_limit=3)
-                if query in company_results_built:
-                    company_links = company_results_built[query]
-                logger.info(f"Found {len(company_links)} matching company links for '{query}'")
+                # Note: _build_search_results uses comp_sort internally, might need update later if company sorting is added
+                company_data_list, render_time_links = _build_search_results(
+                    cmu_df, unique_companies, sort_order, query, cmu_limit=3, add_debug_info=True
+                )
+                api_time += render_time_links # Add render time
+                
+                # --- PERFORMANCE TIMING: Company link building ---
+                perf_timings['company_link_building'] = time.time() - company_search_checkpoint
+                company_search_checkpoint = time.time()
+                # --- END PERFORMANCE TIMING ---
+                
+                logger.info(f"Found {len(company_data_list)} matching company links for '{query}'")
+                # Debug: Log the type and content of the returned list
+                logger.debug(f"Type of _build_search_results return: {type(company_data_list)}")
+                if isinstance(company_data_list, list) and company_data_list:
+                    logger.debug(f"First item type in company_data_list: {type(company_data_list[0])}")
+                    logger.debug(f"First item content: {str(company_data_list[0])[:200]}") # Log first 200 chars
+                
+                # Extract HTML for template and CMU IDs for filtering
+                company_links = [item['html'] for item in company_data_list]
+                company_cmu_id_map = {item['html']: item['cmu_ids'] for item in company_data_list} # Use HTML as key temporarily, might need better approach
+                company_link_count = len(company_links)
+                render_time_links += render_time_links
+                logger.info(f"_build_search_results generated {company_link_count} company links.")
+                
+                # --- PERFORMANCE TIMING: Total company search ---
+                perf_timings['total_company_search'] = time.time() - company_search_start
+                # --- END PERFORMANCE TIMING ---
             else:
                 error_message = "Error loading company data (CMU dataframe)."
-                logger.error(error_message)
-        except Exception as e:
-            error_message = f"Error searching companies: {str(e)}"
+                perf_timings['total_company_search'] = time.time() - company_search_start
+        except Exception as e_comp:
+            error_message = f"Error searching companies: {str(e_comp)}"
             logger.exception(error_message)
-            debug_info["company_error"] = error_message
+            perf_timings['total_company_search'] = time.time() - perf_checkpoint
+        
+        perf_checkpoint = time.time()
 
-        # STEP 2: Search for matching components (using database fetch)
+        # --- STEP 2: Search for components using data_access --- START ---
         debug_info["component_search_attempted"] = True
-        components_list = []
-        try:
-            # --- REFACTOR: Query and Paginate First --- 
-            try:
-                # Determine sort order for DB query if possible
-                db_sort_prefix = '-' if sort_order == 'desc' else ''
-                if sort_field == 'date':
-                    db_sort_field = f'{db_sort_prefix}delivery_year'
-                elif sort_field == 'derated_capacity':
-                    db_sort_field = f'{db_sort_prefix}derated_capacity_mw'
-                else: 
-                    db_sort_field = None # Requires Python sorting later
+        
+        # --- Determine Search Type (Revised) --- START ---
+        search_type_start = time.time()
+        
+        search_type = "general"  # Default
+        
+        query_lower = query.lower().strip()
+        query_words = query_lower.split()
+        word_count = len(query_words)
+        
+        # Optimization: Fast path for very short queries to avoid overhead
+        if len(query_lower) < 3:
+            logger.info(f"Query '{query}' is too short for enhanced search, using basic filtering")
+            search_type = "general"
+            debug_info["search_type_reason"] = "query_too_short"
+            perf_timings['search_type_determination'] = time.time() - search_type_start
+            # Don't return here, just set the type and continue
+        
+        # Check if this is a multi-word query - potentially slow, handle differently
+        elif word_count > 1:
+            # For multi-word queries, we'll still use the efficient indexed fields
+            # but with a more optimized approach in the data_access layer
+            debug_info["query_word_count"] = word_count
+            debug_info["search_type_reason"] = "multi_word_query"
+            logger.info(f"Multi-word query detected: '{query}' with {word_count} words")
+            search_type = "general"  # Use general search for multi-word queries
+            perf_timings['search_type_determination'] = time.time() - search_type_start
+            # Don't return here, just set the type and continue
+        
+        # Check if this is an exact CMU ID
+        else:
+            cmu_check_start = time.time()
+            is_exact_cmu_id = Component.objects.filter(cmu_id__iexact=query).exists()
+            perf_timings['cmu_id_check'] = time.time() - cmu_check_start
+            debug_info["is_exact_cmu_id_check"] = is_exact_cmu_id
 
-                # Get initial queryset (apply filters based on query)
-                # (This part needs to be adapted from the existing logic that uses get_components_from_database)
-                # Example: Replace data_access.get_components_from_database with direct model query
-                base_queryset = Component.objects.all() # Start with all
-                if query:
-                     # Simplified example: You'll need to adapt your existing multi-field search logic here
-                     base_queryset = base_queryset.filter(
-                         Q(company_name__icontains=query) | 
-                         Q(location__icontains=query) | 
-                         Q(description__icontains=query) | 
-                         Q(cmu_id__icontains=query) |
-                         Q(technology__icontains=query)
-                     ).distinct()
-
-                # Apply DB sorting if applicable
-                if db_sort_field:
-                    component_queryset = base_queryset.order_by(db_sort_field)
-                else:
-                    component_queryset = base_queryset # Keep original order for Python sort
-
-                total_component_count = component_queryset.count()
-                logger.info(f"Initial query found {total_component_count} components for '{query}'")
-                
-                # --- Python Sorting (if needed) --- 
-                if sort_field == 'mw': # Example for Connection Capacity
-                    logger.info(f"Fetching all {total_component_count} components for Python sort: {sort_field}")
-                    all_components = list(component_queryset) # Fetch all
-                    # Define get_connection_capacity helper (as before)
-                    def get_connection_capacity(comp):
-                        # ... (logic to parse from additional_data) ...
-                        return 0 # Placeholder
-                    all_components.sort(key=get_connection_capacity, reverse=(sort_order == "desc"))
-                    logger.info(f"Applied Python sort for MW ({sort_order})")
-                    paginator = Paginator(all_components, per_page)
-                else:
-                    # Paginate the queryset directly if using DB sort
-                    paginator = Paginator(component_queryset, per_page)
+            if is_exact_cmu_id:
+                search_type = "cmu_id"
+                debug_info["search_type_reason"] = "exact_cmu_id_match"
+                logger.info(f"Query '{query}' identified as an exact CMU ID")
+            else:
+                # If this looks like a company name (no numbers, longer than 4 chars)
+                # try a company-focused search
+                company_check_start = time.time()
+                if len(query) > 4 and not any(c.isdigit() for c in query):
+                    # Common name parts that suggest this is a company name
+                    company_keywords = ['ltd', 'limited', 'plc', 'group', 'energy', 'power', 'holdings']
                     
-                # Get the current page
-                try:
-                    components_page = paginator.page(page)
-                except PageNotAnInteger:
-                    components_page = paginator.page(1)
-                except EmptyPage:
-                    components_page = paginator.page(paginator.num_pages)
-                # --- END REFACTOR --- 
-                
-                # --- Fetch Registry Data for Current Page --- 
-                page_components = list(components_page.object_list)
-                cmu_ids_to_check = [comp.cmu_id for comp in page_components if comp.cmu_id and comp.derated_capacity_mw is None]
-                registry_capacity_map = {}
-                if cmu_ids_to_check:
-                    registry_entries = CMURegistry.objects.filter(cmu_id__in=list(set(cmu_ids_to_check)))
-                    for entry in registry_entries:
-                        try:
-                            raw_data = entry.raw_data or {}
-                            capacity_str = raw_data.get("De-Rated Capacity")
-                            if capacity_str and isinstance(capacity_str, str) and capacity_str.lower() != 'n/a':
-                                 registry_capacity_map[entry.cmu_id] = float(capacity_str)
-                            elif isinstance(capacity_str, (int, float)):
-                                 registry_capacity_map[entry.cmu_id] = float(capacity_str)
-                        except (ValueError, TypeError, json.JSONDecodeError) as parse_error:
-                            logger.warning(f"Could not parse registry capacity for CMU {entry.cmu_id}: {parse_error}")
-                logger.info(f"Fetched registry capacity for {len(registry_capacity_map)} CMUs on page {page}")
-                # --- END Fetch Registry Data --- 
-                
-                # --- Prepare Components for Template (including display_capacity) --- 
-                components_for_template = []
-                for comp in page_components:
-                    # Determine display capacity
-                    display_capacity = comp.derated_capacity_mw
-                    registry_fallback_value = None # Initialize fallback value
-                    if display_capacity is None:
-                        registry_fallback_value = registry_capacity_map.get(comp.cmu_id)
-                        display_capacity = registry_fallback_value # Assign fallback if DB was None
+                    # Check for company keywords since we can't use name_of_applicant field
+                    if any(keyword in query_lower for keyword in company_keywords):
+                        search_type = "company"
+                        debug_info["search_type_reason"] = "likely_company_name"
+                        logger.info(f"Query '{query}' identified as likely company name")
+                perf_timings['company_check'] = time.time() - company_check_start
+
+                # Check if this is a known location directly in the database
+                if search_type == "general":  # Only check location if not already identified as company
+                    location_check_start = time.time()
+                    is_known_location = Component.objects.filter(
+                        Q(location__iexact=query) | 
+                        Q(county__iexact=query) |
+                        Q(outward_code__iexact=query.upper())
+                    ).exists()
                     
-                    # Log the capacity determination process
-                    logger.info(
-                        f"Capacity Check CMU {comp.cmu_id}: "
-                        f"DB={comp.derated_capacity_mw}, "
-                        f"RegistryFallback={registry_fallback_value}, "
-                        f"FinalDisplay={display_capacity}"
+                    # Only do the expensive postcode check if we need to
+                    if not is_known_location and len(query) >= 4:
+                        # Check if any postcodes are associated with this location
+                        # using the local mapping first before the expensive API call
+                        expanded_postcodes = get_all_postcodes_for_area(query_lower)
+                        debug_info["expanded_postcodes"] = expanded_postcodes
+                        
+                        if expanded_postcodes:
+                            is_known_location = True
+                            search_type = "location"
+                            debug_info["search_type_reason"] = "known_location_with_postcodes"
+                            logger.info(f"Query '{query}' identified as location with postcodes: {expanded_postcodes}")
+                    
+                    perf_timings['location_check'] = time.time() - location_check_start
+                    
+                    if is_known_location:
+                        search_type = "location"
+                        debug_info["search_type_reason"] = "known_location"
+                        logger.info(f"Query '{query}' identified as a location")
+
+        # Log the final determination
+        debug_info["determined_search_type"] = search_type
+        logger.info(f"Final search type for '{query}': {search_type}")
+        perf_timings['search_type_determination'] = time.time() - search_type_start
+        # --- Determine Search Type (Revised) --- END ---
+        
+        # --- Apply component search filter and fetch components --- START ---
+        filter_start = time.time()
+        component_filter = Q()
+
+        # Add logic based on query type (company, cmu_id, general)
+        if search_type == "company" and company_links:
+            # Filter by CMU IDs associated with the found companies
+            all_cmu_ids = []
+            for company_data in company_data_list: 
+                 all_cmu_ids.extend(company_data.get('cmu_ids', []))
+            # Remove duplicates
+            all_cmu_ids = list(set(all_cmu_ids)) 
+            if all_cmu_ids:
+                component_filter = Q(cmu_id__in=all_cmu_ids)
+                logger.info(f"Built component filter for {len(all_cmu_ids)} CMU IDs from found companies.")
+        elif search_type == "cmu_id":
+             component_filter = Q(cmu_id__iexact=query) # Exact match for CMU ID
+        elif search_type == "location":
+            # For location searches, we'll use the enhanced location search in data_access.py
+            # This will be passed through the query_type parameter
+            component_filter = None
+            logger.info(f"Using enhanced location search for query: {query}")
+            
+            # Get expanded postcodes for display in template
+            expanded_postcodes = get_all_postcodes_for_area(query.lower())
+            if expanded_postcodes:
+                debug_info["expanded_postcodes"] = expanded_postcodes
+        else: # General search
+            # Use broader search across multiple relevant fields
+            # Split query into words and apply AND logic between terms
+            query_words = query.lower().split()
+            if len(query_words) > 1:
+                # For multi-word queries, require each word to be present in any of the fields (AND between words, OR between fields)
+                multiword_start_time = time.time()
+                multi_word_filter = Q()
+                
+                # Optimization: Start with exact phrase match as it's fastest when available
+                exact_phrase_filter = (
+                    Q(location__icontains=query) | 
+                    Q(description__icontains=query) | 
+                    Q(technology__icontains=query) |
+                    Q(company_name__icontains=query)
+                )
+                
+                # Then add individual word filters
+                word_filters = []
+                for word in query_words:
+                    if len(word) >= 2:
+                        # Create a word filter that checks across all fields
+                        # Using Q objects with OR between fields is faster than separate filters
+                        word_filter = (
+                            Q(location__icontains=word) | 
+                            Q(county__icontains=word) |
+                            Q(outward_code__icontains=word) |
+                            Q(description__icontains=word) | 
+                            Q(technology__icontains=word) |
+                            Q(company_name__icontains=word)
+                        )
+                        word_filters.append(word_filter)
+                
+                # Combine the word filters with AND between them
+                if word_filters:
+                    combined_word_filter = word_filters[0]
+                    for f in word_filters[1:]:
+                        combined_word_filter &= f
+                    
+                    # Combine exact phrase and word filters with OR for maximum recall
+                    multi_word_filter = exact_phrase_filter | combined_word_filter
+                else:
+                    # If no valid words, just use the exact phrase filter
+                    multi_word_filter = exact_phrase_filter
+                    
+                # Apply the multi-word filter
+                component_filter = multi_word_filter
+                
+                perf_timings['multi_word_logic'] = time.time() - multiword_start_time
+                logger.info(f"Applied optimized multi-word logic filter for query: {query}")
+            else:
+                # Single word query - use simpler logic with direct field matches
+                single_word = query_words[0] if query_words else ""
+                
+                if len(single_word) >= 2:
+                    # For single words, use a more specific set of filters
+                    component_filter = (
+                        Q(location__icontains=single_word) | 
+                        Q(county__icontains=single_word) |
+                        Q(outward_code__icontains=single_word) |
+                        Q(description__icontains=single_word) | 
+                        Q(technology__icontains=single_word) |
+                        Q(company_name__icontains=single_word) |
+                        Q(cmu_id__icontains=single_word)
+                    )
+                else:
+                    # Very short word - restrict the search to indexed fields only
+                    component_filter = (
+                        Q(cmu_id__istartswith=single_word) |
+                        Q(location__istartswith=single_word) |
+                        Q(company_name__istartswith=single_word)
                     )
                     
-                    # Convert model object to dict and add display_capacity
-                    # (Adapt this based on how _component_card.html expects data)
-                    comp_dict = {
-                        'id': comp.id,
-                        'location': comp.location,
-                        'company_name': comp.company_name,
-                        'description': comp.description,
-                        'technology': comp.technology,
-                        'cmu_id': comp.cmu_id,
-                        'component_id': comp.component_id,
-                        'derated_capacity_mw': comp.derated_capacity_mw, # Keep original for info
-                        'display_capacity': display_capacity, # Use this for the badge
-                        'additional_data': comp.additional_data, # Pass if needed by card
-                        'auction_name': comp.auction_name, # Add auction name
-                        'delivery_year': comp.delivery_year, # Add delivery year
-                        # ... add other fields needed by _component_card.html ...
-                    }
-                    components_for_template.append(comp_dict)
-                # --- END Prepare Components --- 
+                logger.info(f"Applied direct field matching logic for single-word query: {query}")
                 
-                # Update context preparation
-                context = {
-                    "query": query,
-                    "note": note,
-                    "company_links": company_links,
-                    "component_results": component_results_dict, 
-                    "component_count": total_component_count,
-                    "displayed_component_count": displayed_component_count,
-                    "error": error_message,
-                    "api_time": api_time,
-                    "comp_sort": sort_order,  # Use comp_sort to match template
-                    "debug_info": debug_info,
-                    "page": page,
-                    "per_page": per_page,
-                    "total_pages": total_pages,
-                    "has_prev": has_prev,
-                    "has_next": has_next,
-                    "page_range": page_range,
-                    "unified_search": True,
-                    'components': components_for_template, # Pass the processed list
-                    'page_obj': components_page, # Pass the page object
-                    'paginator': paginator,
-                    'component_count': total_component_count, # Total count before pagination
-                }
-                
-                # ... (cache saving logic might need adjustment based on paginated data) ...
-                
-            except Exception as e:
-                logger.exception(f"Error in search_components_service: {str(e)}")
-                # Render error page or fallback
-                # ... (error handling) ...
-                return render(request, "checker/search.html", {'error': str(e)}) # Basic error display
-
-        except Exception as e:
-            logger.exception(f"Error during component query/pagination: {str(e)}")
-            error_message = f"Error fetching component data: {str(e)}"
-            components_for_template = [] # Ensure empty list on error
-            total_component_count = 0
-            components_page = None # No page object on error
-            paginator = Paginator([], per_page) # Empty paginator
-            components_page = paginator.page(1) # Set page 1 for context
-            # Fall through to render template with error message
-
-    # STEP 4: Calculate final pagination variables
-    if total_component_count > 0 and per_page > 0:
-        total_pages = (total_component_count + per_page - 1) // per_page
-    else:
-        total_pages = 1
+            # Use a lighter-weight version of filtering for general searches
+            # Avoiding the heavy postcode mapping helps with faster responses
+            
+            # Record our filter choice
+            debug_info["filter_type"] = "multi_word" if len(query_words) > 1 else "single_word"
         
-    has_prev = page > 1
-    has_next = page < total_pages
-    # Ensure page range is sensible
-    page_range_start = max(1, page - 2)
-    page_range_end = min(total_pages + 1, page + 3)
-    # Prevent range end from being less than start if total_pages is small
-    if page_range_end <= page_range_start:
-         page_range_end = page_range_start + 1 
-    page_range = range(page_range_start, page_range_end)
+        debug_info["component_search_filter"] = str(component_filter)
+        perf_timings['component_filter_construction'] = time.time() - filter_start
+        # --- Remove Added Debug Logging ---
+        # logger.debug(f"Component filter constructed for type '{search_type}': {component_filter}")
+        # --- End Remove Added Debug Logging ---
+        
+        # Call get_components_from_database using the constructed filter
+        components_list = []
 
-    # Update debug info with final counts
-    debug_info["final_total_components"] = total_component_count
-    debug_info["final_displayed_components"] = displayed_component_count
+        # --- Add Logging Before Calling Data Access --- START ---
+        # --- REMOVE FOCUSSED LOGGING ---
+        # logger.warning(f"Value of backend_sort_by JUST BEFORE CALL: '{backend_sort_by}'") 
+        # --- REMOVE REDUNDANT DEBUG LOG ---
+        # logger.debug(f"Calling get_components_from_database with: ...")
+        # --- Add Logging Before Calling Data Access --- END ---
+        
+        # --- PERFORMANCE TIMING: Database query start ---
+        db_query_start = time.time()
+        # --- END PERFORMANCE TIMING ---
+        
+        # --- Conditional call to data_access based on search type --- START ---
+        if search_type == "cmu_id":
+            # For specific CMU ID searches, use the exact db_filter
+            components_list_raw, total_component_count = get_components_from_database(
+                 search_term=query, # Pass CMU ID here FOR RANKING within results
+                 page=page,
+                 per_page=per_page,
+                 sort_by=backend_sort_by,
+                 sort_order=sort_order,
+                 db_filter=component_filter, # Pass the specific CMU ID filter
+                 query_type='cmu_id'
+             )
+            debug_info["data_access_call_type"] = "db_filter (CMU ID)"
+        elif search_type == "location":
+            # For location searches, specifically set query_type='location'
+            components_list_raw, total_component_count = get_components_from_database(
+                 search_term=query, # Use query as search term
+                 page=page,
+                 per_page=per_page,
+                 sort_by=backend_sort_by,
+                 sort_order=sort_order,
+                 db_filter=None, # No specific filter, let data_access build the location filter
+                 query_type='location' # This will trigger the enhanced location search logic
+             )
+            debug_info["data_access_call_type"] = "location (Enhanced Search)"
+        else:
+            # For general or company searches, use search_term to allow multi-field matching and ranking
+            components_list_raw, total_component_count = get_components_from_database(
+                 search_term=query, # Use the query as the search term
+                 page=page,
+                 per_page=per_page,
+                 sort_by=backend_sort_by,
+                 sort_order=sort_order,
+                 db_filter=component_filter, # Now passing component_filter (may be None)
+                 query_type=search_type # Pass the analyzed type
+             )
+            debug_info["data_access_call_type"] = "search_term (General/Company)"
+        # --- Conditional call to data_access based on search type --- END ---
+        
+        # --- PERFORMANCE TIMING: Database query execution ---
+        perf_timings['database_query_execution'] = time.time() - db_query_start
+        # --- END PERFORMANCE TIMING ---
+        
+        # Log results after the call
+        logger.info(f"get_components_from_database returned {len(components_list_raw)} components for page {page}. Total count: {total_component_count}. Call type: {debug_info.get('data_access_call_type')}")
 
-    # STEP 5: Prepare context and render template
+        # --- Format components and handle pagination object creation --- START ---
+        # Format components using the utility function - Apply highlighting here if needed
+        # We need the cmu_to_company_mapping for formatting
+        format_start = time.time()
+        cmu_mapping = cache.get("cmu_to_company_mapping", {})
+        components_list = [
+            format_component_record(comp, cmu_mapping)
+            for comp in components_list_raw
+        ]
+        perf_timings['format_components'] = time.time() - format_start
+        
+        # Apply location-based grouping to components_list_raw
+        from ..templatetags.checker_tags import group_by_location
+        grouped_components = group_by_location(components_list_raw)
+        logger.info(f"Grouped {len(components_list_raw)} components into {len(grouped_components)} location groups")
+        debug_info["grouped_component_count"] = len(grouped_components)
+        
+        # Create Paginator and Page object manually for the template
+        pagination_start = time.time()
+        paginator = Paginator(range(total_component_count), per_page) # Paginate dummy range
+        try:
+            page_obj = paginator.page(page)
+        except PageNotAnInteger:
+            page_obj = paginator.page(1)
+        except EmptyPage:
+            page_obj = paginator.page(paginator.num_pages)
+            
+        # Replace page_obj.object_list with our grouped components
+        page_obj.object_list = grouped_components
+        debug_info["final_total_components"] = total_component_count
+        debug_info["final_displayed_components"] = len(grouped_components)
+        perf_timings['pagination_setup'] = time.time() - pagination_start
+        # --- Format components and handle pagination object creation --- END ---
+                
+    except Exception as e:
+        error_message = f"Error fetching search results: {str(e)}"
+        logger.exception(error_message)
+        debug_info["error"] = error_message
+        # Ensure page_obj exists even on error for template rendering
+        paginator = Paginator([], per_page) # Empty paginator
+        page_obj = paginator.page(1)
+
+    api_time += time.time() - start_time # Add processing time to any DF time
+    perf_timings['total_search_time'] = time.time() - overall_start_time
+
+    # --- Prepare final context --- 
     context = {
         "query": query,
         "note": note,
         "company_links": company_links,
-        "component_results": component_results_dict, 
-        "component_count": total_component_count,
-        "displayed_component_count": displayed_component_count,
+        # Pass the page object which contains the components for the current page
+        "page_obj": page_obj, 
+        # Pass individual components list IF the template iterates over this instead of page_obj
+        # "components": components_list, 
+        "component_count": total_component_count, # Total matching components
         "error": error_message,
         "api_time": api_time,
-        "comp_sort": sort_order,  # Use comp_sort to match template
+        "sort_by": ui_sort_by,         # Use original UI value
+        "sort_order": sort_order,   # Use standardized name
         "debug_info": debug_info,
-        "page": page,
+        # Pagination variables (useful if template doesn't solely rely on page_obj)
+        "page": page_obj.number if page_obj else page,
         "per_page": per_page,
-        "total_pages": total_pages,
-        "has_prev": has_prev,
-        "has_next": has_next,
-        "page_range": page_range,
-        "unified_search": True,
-        "page_obj": components_page, # Add the paginated components object here
+        "total_pages": page_obj.paginator.num_pages if page_obj else 1,
+        "has_prev": page_obj.has_previous() if page_obj else False,
+        "has_next": page_obj.has_next() if page_obj else False,
+        "page_range": list(page_obj.paginator.get_elided_page_range(number=page_obj.number, on_each_side=1, on_ends=1)) if page_obj else list(range(1, 2)),
+        "from_cache": False,  # Add default value for from_cache
+        "perf_timings": perf_timings,  # Add performance timings to context
+        "expanded_postcodes": debug_info.get("expanded_postcodes", [])  # Add expanded postcodes to context
     }
+    
+    # Log the performance timings
+    logger.warning(f"PERFORMANCE TIMINGS for '{query}' (page {page}):")
+    for operation, duration in perf_timings.items():
+        logger.warning(f"  {operation}: {duration:.4f}s")
+    logger.warning(f"  TOTAL: {perf_timings.get('total_search_time', 0):.4f}s")
+    
+    # Add extra context if provided
+    if extra_context:
+        context.update(extra_context)
+        
+    # Cache the context if results were fetched successfully
+    if not error_message and not from_cache:
+        context_to_cache = context.copy()
+        # Remove potentially large objects not suitable for cache or add specific data
+        # We need page_obj details, not the object itself in cache
+        context_to_cache.pop('page_obj', None) 
+        context_to_cache['components_list_cached'] = components_list # Cache the list explicitly
+        context_to_cache['total_component_count_cached'] = total_component_count
+        # Add pagination metadata needed to reconstruct context
+        context_to_cache['pagination_meta'] = {
+            'number': page_obj.number if page_obj else page,
+            'num_pages': page_obj.paginator.num_pages if page_obj else 1,
+        }
+        # Store original time
+        context_to_cache['original_time'] = api_time 
+        # cache.set(cache_key, context_to_cache, 3600) # Cache for 1 hour
+        # logger.info(f"Cached context for key {cache_key}")
 
-    return render(request, "checker/search.html", context)
+    # Return raw data if requested (for API endpoints)
+    if return_data_only:
+        # Create a structured result that can be easily consumed by API
+        raw_results = {
+            'components': components_list,  # Use the formatted components
+            'total_count': total_component_count,
+            'query': query,
+            'page': page,
+            'per_page': per_page,
+            'sort_by': sort_by,
+            'sort_order': sort_order,
+            'api_time': api_time,
+            'error': error_message,
+            'perf_timings': perf_timings  # Include performance timings in API response
+        }
+        
+        # Debug logging for API
+        logger.info(f"API returning raw results: {len(components_list)} components out of {total_component_count} total for query '{query}'")
+        
+        return raw_results
+        
+    # Continue with the render for web requests
+    # Render the template (assuming search.html is the correct one)
+    template_name = "checker/search.html"
+    # --- Add Logging Before Rendering --- START ---
+    try:
+        # Log key context variables being passed to the template
+        context_for_log = {
+            k: context.get(k) for k in [
+                'query', 'note', 'component_count', 'error', 'api_time', 
+                'sort_by', 'sort_order', 'page', 'per_page', 'total_pages',
+                'has_prev', 'has_next', 'from_cache'
+            ]
+        }
+        context_for_log['page_obj_exists'] = context.get('page_obj') is not None
+        context_for_log['page_obj_len'] = len(context.get('page_obj').object_list) if context.get('page_obj') else 0
+        logger.debug(f"Context before rendering {template_name}: {context_for_log}")
+    except Exception as log_ex:
+        logger.error(f"Error logging context before render: {log_ex}")
+    # --- Add Logging Before Rendering --- END ---
+    logger.info(f"Rendering template {template_name} with context")
+    return render(request, template_name, context)
 
 
 def format_component_record(record, cmu_to_company_mapping):
@@ -406,11 +700,11 @@ def format_component_record(record, cmu_to_company_mapping):
         try:
             # Use Django's reverse function if possible, otherwise fallback to hardcoded URL
             detail_url = reverse('component_detail', kwargs={'pk': db_id})
-            loc_link = f'<a href="{detail_url}" style="color: blue; text-decoration: underline;">{loc}</a>'
+            loc_link = f'<a href="{detail_url}">{loc}</a>'
         except Exception as url_error:
             logger.warning(f"Could not reverse URL for component_detail pk={db_id}: {url_error}. Falling back to hardcoded URL.")
             # Fallback to hardcoded URL pattern if reverse fails
-            loc_link = f'<a href="/component/{db_id}/" style="color: blue; text-decoration: underline;">{loc}</a>'
+            loc_link = f'<a href="/component/{db_id}/">{loc}</a>'
     # --- END FIX ---
 
     # --- START: Add Map Button Logic ---
@@ -662,3 +956,10 @@ def company_detail(request, company_id):
             "company_name": None,
             "traceback": traceback.format_exc() if request.GET.get("debug") else None
         })
+
+# Helper function to safely parse year (moved from company_detail)
+def try_parse_year(year_str):
+    try:
+        return int(year_str)
+    except (ValueError, TypeError):
+        return -1 # Treat non-numeric years as oldest

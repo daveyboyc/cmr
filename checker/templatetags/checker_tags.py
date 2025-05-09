@@ -133,3 +133,125 @@ def strip_prefix(value, prefix):
     if isinstance(value, str) and value.startswith(prefix):
         return value[len(prefix):]
     return value
+
+@register.filter(name='group_by_location')
+def group_by_location(components):
+    """
+    Groups components by location and description, preserving unique CMU IDs and delivery years.
+    
+    Returns a list of grouped components, where each group has:
+    - location: The shared location
+    - description: The shared description
+    - cmu_ids: List of unique CMU IDs
+    - auction_names: List of unique auction names
+    - auction_to_components: Mapping of auction names to component IDs
+    - active_status: Whether any components in the group are from 2024-25 or later
+    - first_component: The first component in the group (for reference)
+    - count: Number of components in the group
+    """
+    if not components:
+        return []
+    
+    def normalize_location(loc):
+        """Normalize location for consistent grouping"""
+        if not loc:
+            return ""
+        # Convert to lowercase and strip whitespace
+        norm = loc.lower().strip()
+        # Remove common punctuation
+        norm = re.sub(r'[,\.\-_\/\\]', ' ', norm)
+        # Remove extra whitespace
+        norm = re.sub(r'\s+', ' ', norm)
+        # Handle special cases
+        if "energy centre" in norm and "mosley" in norm:
+            return "energy centre lower mosley street"
+        return norm
+    
+    def is_auction_year_active(auction_name):
+        """Check if an auction year is 2024-25 or later"""
+        if not auction_name:
+            return False
+        
+        # Extract year from auction name using regex
+        year_match = re.search(r'(\d{4})[-/]?(\d{2,4})', auction_name)
+        if year_match:
+            start_year = year_match.group(1)
+            try:
+                # Convert to integer for comparison
+                year_int = int(start_year)
+                # Active if 2024 or later
+                return year_int >= 2024
+            except ValueError:
+                return False
+        return False
+    
+    groups = {}
+    
+    for comp in components:
+        # Extract key fields
+        location = comp.get('location', '')
+        description = comp.get('description', '')
+        cmu_id = comp.get('cmu_id', '')
+        auction_name = comp.get('auction_name', '')
+        component_id = comp.get('id')  # Get component ID for linking
+        
+        # Create normalized keys for grouping
+        norm_location = normalize_location(location)
+        
+        # Create a group key
+        group_key = (norm_location, description)
+        
+        if group_key not in groups:
+            groups[group_key] = {
+                'location': location,  # Keep original formatting
+                'description': description,
+                'cmu_ids': set(),
+                'auction_names': set(),
+                'auction_to_components': {},  # Map auction names to component IDs
+                'active_status': False,  # Initialize as inactive
+                'components': [],
+                'first_component': comp  # Store first component
+            }
+        
+        if cmu_id:
+            groups[group_key]['cmu_ids'].add(cmu_id)
+        
+        if auction_name:
+            groups[group_key]['auction_names'].add(auction_name)
+            
+            # Check if this auction makes the group active
+            if is_auction_year_active(auction_name):
+                groups[group_key]['active_status'] = True
+            
+            # Store the component ID for this auction name
+            if component_id and auction_name:
+                if auction_name not in groups[group_key]['auction_to_components']:
+                    groups[group_key]['auction_to_components'][auction_name] = []
+                groups[group_key]['auction_to_components'][auction_name].append(component_id)
+        
+        groups[group_key]['components'].append(comp)
+    
+    # Convert to list and add count
+    result = []
+    for key, group in groups.items():
+        group['count'] = len(group['components'])
+        group['cmu_ids'] = list(group['cmu_ids'])
+        
+        # Sort auction names by year in descending order (newest first)
+        def extract_year(auction_name):
+            year_match = re.search(r'(\d{4})[-/]?(\d{2,4})', auction_name)
+            if year_match:
+                try:
+                    return int(year_match.group(1))
+                except ValueError:
+                    return 0
+            return 0
+        
+        # Convert to list and sort in descending order
+        auction_names_list = list(group['auction_names'])
+        auction_names_list.sort(key=extract_year, reverse=True)
+        group['auction_names'] = auction_names_list
+        
+        result.append(group)
+    
+    return result
