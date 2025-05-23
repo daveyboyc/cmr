@@ -1,0 +1,20 @@
+<div class="card year-card">
+    <div class="card-header" id="heading-{{ year_id }}">
+        <h5 class="mb-0">
+            <button class="year-button" data-target="collapse-{{ year_id }}">
+                <strong>Delivery Year: {{ year }}</strong>
+            </button>
+        </h5>
+    </div>
+    <div id="collapse-{{ year_id }}" class="year-content">
+        <div class="card-body">
+            <div class="accordion" id="auction-accordion-{{ year_id }}">
+                {% for auction_name, cmu_ids in auctions.items %}
+                    {% with auction_id="auction-"|add:year_id|add:"-"|add:forloop.counter0|slugify %}
+                        {% include "checker/components/auction_section.html" with auction_name=auction_name auction_id=auction_id year_id=year_id company_id=company_id year=year %}
+                    {% endwith %}
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div> 

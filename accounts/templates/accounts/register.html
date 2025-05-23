@@ -1,0 +1,27 @@
+{% extends "checker/base.html" %}
+{% load static %}
+
+{% block title %}Register - Capacity Market Search{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Register</h2>
+    
+    {% if messages %}
+    <div class="messages">
+        {% for message in messages %}
+        <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %} mb-4">
+            {{ message }}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }} {# Render form fields as paragraphs #}
+        <button type="submit" class="btn btn-primary">Register</button>
+    </form>
+    <p class="mt-3">Already have an account? <a href="{% url 'login' %}">Login here</a>.</p> {# Link to Django's built-in login #}
+</div>
+{% endblock %} 

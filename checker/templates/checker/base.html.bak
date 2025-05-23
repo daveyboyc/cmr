@@ -1,0 +1,967 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="The easiest way to explore Capacity Market auctions — no fuss, just results.">
+    <title>{% block title %}CMR Statistics{% endblock %}</title>
+    
+    <!-- Matomo Tag Manager -->
+    <script>
+      var _mtm = window._mtm = window._mtm || [];
+      _mtm.push({'mtm.startTime': (new Date().getTime()), 'event': 'mtm.Start'});
+      (function() {
+        var d=document, g=d.createElement('script'), s=d.getElementsByTagName('script')[0];
+        g.async=true; g.src='https://cdn.matomo.cloud/capacitymarket.matomo.cloud/container_rnrehwJy.js'; s.parentNode.insertBefore(g,s);
+      })();
+    </script>
+    <!-- End Matomo Tag Manager -->
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/png" href="{% static 'images/favicon.png' %}">
+    <style>
+        /* Define background image variables based on theme */
+        html[data-bs-theme="light"] {
+            --bg-image: url("{% static 'images/backgrounds/industrial_background.jpeg' %}");
+        }
+        html[data-bs-theme="dark"] {
+            --bg-image: url("{% static 'images/backgrounds/industrial_background_dark.jpeg' %}"); /* Reverted to .jpeg to match renamed file */
+        }
+
+        /* Apply background and flex styles to body */
+        body, html {
+            height: 100%; /* Needed for full height background */
+            margin: 0; /* Remove default body margin */
+            /* Background image set using CSS variable */
+            background-image: var(--bg-image);
+            background-position: center;
+            background-repeat: no-repeat;
+            background-size: cover;
+            background-attachment: fixed;
+            display: flex;
+            flex-direction: column;
+            font-family: 'Roboto', sans-serif; /* Use Roboto font */
+        }
+
+        /* Adjust container for background */
+        .container {
+            max-width: 1100px; /* Match search page */
+            margin: 20px auto; /* Center with margin */
+            background-color: rgba(var(--bs-body-bg-rgb), 0.92); /* Slightly less transparent */
+            padding: 30px;
+            border-radius: 8px;
+            flex-grow: 1; /* Allow content to grow */
+            width: 95%;
+            color: var(--bs-body-color); /* Use Bootstrap variable for text */
+        }
+
+        /* Keep other base styles */
+        .error { color: var(--bs-danger); } /* Use BS variable */
+        nav ul { list-style: none; padding: 0; }
+        nav ul li { display: inline; margin-right: 10px; }
+        .card {
+             /* Use Bootstrap variables */
+             background-color: var(--bs-card-bg);
+             border: var(--bs-border-width) solid var(--bs-border-color);
+             padding: 15px;
+             margin-bottom: 15px;
+             border-radius: var(--bs-card-border-radius);
+        }
+        .card-header { font-weight: bold; margin-bottom: 10px; }
+
+        /* Footer Styles */
+        .page-footer {
+            position: fixed; /* Fix position relative to viewport */
+            bottom: 10px;    /* Position 10px from the bottom */
+            right: 10px;     /* Position 10px from the right */
+            background-color: rgba(var(--bs-tertiary-bg-rgb), 0.8); /* Semi-transparent tertiary bg */
+            padding: 5px 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 1000; /* Ensure it's above other content */
+            display: flex; /* Use flexbox for alignment */
+            align-items: center; /* Vertically center items */
+        }
+        .page-footer ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex; /* Use flexbox for horizontal list */
+            align-items: center;
+        }
+        .page-footer ul li {
+            margin-left: 10px; /* Space between items */
+        }
+        .page-footer ul li:first-child {
+            margin-left: 0;
+        }
+
+        /* Theme Switch Styling */
+        .theme-switch-wrapper {
+          display: flex;
+          align-items: center;
+          margin-left: 15px; /* Space between links and toggle */
+        }
+
+        .theme-switch {
+          position: relative;
+          display: inline-block;
+          width: 50px; /* Slightly smaller */
+          height: 28px; /* Slightly smaller */
+        }
+
+        .theme-switch input {
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+
+        .slider {
+          position: absolute;
+          cursor: pointer;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: #ccc;
+          transition: .4s;
+        }
+
+        .slider:before {
+          position: absolute;
+          content: "";
+          height: 20px; /* Adjusted */
+          width: 20px;  /* Adjusted */
+          left: 4px;
+          bottom: 4px;
+          background-color: white;
+          transition: .4s;
+        }
+
+        input:checked + .slider {
+          background-color: #0d6efd; /* Bootstrap primary */
+        }
+
+        input:focus + .slider {
+          box-shadow: 0 0 1px #0d6efd;
+        }
+
+        input:checked + .slider:before {
+          transform: translateX(22px); /* Adjusted */
+        }
+
+        /* Rounded sliders */
+        .slider.round {
+          border-radius: 28px; /* Adjusted */
+        }
+
+        .slider.round:before {
+          border-radius: 50%;
+        }
+        .theme-label {
+            margin-left: 8px;
+            font-size: 0.9em;
+            color: var(--bs-body-color); /* Use Bootstrap text color */
+        }
+
+        /* Style for top navigation links */
+        .top-nav-link {
+            color: white !important; /* Use !important to override potential Bootstrap specificity */
+            text-decoration: none; /* Optional: remove underline */
+        }
+        .top-nav-link:hover {
+            color: #cccccc !important; /* Lighter gray on hover */
+        }
+        
+        /* Help Button Styles */
+        #helpButton {
+            width: 50px;
+            height: 50px;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            transition: all 0.3s ease;
+        }
+        
+        #helpButton:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+        }
+        
+        /* Help Modal Styles */
+        #helpModal .list-group-item.active {
+            background-color: var(--bs-primary);
+            border-color: var(--bs-primary);
+        }
+        
+        .help-section {
+            margin-bottom: 2rem;
+            padding-top: 1.5rem;
+            border-bottom: 1px solid var(--bs-border-color);
+            padding-bottom: 1.5rem;
+        }
+        
+        .help-section:last-child {
+            border-bottom: none;
+        }
+        
+        .help-section h4 {
+            color: var(--bs-primary);
+            margin-bottom: 1rem;
+            font-weight: 500;
+        }
+        
+        /* Tab content scrollable container */
+        #helpTabContent {
+            max-height: 400px;
+            overflow-y: auto;
+            padding-right: 10px;
+            position: relative;
+        }
+        
+        /* Section highlight effect */
+        @keyframes section-highlight {
+            0% { background-color: transparent; }
+            30% { background-color: rgba(var(--bs-primary-rgb), 0.15); }
+            100% { background-color: transparent; }
+        }
+        
+        .highlight-section {
+            animation: section-highlight 1s ease-in-out;
+            border-radius: 0.25rem;
+            padding: 0.25rem;
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body {% if user.is_authenticated %}class="user-authenticated"{% endif %}>
+    <!-- Top Navigation Links (Moved to top, scrolls with page) -->
+    <div style="display: flex; justify-content: flex-end; padding: 10px 100px 10px 15px; /* Push links right, add right padding for theme button */">
+        <ul style="list-style: none; padding: 0; margin: 0; display: flex; align-items: center; gap: 15px;">
+            <li><a href="{% url 'search_companies' %}" class="top-nav-link">Search</a></li>
+            <li><a href="{% url 'map_view' %}" class="top-nav-link">Map</a></li>
+            <li><a href="{% url 'statistics' %}" class="top-nav-link">Stats</a></li>
+            {% if user.is_authenticated %}
+                {% if user.is_staff %}
+                <li><a href="{% url 'admin:index' %}" class="top-nav-link">Admin</a></li>
+                {% endif %}
+                <li><a href="{% url 'accounts:account' %}" class="top-nav-link">Account</a></li>
+                <li>
+                    {# Logout Form - Use POST method #}
+                    <form method="post" action="{% url 'logout' %}" style="margin: 0; padding: 0; display: inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="top-nav-link" style="background: none; border: none; padding: 0; cursor: pointer; color: white !important;">
+                            Logout
+                        </button>
+                    </form>
+                </li>
+            {% else %}
+                <li><a href="{% url 'login' %}" class="top-nav-link">Login</a></li>
+                <li><a href="{% url 'accounts:register' %}" class="top-nav-link">Register</a></li>
+            {% endif %}
+        </ul>
+    </div>
+
+    {# Add a block for content that should be outside the main container (like the search header) #}
+    {% block page_header %}{% endblock %}
+
+    <!-- Theme Cycle Button (Remains Fixed Top Right) -->
+    <div style="position: fixed; top: 10px; right: 15px; z-index: 1050;">
+        <button class="btn btn-secondary btn-sm" type="button" id="themeCycleButton" title="Change theme">
+            <i class="bi" id="theme-icon"></i> <span id="theme-text">Theme</span>
+        </button>
+    </div>
+
+    <!-- Floating Help Button -->
+    <div style="position: fixed; bottom: 20px; right: 20px; z-index: 1050;">
+        <button class="btn btn-primary rounded-circle" type="button" id="helpButton" data-bs-toggle="modal" data-bs-target="#helpModal" title="Help & Guide">
+            <i class="bi bi-question-lg"></i>
+        </button>
+    </div>
+
+    <!-- Help Modal -->
+    <div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="helpModalLabel">Capacity Market Search Guide</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="container-fluid">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="list-group" id="helpTabList">
+                                    <a class="list-group-item list-group-item-action active" href="#help-general">Search Guide</a>
+                                    <a class="list-group-item list-group-item-action" href="#help-auctions">Understanding Auctions</a>
+                                    <a class="list-group-item list-group-item-action" href="#help-results">Search Results</a>
+                                    <a class="list-group-item list-group-item-action" href="#help-grouping">Component Grouping</a>
+                                    <a class="list-group-item list-group-item-action" href="#help-filters">Sorting</a>
+                                    <a class="list-group-item list-group-item-action" href="#help-map">Map View</a>
+                                    <a class="list-group-item list-group-item-action" href="#help-stats">Statistics</a>
+                                    <a class="list-group-item list-group-item-action" href="#help-contact">Contact Us</a>
+                                </div>
+                            </div>
+                            <div class="col-md-9">
+                                <div id="helpContent" style="max-height: 500px; overflow-y: auto; padding-right: 10px;">
+                                    <div class="help-section" id="help-general">
+                                        <h4>Search Guide</h4>
+                                        <p>Use the search box to find capacity market components by company name, component ID, or location.</p>
+                                    </div>
+                                    
+                                    <div class="help-section" id="help-auctions">
+                                        <h4>Understanding Auctions</h4>
+                                        <p>The Capacity Market consists of T-1 and T-4 auctions, where providers bid to supply electricity.</p>
+                                    </div>
+                                    
+                                    <div class="help-section" id="help-results">
+                                        <h4>Search Results</h4>
+                                        <p>Results show component details including capacity, location, and auction participation.</p>
+                                    </div>
+                                    
+                                    <div class="help-section" id="help-grouping">
+                                        <h4>Component Grouping</h4>
+                                        <p>Components are grouped by company and can be filtered by various criteria.</p>
+                                    </div>
+                                    
+                                    <div class="help-section" id="help-filters">
+                                        <h4>Sorting</h4>
+                                        <p>Results can be sorted by capacity, company name, or relevance.</p>
+                                    </div>
+                                    
+                                    <div class="help-section" id="help-map">
+                                        <h4>Map View</h4>
+                                        <p>The map shows component locations across the UK.</p>
+                                    </div>
+                                    
+                                    <div class="help-section" id="help-stats">
+                                        <h4>Statistics</h4>
+                                        <p>View overall capacity market statistics and trends.</p>
+                                    </div>
+                                    
+                                    <div class="help-section" id="help-contact">
+                                        <h4>Contact Us</h4>
+                                        <p>We're here to help with any questions about the Capacity Market Registry.</p>
+                                        
+                                        <div class="card mb-3">
+                                            <div class="card-body">
+                                                <h5 class="card-title"><i class="bi bi-envelope-fill me-2"></i>Email</h5>
+                                                <p class="card-text">For general inquiries and support:</p>
+                                                <p><a href="mailto:hello@capacitymarket.co.uk" class="btn btn-primary">hello@capacitymarket.co.uk</a></p>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="card mb-3">
+                                            <div class="card-body">
+                                                <h5 class="card-title"><i class="bi bi-building me-2"></i>Office</h5>
+                                                <p class="card-text">Capacity Market Registry<br>
+                                                Innovation Hub<br>
+                                                35 Energy Square<br>
+                                                London, EC2A 4PB<br>
+                                                United Kingdom</p>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="card mb-3">
+                                            <div class="card-body">
+                                                <h5 class="card-title"><i class="bi bi-clock me-2"></i>Hours</h5>
+                                                <p class="card-text">Monday - Friday: 9:00 AM - 5:00 PM GMT<br>
+                                                We typically respond to emails within 1-2 business days.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Allow overriding container class per-page #}
+    <div class="{% block container_class %}container{% endblock %}">
+        {% block content %}
+        {% endblock %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    {# Add HTMX script #}
+    <script src="https://unpkg.com/htmx.org@2.0.0/dist/htmx.min.js" integrity="sha384-wS5l5IKJBvK6sPTKa2WZ1js3d947pvWXbPJ1OmWfEuxLgeHcEbjUUA5i9V5ZkpCw" crossorigin="anonymous"></script>
+    
+    <!-- Help Modal JavaScript -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Get the tab links and content container
+            const tabLinks = document.querySelectorAll('#helpTabList .list-group-item');
+            const contentContainer = document.getElementById('helpContent');
+            
+            if (tabLinks.length && contentContainer) {
+                // Add click handlers to each tab link
+                tabLinks.forEach(link => {
+                    link.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        
+                        // Remove active class from all tabs
+                        tabLinks.forEach(tab => tab.classList.remove('active'));
+                        
+                        // Add active class to clicked tab
+                        this.classList.add('active');
+                        
+                        // Get target section
+                        const targetId = this.getAttribute('href');
+                        const targetSection = document.querySelector(targetId);
+                        
+                        if (targetSection) {
+                            // Scroll to the target section with smooth behavior
+                            contentContainer.scrollTo({
+                                top: targetSection.offsetTop - 20, // 20px offset for better spacing
+                                behavior: 'smooth'
+                            });
+                            
+                            // Highlight section briefly
+                            targetSection.classList.add('highlight-section');
+                            setTimeout(() => {
+                                targetSection.classList.remove('highlight-section');
+                            }, 1000);
+                        }
+                    });
+                });
+            }
+            
+            // Help modal initialization
+            const helpModal = document.getElementById('helpModal');
+            if (helpModal) {
+                helpModal.addEventListener('show.bs.modal', function() {
+                    // Click the first tab when the modal opens
+                    const firstTab = document.querySelector('#helpTabList .list-group-item');
+                    if (firstTab) {
+                        firstTab.click();
+                    }
+                    
+                    // Reset scroll position
+                    if (contentContainer) {
+                        contentContainer.scrollTop = 0;
+                    }
+                });
+            }
+        });
+    </script>
+    
+    {% block extra_scripts %}{% endblock %}
+
+    <!-- Simple Support Popup (doesn't require Bootstrap JS) -->
+    <div id="simplePopup" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000; max-width: 90%; width: 400px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h3 style="margin: 0;">Support This Project</h3>
+        <button id="closePopup" style="background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
+      </div>
+      <p>The easiest way to explore Capacity Market auctions — no fuss, just results. If you find this tool valuable, please consider supporting its development.</p>
+      <div style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;">
+        <a href="/donate/" style="background: #0d6efd; color: white; padding: 8px 16px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+          Support via Stripe
+        </a>
+      </div>
+      <div style="text-align: center; margin-top: 15px;">
+        <button id="maybeLater" style="background: #f8f9fa; border: 1px solid #dee2e6; padding: 6px 12px; border-radius: 4px; cursor: pointer;">
+          Maybe Later
+        </button>
+      </div>
+    </div>
+
+    <!-- Overlay background -->
+    <div id="popupOverlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 999;"></div>
+
+    <script>
+    // Simple alert to test basic JS execution - REMOVED
+    // alert('BASE.HTML SCRIPT BLOCK REACHED!'); 
+    // console.log('BASE.HTML SCRIPT BLOCK REACHED!');
+
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('DOM loaded, setting up simple popup timer');
+
+        // Get popup elements
+        const popup = document.getElementById('simplePopup');
+        const overlay = document.getElementById('popupOverlay');
+        const closeBtn = document.getElementById('closePopup');
+        const laterBtn = document.getElementById('maybeLater');
+
+        if (!popup || !overlay || !closeBtn || !laterBtn) {
+            console.error('One or more popup elements not found');
+            return;
+        }
+
+        // Check if shown recently
+        const lastShown = localStorage.getItem('popupLastShown');
+        if (lastShown && (Date.now() - parseInt(lastShown) < 24 * 60 * 60 * 1000)) {
+            console.log('Popup was shown recently, skipping');
+            return;
+        }
+
+        // Function to show popup
+        function showPopup() {
+            console.log('Showing popup');
+            popup.style.display = 'block';
+            overlay.style.display = 'block';
+            localStorage.setItem('popupLastShown', Date.now().toString());
+        }
+
+        // Function to hide popup
+        function hidePopup() {
+            console.log('Hiding popup');
+            popup.style.display = 'none';
+            overlay.style.display = 'none';
+        }
+
+        // Set up event listeners
+        closeBtn.addEventListener('click', hidePopup);
+        laterBtn.addEventListener('click', hidePopup);
+        overlay.addEventListener('click', hidePopup);
+
+        // Show popup after 10 seconds
+        console.log('Setting timeout to show popup in 10 seconds');
+        setTimeout(showPopup, 10000);
+    });
+
+    // Theme Switching Logic (Updated for Cycling Button)
+    document.addEventListener('DOMContentLoaded', function() {
+        const themeCycleButton = document.getElementById('themeCycleButton');
+        const themeIcon = document.getElementById('theme-icon');
+        const themeText = document.getElementById('theme-text'); // Optional: if you want to show text
+        const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+        const themes = ['auto', 'light', 'dark'];
+
+        // Function to get the actual theme (light/dark) based on preference
+        const getEffectiveTheme = (preference) => {
+            if (preference === 'auto') {
+                return prefersDarkScheme.matches ? 'dark' : 'light';
+            }
+            return preference;
+        };
+
+        // Function to update the button appearance based on *preference*
+        const updateButtonAppearance = (preference) => {
+            let iconClass = '';
+            let buttonText = ''; // Text representation of the preference
+            switch (preference) {
+                case 'light':
+                    iconClass = 'bi-sun-fill';
+                    buttonText = 'Light';
+                    break;
+                case 'dark':
+                    iconClass = 'bi-moon-stars-fill';
+                    buttonText = 'Dark';
+                    break;
+                default: // auto
+                    iconClass = 'bi-circle-half';
+                    buttonText = 'Auto';
+                    break;
+            }
+            themeIcon.className = `bi ${iconClass}`;
+            themeText.textContent = buttonText; // Update text to show preference
+            themeCycleButton.setAttribute('title', `Theme: ${buttonText}`);
+        };
+
+        // Function to apply the theme to the document
+        const applyTheme = (theme) => {
+            document.documentElement.setAttribute('data-bs-theme', theme);
+        };
+
+        // Get initial preference or default to 'auto'
+        let currentPreference = localStorage.getItem('theme_preference') || 'auto';
+
+        // Set initial state
+        updateButtonAppearance(currentPreference);
+        applyTheme(getEffectiveTheme(currentPreference));
+
+        // Add listener for system theme changes (only affects display if preference is 'auto')
+        prefersDarkScheme.addEventListener('change', () => {
+            if (localStorage.getItem('theme_preference') === 'auto') {
+                applyTheme(getEffectiveTheme('auto'));
+                // No need to update button appearance, as preference remains 'auto'
+            }
+        });
+
+        // Add listener for button click to cycle through themes
+        themeCycleButton.addEventListener('click', () => {
+            // Find current index
+            let currentIndex = themes.indexOf(currentPreference);
+            // Calculate next index (cycling)
+            let nextIndex = (currentIndex + 1) % themes.length;
+            // Get the next preference
+            currentPreference = themes[nextIndex];
+
+            // Store the new preference
+            localStorage.setItem('theme_preference', currentPreference);
+
+            // Update button and apply the effective theme
+            updateButtonAppearance(currentPreference);
+            applyTheme(getEffectiveTheme(currentPreference));
+        });
+    });
+    </script>
+
+    {# --- Add Decreasing Redirect Timer for Non-Authenticated Users --- #}
+    {% if not user.is_authenticated %}
+    <script>
+    // Add event listener for page changes via history API
+    window.addEventListener('popstate', function(event) {
+        console.log('Timer Debug: Navigation event detected (popstate)');
+        console.log('Timer Debug: Current timer stage =', sessionStorage.getItem('redirectTimerStage'));
+        console.log('Timer Debug: Current timer start =', sessionStorage.getItem('redirectTimerStart'));
+    });
+    
+    // Global absolute timeout to ensure redirect happens eventually
+    // This runs once per session as a fallback in case stage timers don't complete
+    document.addEventListener('DOMContentLoaded', function() {
+        const absoluteTimeoutKey = 'absoluteTimeoutSet';
+        const pageCountKey = 'pageVisitCount';
+        const redirectUrl = "{% url 'accounts:must_register' %}";
+        
+        // Define auth paths that should be excluded from redirect and counting
+        const authPaths = [
+            '/accounts/login/',
+            '/accounts/register/', 
+            '/accounts/must-register/', 
+            '/accounts/password_reset/', 
+            '/accounts/activate/', 
+            '/accounts/registration-pending/',
+            '/accounts/activation-failed/',
+            '/accounts/reset/',
+            '/login/', // Standard Django login URL
+            '/register/', // In case there's a base register URL
+            '/accounts/', // General accounts path prefix
+            '/account/' // Alternative accounts path prefix
+        ];
+        
+        // Check if current page is an auth page
+        const currentPath = window.location.pathname;
+        const isAuthPage = authPaths.some(path => currentPath.startsWith(path));
+        
+        // If we're on an auth page, don't increment counter or redirect
+        if (isAuthPage) {
+            console.log('On authentication page, skipping page counter and timeout');
+            return;
+        }
+        
+        // Track page visit count (only for non-auth pages)
+        let pageCount = parseInt(sessionStorage.getItem(pageCountKey) || '0');
+        pageCount++;
+        sessionStorage.setItem(pageCountKey, pageCount.toString());
+        console.log(`Page visit count: ${pageCount}`);
+        
+        // If user is rapidly changing pages (more than 8 visits), force redirection
+        if (pageCount > 8) {
+            console.log('Too many page changes detected, redirecting now');
+            window.location.href = redirectUrl;
+            return;
+        }
+        
+        if (!sessionStorage.getItem(absoluteTimeoutKey)) {
+            // Set a maximum total time allowed for browsing (4 minutes = 240s)
+            const totalMaxTime = 240 * 1000;
+            console.log(`Setting absolute timeout for ${totalMaxTime/1000}s`);
+            
+            setTimeout(() => {
+                // Check again that we're not on an auth page before redirecting
+                const currentPathCheck = window.location.pathname;
+                const isAuthPageCheck = authPaths.some(path => currentPathCheck.startsWith(path));
+                
+                if (!isAuthPageCheck) {
+                    console.log('Absolute timeout reached, redirecting now.');
+                    window.location.href = redirectUrl;
+                } else {
+                    console.log('Absolute timeout reached, but on auth page - not redirecting.');
+                }
+            }, totalMaxTime);
+            
+            sessionStorage.setItem(absoluteTimeoutKey, 'true');
+        }
+    });
+    
+    // Main redirect timer
+    document.addEventListener('DOMContentLoaded', function() {
+        // Define paths where the timer should NOT run
+        const authPaths = [
+            '/accounts/login/',
+            '/accounts/register/', 
+            '/accounts/must-register/', // Don't run on the target page itself
+            '/accounts/password_reset/', 
+            '/accounts/activate/', 
+            '/accounts/registration-pending/',
+            '/accounts/activation-failed/',
+            '/accounts/reset/',
+            '/login/', // Standard Django login URL
+            '/register/', // In case there's a base register URL
+            '/accounts/', // General accounts path prefix
+            '/account/' // Alternative accounts path prefix
+        ];
+        const currentPath = window.location.pathname;
+
+        // Check if current path starts with any excluded path
+        const isAuthPage = authPaths.some(path => currentPath.startsWith(path));
+        if (isAuthPage) {
+            console.log('Redirect timer disabled on excluded page:', currentPath);
+            return; // Do not start the timer
+        }
+
+        // Check if this is the map page - special handling
+        const isMapPage = currentPath.startsWith('/map') || currentPath.includes('/map/');
+        
+        const redirectUrl = "{% url 'accounts:must_register' %}";
+        const stageKey = 'redirectTimerStage'; // Current stage (120, 60, or 30)
+        const startTimeKey = 'redirectTimerStart'; // When the current stage timer started
+        const lastPageKey = 'redirectTimerLastPage'; // Last page visited
+        let currentStage = sessionStorage.getItem(stageKey);
+        let stageStartTime = sessionStorage.getItem(startTimeKey);
+        let timeoutDurationMs;
+        
+        // Record the current page
+        const lastPageVisited = sessionStorage.getItem(lastPageKey);
+        sessionStorage.setItem(lastPageKey, currentPath);
+
+        // Add debug info about the current page
+        console.log(`Timer Debug: Current page path = ${currentPath}`);
+        console.log(`Timer Debug: Is excluded page = ${isAuthPage}`);
+        console.log(`Timer Debug: Is map page = ${isMapPage}`);
+        console.log(`Timer Debug: Last page visited = ${lastPageVisited || 'none'}`);
+        console.log(`Timer Debug: Current stage = ${currentStage || 'not set'}`);
+        console.log(`Timer Debug: Stage start time = ${stageStartTime || 'not set'}`);
+        
+        // Initialize stage if not set (first visit in this session)
+        if (!currentStage) {
+            // For map page, start directly at 25 seconds
+            if (isMapPage) {
+                currentStage = 'map-25';
+                console.log('Redirect Timer: Map page detected, initializing to 25s direct timer.');
+            } else {
+                currentStage = '120'; // Start at 120 seconds for regular pages
+                console.log('Redirect Timer: Initializing stage to 120s.');
+            }
+            stageStartTime = Date.now().toString();
+            sessionStorage.setItem(stageKey, currentStage);
+            sessionStorage.setItem(startTimeKey, stageStartTime);
+        } else if (isMapPage && currentStage !== 'map-25' && lastPageVisited !== currentPath) {
+            // If navigating to map page from another page, use the 25-second timer
+            console.log('Redirect Timer: Switching to map page 25s timer.');
+            currentStage = 'map-25';
+            stageStartTime = Date.now().toString();
+            sessionStorage.setItem(stageKey, currentStage);
+            sessionStorage.setItem(startTimeKey, stageStartTime);
+        }
+
+        // If we have a stage but no start time, set it now
+        if (!stageStartTime) {
+            stageStartTime = Date.now().toString();
+            sessionStorage.setItem(startTimeKey, stageStartTime);
+            console.log('Redirect Timer: Setting missing start time for current stage.');
+        }
+
+        // Determine timeout duration based on the current stage
+        if (currentStage === 'map-25') {
+            timeoutDurationMs = 25 * 1000; // Special 25-second timer for map page
+        } else if (currentStage === '120') {
+            timeoutDurationMs = 120 * 1000;
+        } else if (currentStage === '60') {
+            timeoutDurationMs = 60 * 1000;
+        } else { // Stage is '30' or potentially invalid, default to 30
+            timeoutDurationMs = 30 * 1000;
+            // Ensure stage is correctly set to 30 if it wasn't already
+            if (currentStage !== '30') { 
+                sessionStorage.setItem(stageKey, '30');
+                console.log('Redirect Timer: Correcting stage to 30s.');
+            }
+            currentStage = '30'; // Ensure variable reflects 30 for logging
+        }
+
+        // Calculate remaining time in current stage
+        const now = Date.now();
+        const elapsedMs = now - parseInt(stageStartTime);
+        const remainingMs = timeoutDurationMs - elapsedMs;
+        
+        console.log(`Redirect Timer: ${Math.round(remainingMs / 1000)}s remaining in current ${currentStage}s stage.`);
+
+        // If time already elapsed, move to next stage immediately
+        if (remainingMs <= 0) {
+            console.log('Redirect Timer: Stage time elapsed, processing immediately.');
+            handleStageCompletion();
+        } else {
+            // Set timeout for remaining time in this stage
+            console.log(`Redirect Timer: Setting timeout for remaining ${Math.round(remainingMs / 1000)}s.`);
+            
+            // Store a unique timer ID to prevent duplicate timers
+            const timerIdKey = 'redirectTimerId';
+            const timerId = Date.now().toString();
+            sessionStorage.setItem(timerIdKey, timerId);
+            
+            setTimeout(() => {
+                // Check if we're now on an auth page before executing
+                const currentPathCheck = window.location.pathname;
+                const isAuthPageNow = authPaths.some(path => currentPathCheck.startsWith(path));
+                
+                // Only process if we're NOT on an auth page and this is still the active timer
+                if (!isAuthPageNow && sessionStorage.getItem(timerIdKey) === timerId) {
+                    handleStageCompletion();
+                } else if (isAuthPageNow) {
+                    console.log('Redirect Timer: We are now on an auth page, skipping redirect');
+                } else {
+                    console.log('Redirect Timer: Ignoring outdated timer callback');
+                }
+            }, remainingMs);
+        }
+
+        // Function to handle the completion of a stage
+        function handleStageCompletion() {
+            console.log('Redirect Timer: Stage completed.');
+            
+            // Re-check current stage to ensure it hasn't been changed by another part of the code
+            const currentStageCheck = sessionStorage.getItem(stageKey);
+            if (currentStageCheck !== currentStage) {
+                console.log(`Redirect Timer: Stage changed externally from ${currentStage} to ${currentStageCheck}, aborting handler`);
+                return;
+            }
+            
+            // Double-check we're not on an auth page
+            const currentPathCheck = window.location.pathname;
+            const isAuthPageNow = authPaths.some(path => currentPathCheck.startsWith(path));
+            if (isAuthPageNow) {
+                console.log('Redirect Timer: Cannot proceed with redirect, user is now on an auth page');
+                return;
+            }
+            
+            // Determine the next stage
+            let nextStage;
+            if (currentStage === 'map-25') {
+                // Map page goes straight to redirect
+                console.log('Redirect Timer: Map page 25s timer complete, redirecting.');
+                window.location.href = redirectUrl;
+                return;
+            } else if (currentStage === '120') {
+                nextStage = '60';
+            } else if (currentStage === '60') {
+                nextStage = '30';
+            } else { // Already at 30, redirect
+                console.log('Redirect Timer: Final stage complete, redirecting.');
+                window.location.href = redirectUrl;
+                return;
+            }
+
+            // Update stage and reset timer
+            console.log(`Redirect Timer: Moving to next stage: ${nextStage}s`);
+            sessionStorage.setItem(stageKey, nextStage);
+            sessionStorage.setItem(startTimeKey, Date.now().toString());
+            
+            // Store a unique timer ID to prevent duplicate timers
+            const timerIdKey = 'redirectTimerId';
+            const timerId = Date.now().toString();
+            sessionStorage.setItem(timerIdKey, timerId);
+            
+            // Set timeout for the next stage
+            const nextStageDurationMs = nextStage === '60' ? 60000 : 30000;
+            setTimeout(() => {
+                // Check again for auth pages
+                const currentPathCheck = window.location.pathname;
+                const isAuthPageNow = authPaths.some(path => currentPathCheck.startsWith(path));
+                
+                // Only process if we're NOT on an auth page and this is still the active timer
+                if (!isAuthPageNow && sessionStorage.getItem(timerIdKey) === timerId) {
+                    handleStageCompletion();
+                } else if (isAuthPageNow) {
+                    console.log('Redirect Timer: We are now on an auth page, skipping stage completion');
+                } else {
+                    console.log('Redirect Timer: Ignoring outdated timer callback');
+                }
+            }, nextStageDurationMs);
+        }
+    });
+    </script>
+    {% endif %}
+    {# --- End Redirect Timer --- #}
+
+    {# --- Site Access Timer Check for Logged-In, Non-Paying Users --- #}
+    {% if user.is_authenticated and not has_paid_access %}
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const TOTAL_FREE_SECONDS = 3600; // 1 hour
+        const storageKey = 'freeAccessStartTime';
+        const paymentRequiredUrl = "{% url 'accounts:payment_required' %}";
+        const excludedPaths = [
+            '/accounts/login/',
+            '/accounts/logout/', // Actual logout URL might differ
+            '/accounts/register/', 
+            '/accounts/must-register/',
+            '/accounts/password_reset/', 
+            '/accounts/activate/', 
+            '/accounts/registration-pending/',
+            '/accounts/activation-failed/',
+            '/accounts/reset/',
+            '/account/account/', // Allow access to the account page itself
+            '/account/payment-required/' // Allow access to the target payment page
+            // Add donate page URLs if they should be accessible too
+            // '/donate/',
+            // '/donation-success/',
+            // '/donation-cancel/',
+        ];
+        const currentPath = window.location.pathname;
+
+        // Check if current path is excluded from the check/redirect
+        const isExcludedPage = excludedPaths.some(path => currentPath.startsWith(path));
+        if (isExcludedPage) {
+            console.log('Site Access Timer: Check skipped on excluded page:', currentPath);
+            return; 
+        }
+
+        let startTime = sessionStorage.getItem(storageKey);
+
+        if (!startTime) {
+            startTime = Date.now();
+            sessionStorage.setItem(storageKey, startTime);
+            console.log("Site Access Timer: Free access timer started at:", new Date(startTime));
+        } else {
+            startTime = parseInt(startTime); 
+            console.log("Site Access Timer: Resumed from:", new Date(startTime));
+        }
+
+        const now = Date.now();
+        const elapsedMilliseconds = now - startTime;
+        const remainingMilliseconds = (TOTAL_FREE_SECONDS * 1000) - elapsedMilliseconds;
+
+        if (remainingMilliseconds <= 0) {
+            console.log("Site Access Timer: Free time expired. Redirecting to payment page.");
+            window.location.href = paymentRequiredUrl;
+        } else {
+            console.log(`Site Access Timer: Time remaining ${Math.round(remainingMilliseconds / 1000)}s.`);
+            // Optional: Could update a subtle timer display elsewhere in base.html here
+        }
+    });
+    </script>
+    {% endif %}
+    {# --- End Site Access Timer Check --- #}
+
+    <!-- Matomo -->
+    <script>
+      var _paq = window._paq = window._paq || [];
+      /* tracker methods like "setCustomDimension" should be called before "trackPageView" */
+      _paq.push(['trackPageView']);
+      _paq.push(['enableLinkTracking']);
+      (function() {
+        var u="https://capacitymarket.matomo.cloud/";
+        _paq.push(['setTrackerUrl', u+'matomo.php']);
+        _paq.push(['setSiteId', '1']);
+        var d=document, g=d.createElement('script'), s=d.getElementsByTagName('script')[0];
+        g.async=true; g.src='https://cdn.matomo.cloud/capacitymarket.matomo.cloud/matomo.js'; s.parentNode.insertBefore(g,s);
+      })();
+    </script>
+    <!-- End Matomo Code -->
+
+    {# Footer element removed, content moved to top right #}
+</body>
+</html>

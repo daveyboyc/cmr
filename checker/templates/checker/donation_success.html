@@ -1,0 +1,68 @@
+{% extends "checker/base.html" %}
+{% load static %}
+
+{% block title %}Donation Successful - Thank You!{% endblock %}
+
+{% block extra_head %}
+<style>
+    .success-container {
+        max-width: 600px;
+        margin: 0 auto;
+        text-align: center;
+    }
+    .success-icon {
+        font-size: 80px;
+        color: #28a745;
+        margin-bottom: 20px;
+    }
+    .thank-you-card {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 30px;
+        margin-bottom: 30px;
+        background-color: #f8f9fa;
+    }
+    .btn-return {
+        background-color: #5469d4;
+        color: #ffffff;
+        font-weight: bold;
+        border: 0;
+        border-radius: 4px;
+        padding: 10px 20px;
+        margin-top: 20px;
+        transition: all 0.2s ease;
+        display: inline-block;
+        text-decoration: none;
+    }
+    .btn-return:hover {
+        background-color: #4a5fc1;
+        color: white;
+        transform: translateY(-1px);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="success-container">
+    <div class="success-icon">
+        <i class="bi bi-check-circle-fill"></i>
+    </div>
+    
+    <div class="thank-you-card">
+        <h1>Thank You for Your Support!</h1>
+        <p class="lead">Your donation has been successfully processed.</p>
+        
+        <p>Your contribution helps us maintain and improve the Capacity Market Search, keeping it available as a resource for everyone in the energy industry.</p>
+        
+        <p>A receipt has been sent to your email address.</p>
+        
+        <a href="{% url 'search_companies' %}" class="btn-return">
+            Return to Search
+        </a>
+    </div>
+    
+    <div class="mt-4">
+        <p><small>If you have any questions about your donation, please contact us.</small></p>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,88 @@
+{% extends "checker/base.html" %}
+{% load humanize %}
+{% load checker_tags %}
+
+{% block title %}Components by De-rated Capacity{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="page-header mb-3">
+        <a href="javascript:history.back()" class="back-link">
+             <i class="bi bi-arrow-return-left"></i> Back
+        </a>
+         <h1>Components Ranked by De-rated Capacity</h1>
+        <div></div> <!-- Placeholder for alignment -->
+    </div>
+
+    <!-- Add Sort Toggle Buttons -->
+    <div class="d-flex justify-content-end mb-3">
+        {% if sort_order == "desc" %}
+            <a href="?sort=asc" class="btn btn-outline-secondary btn-sm">
+                <span>↑</span> Sort: Smallest First
+            </a>
+        {% else %}
+            <a href="?sort=desc" class="btn btn-outline-secondary btn-sm">
+                <span>↓</span> Sort: Largest First
+            </a>
+        {% endif %}
+    </div>
+
+    {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <p class="text-muted">Displaying {{ page_obj.start_index }}-{{ page_obj.end_index }} of {{ total_count|intcomma }} components.</p>
+
+    <ul class="list-group list-group-flush mb-4">
+        {% for comp in page_obj.object_list %}
+            <li class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <a href="{% url 'component_detail' pk=comp.id %}" class="fw-bold text-decoration-none">
+                        {{ comp.location|truncatechars:80 }}
+                    </a>
+                    <span class="badge bg-info rounded-pill">{{ comp.derated_capacity|floatformat:3 }} MW</span>
+                </div>
+                <div class="small text-muted">
+                    {{ comp.company_name|truncatechars:70 }}
+                </div>
+            </li>
+        {% empty %}
+            <li class="list-group-item">No components with de-rated capacity data found.</li>
+        {% endfor %}
+    </ul>
+
+    <!-- Pagination -->
+    {% if paginator.num_pages > 1 %}
+        <nav aria-label="Component navigation" class="pagination-nav">
+            <ul class="pagination justify-content-center">
+                {% if page_obj.has_previous %}
+                    <li class="page-item"><a class="page-link" href="?page=1&sort={{ sort_order }}">First</a></li>
+                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}&sort={{ sort_order }}">Previous</a></li>
+                {% else %}
+                    <li class="page-item disabled"><span class="page-link">First</span></li>
+                    <li class="page-item disabled"><span class="page-link">Previous</span></li>
+                {% endif %}
+
+                {% for i in page_range %}
+                    {% if i == page_obj.number %}
+                        <li class="page-item active" aria-current="page"><span class="page-link">{{ i }}</span></li>
+                    {% elif i == paginator.ELLIPSIS %}
+                         <li class="page-item disabled"><span class="page-link">...</span></li>
+                    {% else %}
+                        <li class="page-item"><a class="page-link" href="?page={{ i }}&sort={{ sort_order }}">{{ i }}</a></li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if page_obj.has_next %}
+                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}&sort={{ sort_order }}">Next</a></li>
+                    <li class="page-item"><a class="page-link" href="?page={{ paginator.num_pages }}&sort={{ sort_order }}">Last</a></li>
+                {% else %}
+                    <li class="page-item disabled"><span class="page-link">Next</span></li>
+                    <li class="page-item disabled"><span class="page-link">Last</span></li>
+                {% endif %}
+            </ul>
+        </nav>
+    {% endif %}
+
+</div>
+{% endblock %} 

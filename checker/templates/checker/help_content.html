@@ -1,0 +1,118 @@
+<!-- Help Content for Capacity Market Search -->
+<div class="help-content">
+  <div id="help-general" class="help-section">
+    <h4>Capacity Market Search</h4>
+    <p>Search for power generation components in the UK Capacity Market by location, company name, or CMU ID.</p>
+    <ul>
+      <li><strong>Location Search:</strong> Enter city, postcode, or area (e.g., "London", "SW1A", "South Yorkshire")</li>
+      <li><strong>Company Search:</strong> Enter company name (e.g., "UK Power Networks", "Drax", "EDF")</li>
+      <li><strong>CMU ID Search:</strong> Enter the CMU identifier (e.g., "VIT404", "DSR0123")</li>
+      <li><strong>Technology Search:</strong> Enter technology type (e.g., "Battery", "OCGT", "Coal", "DSR")</li>
+      <li><strong>Combined Search:</strong> Mix terms to narrow results (e.g., "London Battery Storage")</li>
+    </ul>
+    <p>The search is intelligent and will determine what you're looking for based on your terms. Searches are not case-sensitive, and partial matches are supported.</p>
+  </div>
+
+  <div id="help-auctions" class="help-section">
+    <h4>Understanding Auctions</h4>
+    <p>The Capacity Market runs regular auctions where providers compete to secure agreements. There are two main types:</p>
+    <ul>
+      <li><strong>T-4 auctions:</strong> Held 4 years ahead of the delivery year, offering longer-term visibility</li>
+      <li><strong>T-1 auctions:</strong> Held 1 year ahead to fine-tune capacity requirements and address any shortfalls</li>
+    </ul>
+    <p>Each auction results in agreements that specify how much capacity providers must deliver and the payment they'll receive per kilowatt.</p>
+    <p>Auction years are displayed as badges (e.g., <span class="badge bg-warning text-dark">2023-24</span>) that you can click to view details for that specific auction year.</p>
+    <p>The Capacity Market ensures the UK has sufficient electricity supply during periods of high demand or system stress. Providers receive payments for ensuring their capacity is available when needed.</p>
+  </div>
+
+  <div id="help-results" class="help-section">
+    <h4>Understanding Search Results</h4>
+    <p>Search results are grouped by location and show important details about each component:</p>
+    <ul>
+      <li><span class="badge bg-success">Active</span> Components with auction years 2024-25 or later</li>
+      <li><span class="badge bg-secondary">In-Active</span> Components with only auction years before 2024-25</li>
+      <li><span class="badge bg-success">Company Name</span> Click to view all components for this company</li>
+      <li><span class="badge bg-primary">Technology</span> Click to search for this technology type</li>
+      <li><span class="badge bg-secondary">CMU: XXX</span> Click to search for this CMU ID</li>
+      <li><span class="badge bg-warning text-dark">Auction Year</span> Click to view details for this specific auction</li>
+    </ul>
+    <p>Each result card provides detailed information about:</p>
+    <ul>
+      <li><strong>Location:</strong> The physical location of the component</li>
+      <li><strong>Capacity:</strong> The maximum power output in megawatts (MW)</li>
+      <li><strong>Description:</strong> The type and purpose of the component</li>
+      <li><strong>De-rated capacity:</strong> The capacity adjusted for reliability factors</li>
+      <li><strong>Auction participation:</strong> Which auctions the component has been successful in</li>
+    </ul>
+    <p>Click on any badge or link to refine your search or dig deeper into specific aspects.</p>
+  </div>
+
+  <div id="help-grouping" class="help-section">
+    <h4>Component Grouping</h4>
+    <p>Components at the same location with the same description are grouped together to reduce duplication.</p>
+    <p>Each group shows:</p>
+    <ul>
+      <li>All CMU IDs for components at that location</li>
+      <li>All auction years, sorted with newest first</li>
+      <li>An Active/Inactive status based on auction years</li>
+      <li>Combined total capacity for all components in the group</li>
+      <li>Consistent technology type and description shared by all components</li>
+    </ul>
+    <p>Grouping helps identify multi-year contracts and related components at the same site. This makes it easier to understand the scale and persistence of capacity at particular locations.</p>
+  </div>
+
+  <div id="help-filters" class="help-section">
+    <h4>Sorting and Filtering</h4>
+    <p>You can sort search results by:</p>
+    <ul>
+      <li><strong>Relevance:</strong> Most relevant matches first based on your search query</li>
+      <li><strong>Location:</strong> Alphabetical order by location name</li>
+      <li><strong>Date:</strong> By auction year (newest or oldest first)</li>
+      <li><strong>Capacity:</strong> Highest or lowest capacity first</li>
+    </ul>
+    <p>Click the column headers to change sort order.</p>
+    <p>You can also filter results using the controls at the top of the results page:</p>
+    <ul>
+      <li><strong>Technology Filter:</strong> Show only specific types of generation/capacity</li>
+      <li><strong>Status Filter:</strong> Show only active or inactive components</li>
+      <li><strong>Auction Year Filter:</strong> Focus on specific delivery years</li>
+    </ul>
+    <p>Use the pagination controls at the bottom to navigate through multiple pages of results.</p>
+  </div>
+
+  <div id="help-map" class="help-section">
+    <h4>Map View</h4>
+    <p>The <a href="/map/">Map View</a> shows components geographically with filtering options for:</p>
+    <ul>
+      <li><strong>Technology type:</strong> Focus on specific generation technologies</li>
+      <li><strong>Active/Inactive status:</strong> Filter by current participation</li>
+      <li><strong>Company:</strong> Show only components from specific providers</li>
+      <li><strong>Capacity Range:</strong> Filter by minimum or maximum capacity</li>
+    </ul>
+    <p>The map provides a visual understanding of capacity distribution across different regions of the UK. Clusters indicate areas with high concentrations of capacity.</p>
+    <p>Click on map markers to see detailed information about components at that location. You can use the map controls to zoom in on specific regions or areas of interest.</p>
+  </div>
+
+  <div id="help-stats" class="help-section">
+    <h4>Statistics</h4>
+    <p>The <a href="/statistics/">Statistics page</a> provides visual breakdowns of the Capacity Market by:</p>
+    <ul>
+      <li><strong>Company:</strong> Market share of major capacity providers</li>
+      <li><strong>Technology:</strong> Distribution of different generation types</li>
+      <li><strong>Geographic distribution:</strong> Regional capacity concentration</li>
+      <li><strong>Auction Performance:</strong> Capacity secured in different auction years</li>
+      <li><strong>Price Trends:</strong> Changes in clearing prices over time</li>
+    </ul>
+    <p>Interactive charts allow you to explore different aspects of the market and understand trends over time. This data helps identify emerging patterns in the UK's electricity capacity landscape.</p>
+  </div>
+  
+  <div id="help-contact" class="help-section">
+    <h4>Contact and Support</h4>
+    <p>For questions, feedback, or support with using the Capacity Market Registry, please contact us:</p>
+    <ul>
+      <li><strong>Email:</strong> <a href="mailto:hello@capacitymarket.co.uk">hello@capacitymarket.co.uk</a></li>
+      <li><strong>Twitter:</strong> <a href="https://twitter.com/CapacityMktReg">@CapacityMktReg</a></li>
+    </ul>
+    <p>We welcome suggestions for new features or improvements to help make capacity market data more accessible.</p>
+  </div>
+</div> 

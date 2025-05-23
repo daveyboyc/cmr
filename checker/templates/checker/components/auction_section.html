@@ -1,0 +1,32 @@
+{% load checker_tags %}
+<div class="card mb-2">
+    <div class="card-header" id="heading-{{ auction_id }}">
+        <h5 class="mb-0">
+            <button id="button-{{ auction_id }}" class="auction-button" data-target="auction-content-{{ auction_id }}">
+                {% if "T-1" in auction_name %}
+                    <span class="badge bg-warning me-2">T-1</span>
+                {% elif "T-4" in auction_name %}
+                    <span class="badge bg-info me-2">T-4</span>
+                {% elif "T-3" in auction_name %}
+                    <span class="badge bg-success me-2">T-3</span>
+                {% else %}
+                    <span class="badge bg-secondary me-2">{{ auction_name.split|first }}</span>
+                {% endif %}
+                Auction: {{ auction_name }} ▶
+            </button>
+        </h5>
+    </div>
+    <div id="auction-content-{{ auction_id }}" class="auction-content"
+         hx-get="/api/auction-components/{{ company_id }}/{{ year|url_safe }}/{{ auction_name|url_safe }}/"
+         hx-trigger="load-components from:body"
+         hx-target="find .auction-data"
+         hx-indicator="#spinner-{{ auction_id }}"
+         hx-swap="innerHTML">
+        <div class="auction-data">
+            <div class="text-center p-4">
+                <div class="spinner htmx-indicator" id="spinner-{{ auction_id }}"></div>
+                <div class="text-muted">Loading components for {{ auction_name }}...</div>
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,113 @@
+{
+  "locations": {
+    "london": {
+      "outcodes": ["SW", "SE", "W", "E", "N", "NW", "EC", "WC"],
+      "counties": ["London", "Greater London"]
+    },
+    "nottingham": {
+      "outcodes": ["NG1", "NG2", "NG3", "NG4", "NG5", "NG6", "NG7", "NG8", "NG9", "NG90"],
+      "counties": ["Nottinghamshire", "Nottingham"]
+    },
+    "manchester": {
+      "outcodes": ["M1", "M2", "M3", "M4", "M8", "M9", "M11", "M12", "M13", "M14", "M15", "M16", "M17", "M18", "M19", "M20", "M21", "M22", "M23", "M40", "M41", "M43", "M44", "M45", "M50"],
+      "counties": ["Greater Manchester", "Manchester"]
+    },
+    "birmingham": {
+      "outcodes": ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10", "B11", "B12", "B13", "B14", "B15", "B16", "B17", "B18", "B19", "B20", "B21", "B23", "B24", "B25", "B26", "B27", "B28", "B29", "B30", "B31", "B32", "B33", "B34", "B35", "B36", "B37", "B38", "B40", "B42", "B43", "B44", "B45", "B46", "B47", "B48", "B49", "B50"],
+      "counties": ["West Midlands", "Birmingham"]
+    },
+    "leeds": {
+      "outcodes": ["LS1", "LS2", "LS3", "LS4", "LS5", "LS6", "LS7", "LS8", "LS9", "LS10", "LS11", "LS12", "LS13", "LS14", "LS15", "LS16", "LS17", "LS18", "LS19", "LS25", "LS26", "LS27", "LS28"],
+      "counties": ["West Yorkshire", "Yorkshire"]
+    },
+    "liverpool": {
+      "outcodes": ["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10", "L11", "L12", "L13", "L14", "L15", "L16", "L17", "L18", "L19", "L24", "L25", "L26", "L27", "L28", "L32", "L33", "L34", "L35", "L36"],
+      "counties": ["Merseyside", "Liverpool"]
+    },
+    "bristol": {
+      "outcodes": ["BS1", "BS2", "BS3", "BS4", "BS5", "BS6", "BS7", "BS8", "BS9", "BS10", "BS11", "BS13", "BS14", "BS15", "BS16", "BS30", "BS31", "BS32", "BS34", "BS35", "BS36", "BS37", "BS39", "BS40", "BS41"],
+      "counties": ["Bristol", "Somerset", "Avon"]
+    },
+    "sheffield": {
+      "outcodes": ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12", "S13", "S14", "S17", "S20", "S21", "S25", "S26", "S35", "S36"],
+      "counties": ["South Yorkshire", "Yorkshire"]
+    },
+    "glasgow": {
+      "outcodes": ["G1", "G2", "G3", "G4", "G5", "G11", "G12", "G13", "G14", "G15", "G20", "G21", "G22", "G23", "G31", "G32", "G33", "G34", "G40", "G41", "G42", "G43", "G44", "G45", "G46", "G51", "G52", "G53", "G60", "G61", "G62", "G63", "G64", "G65", "G66", "G67", "G68", "G69", "G71", "G72", "G73", "G74", "G75", "G76", "G77", "G78", "G79", "G81", "G82", "G83", "G90"],
+      "counties": ["Glasgow", "Lanarkshire", "Scotland"]
+    },
+    "edinburgh": {
+      "outcodes": ["EH1", "EH2", "EH3", "EH4", "EH5", "EH6", "EH7", "EH8", "EH9", "EH10", "EH11", "EH12", "EH13", "EH14", "EH15", "EH16", "EH17", "EH18", "EH19", "EH20", "EH21", "EH22", "EH26", "EH27", "EH28", "EH29", "EH30", "EH39", "EH41", "EH42", "EH43", "EH44", "EH45", "EH46", "EH47", "EH48", "EH49", "EH51", "EH52", "EH53", "EH54", "EH55"],
+      "counties": ["Edinburgh", "Midlothian", "Scotland"]
+    },
+    "cardiff": {
+      "outcodes": ["CF3", "CF5", "CF10", "CF11", "CF14", "CF15", "CF23", "CF24", "CF30", "CF31", "CF32", "CF33", "CF34", "CF35", "CF37", "CF38", "CF39", "CF40", "CF41", "CF42", "CF43", "CF44", "CF45", "CF46", "CF47", "CF48", "CF61", "CF62", "CF63", "CF64", "CF71", "CF72", "CF81", "CF82", "CF83"],
+      "counties": ["Cardiff", "South Glamorgan", "Wales"]
+    },
+    "belfast": {
+      "outcodes": ["BT1", "BT2", "BT3", "BT4", "BT5", "BT6", "BT7", "BT8", "BT9", "BT10", "BT11", "BT12", "BT13", "BT14", "BT15", "BT16", "BT17", "BT18", "BT19", "BT20", "BT21", "BT22", "BT23", "BT24", "BT25", "BT26", "BT27", "BT28", "BT29", "BT30", "BT31", "BT32", "BT33", "BT34", "BT35", "BT36", "BT37", "BT38", "BT39", "BT40", "BT41", "BT42", "BT43", "BT44", "BT45", "BT46", "BT47", "BT48", "BT49", "BT51", "BT52", "BT53", "BT54", "BT55", "BT56", "BT57", "BT60", "BT61", "BT62", "BT63", "BT64", "BT65", "BT66", "BT67", "BT68", "BT69", "BT70", "BT71", "BT74", "BT75", "BT76", "BT77", "BT78", "BT79", "BT80", "BT81", "BT82", "BT92", "BT93", "BT94"],
+      "counties": ["Belfast", "Northern Ireland"]
+    },
+    "newcastle": {
+      "outcodes": ["NE1", "NE2", "NE3", "NE4", "NE5", "NE6", "NE7", "NE8", "NE9", "NE10", "NE11", "NE12", "NE13", "NE15", "NE16", "NE20", "NE21", "NE23", "NE25", "NE26", "NE27", "NE28", "NE29", "NE30", "NE31", "NE32", "NE33", "NE34", "NE35", "NE36", "NE37", "NE38", "NE39", "NE40", "NE41", "NE42", "NE43", "NE44", "NE45", "NE46", "NE47", "NE48", "NE49"],
+      "counties": ["Tyne and Wear", "Northumberland", "Newcastle upon Tyne"]
+    },
+    "leicester": {
+      "outcodes": ["LE1", "LE2", "LE3", "LE4", "LE5", "LE6", "LE7", "LE8", "LE9", "LE10", "LE11", "LE12", "LE13", "LE14", "LE15", "LE16", "LE17", "LE18", "LE19", "LE21", "LE41", "LE55", "LE65", "LE67", "LE87"],
+      "counties": ["Leicestershire", "Leicester"]
+    },
+    "battersea": {
+      "outcodes": ["SW11", "SW8"],
+      "counties": ["London", "Greater London"]
+    },
+    "peckham": {
+      "outcodes": ["SE15", "SE5"],
+      "counties": ["London", "Greater London"]
+    },
+    "streatham": {
+      "outcodes": ["SW16", "SW17", "CR4"],
+      "counties": ["London", "Greater London"]
+    }
+  },
+  "counties": {
+    "london": ["SW", "SE", "W", "E", "N", "NW", "EC", "WC"],
+    "greater london": ["SW", "SE", "W", "E", "N", "NW", "EC", "WC"],
+    "nottinghamshire": ["NG"],
+    "nottingham": ["NG"],
+    "yorkshire": ["YO", "HG", "LS", "BD", "HX", "HD", "WF", "S", "DN"],
+    "west yorkshire": ["LS", "BD", "HX", "HD", "WF"],
+    "south yorkshire": ["S", "DN"],
+    "north yorkshire": ["YO", "HG"],
+    "greater manchester": ["M", "SK", "OL", "BL", "WN"],
+    "manchester": ["M"],
+    "west midlands": ["B", "CV", "DY", "WS", "WV"],
+    "birmingham": ["B"],
+    "merseyside": ["L", "CH", "WA"],
+    "liverpool": ["L"],
+    "bristol": ["BS"],
+    "somerset": ["BS", "BA", "TA"],
+    "lancashire": ["BB", "FY", "LA", "PR"],
+    "tyne and wear": ["NE", "SR"],
+    "northumberland": ["NE"],
+    "leicestershire": ["LE"],
+    "leicester": ["LE"]
+  },
+  "outcode_to_county": {
+    "NG": "Nottinghamshire",
+    "S": "South Yorkshire",
+    "M": "Greater Manchester",
+    "B": "West Midlands",
+    "L": "Merseyside",
+    "BS": "Bristol",
+    "NE": "Tyne and Wear",
+    "LE": "Leicestershire",
+    "SW": "London",
+    "SE": "London",
+    "W": "London",
+    "E": "London",
+    "N": "London",
+    "NW": "London",
+    "EC": "London",
+    "WC": "London"
+  }
+} 

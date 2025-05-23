@@ -1,0 +1,82 @@
+{% extends 'checker/base.html' %}
+{% load static %}
+{% load humanize %}
+{% load checker_tags %}
+
+{% block title %}CMU Details: {{ cmu_id }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-3">
+        <div class="col">
+            <a href="javascript:history.back()" class="btn btn-outline-secondary btn-sm">&larr; Back</a>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h2 class="mb-0">CMU ID: {{ cmu_id }}</h2>
+        </div>
+        <div class="card-body">
+            {% if error %}
+                <div class="alert alert-danger">{{ error }}</div>
+                {% if traceback %}
+                    <pre class="small">{{ traceback }}</pre>
+                {% endif %}
+            {% else %}
+                <p class="text-muted">Found {{ total_count|intcomma }} component record{{ total_count|pluralize }} associated with this CMU ID.</p>
+
+                <!-- Sorting Controls -->
+                <div class="mb-3 d-flex justify-content-end align-items-center">
+                    <span class="me-2 text-muted small">Sort by:</span>
+                    <form method="get" action="{% url 'cmu_detail' cmu_id=cmu_id %}" class="d-inline-block me-2">
+                        <select name="sort_by" class="form-select form-select-sm d-inline-block w-auto" onchange="this.form.submit()">
+                            <option value="location" {% if sort_field == 'location' %}selected{% endif %}>Location</option>
+                            <option value="delivery_year" {% if sort_field == 'delivery_year' %}selected{% endif %}>Date (Delivery Year)</option>
+                        </select>
+                        <input type="hidden" name="sort" value="{{ sort_order }}">
+                    </form>
+                    <a href="{% url 'cmu_detail' cmu_id=cmu_id %}?sort_by={{ sort_field }}&sort={% if sort_order == 'asc' %}desc{% else %}asc{% endif %}" 
+                       class="btn btn-outline-secondary btn-sm">
+                        {% if sort_order == 'asc' %}
+                            &uarr; Asc
+                        {% else %}
+                            &darr; Desc
+                        {% endif %}
+                    </a>
+                </div>
+
+                <!-- Component List -->
+                {% if page_obj and page_obj.object_list %}
+                    <div class="list-group">
+                        {% for component in page_obj %}
+                            <div class="list-group-item">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h5 class="mb-1">
+                                        <a href="/?q={{ component.location|default:'No Location Provided' }}">{{ component.location|default:"No Location Provided" }}</a>
+                                    </h5>
+                                    <small class="text-muted">{{ component.delivery_year|default:"N/A" }}</small>
+                                </div>
+                                <p class="mb-1">{{ component.description|default:"No description" }}</p>
+                                <small class="text-muted">
+                                    Technology: {{ component.technology|default:"N/A" }} | 
+                                    Auction: {{ component.auction_name|default:"N/A" }} | 
+                                    Capacity: {{ component.derated_capacity_mw|default:"N/A" }} MW
+                                </small>
+                            </div>
+                        {% endfor %}
+                    </div>
+
+                    <!-- Pagination -->
+                    {% include "checker/partials/pagination.html" with page_obj=page_obj paginator=paginator %} 
+
+                {% else %}
+                    <p>No components found matching the criteria for this CMU ID.</p>
+                {% endif %}
+
+                <p class="text-muted small mt-3">Data fetch time: {{ api_time|floatformat:4 }}s</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %} 

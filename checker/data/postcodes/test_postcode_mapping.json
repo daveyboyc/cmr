@@ -1,0 +1,373 @@
+{
+  "full_postcodes": {
+    "TR8 5AY": {
+      "outcode": "TR8",
+      "county": "Unknown",
+      "district": "Cornwall",
+      "region": "South West"
+    },
+    "RH15 8GA": {
+      "outcode": "RH15",
+      "county": "West Sussex",
+      "district": "Mid Sussex",
+      "region": "South East"
+    },
+    "KY7 5QB": {
+      "outcode": "KY7",
+      "county": "Unknown",
+      "district": "Fife",
+      "region": "Unknown"
+    },
+    "S62 5AL": {
+      "outcode": "S62",
+      "county": "Unknown",
+      "district": "Rotherham",
+      "region": "Yorkshire and The Humber"
+    },
+    "YO51 9LS": {
+      "outcode": "YO51",
+      "county": "Unknown",
+      "district": "North Yorkshire",
+      "region": "Yorkshire and The Humber"
+    },
+    "IV4 7NB": {
+      "outcode": "IV4",
+      "county": "Unknown",
+      "district": "Highland",
+      "region": "Unknown"
+    },
+    "CB6 2AY": {
+      "outcode": "CB6",
+      "county": "Cambridgeshire",
+      "district": "Fenland",
+      "region": "East of England"
+    },
+    "M31 4AY": {
+      "outcode": "M31",
+      "county": "Unknown",
+      "district": "Trafford",
+      "region": "North West"
+    },
+    "WR1 2SE": {
+      "outcode": "WR1",
+      "county": "Worcestershire",
+      "district": "Worcester",
+      "region": "West Midlands"
+    },
+    "NW9 0AS": {
+      "outcode": "NW9",
+      "county": "Unknown",
+      "district": "Brent",
+      "region": "London"
+    },
+    "NR32 3BN": {
+      "outcode": "NR32",
+      "county": "Suffolk",
+      "district": "East Suffolk",
+      "region": "East of England"
+    },
+    "SO14 0PF": {
+      "outcode": "SO14",
+      "county": "Unknown",
+      "district": "Southampton",
+      "region": "South East"
+    },
+    "NE40 4JP": {
+      "outcode": "NE40",
+      "county": "Unknown",
+      "district": "Gateshead",
+      "region": "North East"
+    },
+    "G51 4TF": {
+      "outcode": "G51",
+      "county": "Unknown",
+      "district": "Glasgow City",
+      "region": "Unknown"
+    },
+    "CV4 7AL": {
+      "outcode": "CV4",
+      "county": "Unknown",
+      "district": "Coventry",
+      "region": "West Midlands"
+    },
+    "NP23 5SD": {
+      "outcode": "NP23",
+      "county": "Unknown",
+      "district": "Blaenau Gwent",
+      "region": "Unknown"
+    },
+    "PO20 2BG": {
+      "outcode": "PO20",
+      "county": "West Sussex",
+      "district": "Chichester",
+      "region": "South East"
+    },
+    "HG1 2RP": {
+      "outcode": "HG1",
+      "county": "Unknown",
+      "district": "North Yorkshire",
+      "region": "Yorkshire and The Humber"
+    },
+    "SO15 1BA": {
+      "outcode": "SO15",
+      "county": "Unknown",
+      "district": "Southampton",
+      "region": "South East"
+    },
+    "B11 2BA": {
+      "outcode": "B11",
+      "county": "Unknown",
+      "district": "Birmingham",
+      "region": "West Midlands"
+    },
+    "CF37 5TA": {
+      "outcode": "CF37",
+      "county": "Unknown",
+      "district": "Rhondda Cynon Taf",
+      "region": "Unknown"
+    },
+    "BL9 5BY": {
+      "outcode": "BL9",
+      "county": "Unknown",
+      "district": "Bury",
+      "region": "North West"
+    },
+    "B1 2AA": {
+      "outcode": "B1",
+      "county": "Unknown",
+      "district": "Birmingham",
+      "region": "West Midlands"
+    }
+  },
+  "outward_codes": {
+    "L14": {
+      "admin_districts": [
+        "Knowsley",
+        "Liverpool"
+      ],
+      "region": "Unknown"
+    },
+    "DH1": {
+      "admin_districts": [
+        "County Durham"
+      ],
+      "region": "Unknown"
+    },
+    "RH19": {
+      "admin_districts": [
+        "Wealden",
+        "Tandridge",
+        "Mid Sussex"
+      ],
+      "region": "Unknown"
+    },
+    "IG7": {
+      "admin_districts": [
+        "Epping Forest",
+        "Redbridge"
+      ],
+      "region": "Unknown"
+    },
+    "S80": {
+      "admin_districts": [
+        "Rotherham",
+        "Bassetlaw",
+        "Bolsover"
+      ],
+      "region": "Unknown"
+    },
+    "BN17": {
+      "admin_districts": [
+        "Arun"
+      ],
+      "region": "Unknown"
+    },
+    "HP9": {
+      "admin_districts": [
+        "Buckinghamshire"
+      ],
+      "region": "Unknown"
+    },
+    "RG4": {
+      "admin_districts": [
+        "South Oxfordshire",
+        "Wokingham",
+        "Reading"
+      ],
+      "region": "Unknown"
+    },
+    "SK8": {
+      "admin_districts": [
+        "Stockport",
+        "Cheshire East"
+      ],
+      "region": "Unknown"
+    },
+    "CO11": {
+      "admin_districts": [
+        "Babergh",
+        "Tendring"
+      ],
+      "region": "Unknown"
+    },
+    "LS27": {
+      "admin_districts": [
+        "Leeds"
+      ],
+      "region": "Unknown"
+    },
+    "B93": {
+      "admin_districts": [
+        "Warwick",
+        "Solihull"
+      ],
+      "region": "Unknown"
+    },
+    "CF61": {
+      "admin_districts": [
+        "Vale of Glamorgan"
+      ],
+      "region": "Unknown"
+    },
+    "CB22": {
+      "admin_districts": [
+        "Cambridge",
+        "South Cambridgeshire"
+      ],
+      "region": "Unknown"
+    },
+    "NP10": {
+      "admin_districts": [
+        "Newport",
+        "Caerphilly"
+      ],
+      "region": "Unknown"
+    },
+    "S72": {
+      "admin_districts": [
+        "Wakefield",
+        "Barnsley"
+      ],
+      "region": "Unknown"
+    },
+    "CM3": {
+      "admin_districts": [
+        "Braintree",
+        "Maldon",
+        "Uttlesford",
+        "Chelmsford"
+      ],
+      "region": "Unknown"
+    },
+    "PO15": {
+      "admin_districts": [
+        "Winchester",
+        "Fareham"
+      ],
+      "region": "Unknown"
+    },
+    "NG19": {
+      "admin_districts": [
+        "Newark and Sherwood",
+        "Mansfield",
+        "Ashfield",
+        "Bolsover"
+      ],
+      "region": "Unknown"
+    },
+    "LE10": {
+      "admin_districts": [
+        "Blaby",
+        "Hinckley and Bosworth",
+        "Rugby"
+      ],
+      "region": "Unknown"
+    },
+    "B79": {
+      "admin_districts": [
+        "Lichfield",
+        "Tamworth",
+        "North Warwickshire",
+        "North West Leicestershire"
+      ],
+      "region": "Unknown"
+    },
+    "MK5": {
+      "admin_districts": [
+        "Milton Keynes"
+      ],
+      "region": "Unknown"
+    },
+    "CF15": {
+      "admin_districts": [
+        "Cardiff",
+        "Rhondda Cynon Taf",
+        "Caerphilly"
+      ],
+      "region": "Unknown"
+    },
+    "AB21": {
+      "admin_districts": [
+        "Aberdeenshire",
+        "Aberdeen City"
+      ],
+      "region": "Unknown"
+    }
+  },
+  "outcode_to_county": {
+    "RH15": "West Sussex",
+    "CB6": "Cambridgeshire",
+    "WR1": "Worcestershire",
+    "NR32": "Suffolk",
+    "PO20": "West Sussex",
+    "L14": "Knowsley",
+    "DH1": "County Durham",
+    "RH19": "Wealden",
+    "IG7": "Epping Forest",
+    "S80": "Rotherham",
+    "BN17": "Arun",
+    "HP9": "Buckinghamshire",
+    "RG4": "South Oxfordshire",
+    "SK8": "Stockport",
+    "CO11": "Babergh",
+    "LS27": "Leeds",
+    "B93": "Warwick",
+    "CF61": "Vale of Glamorgan",
+    "CB22": "Cambridge",
+    "NP10": "Newport",
+    "S72": "Wakefield",
+    "CM3": "Braintree",
+    "PO15": "Winchester",
+    "NG19": "Newark and Sherwood",
+    "LE10": "Blaby",
+    "B79": "Lichfield",
+    "MK5": "Milton Keynes",
+    "CF15": "Cardiff",
+    "AB21": "Aberdeenshire"
+  },
+  "outcode_to_region": {
+    "TR8": "South West",
+    "RH15": "South East",
+    "S62": "Yorkshire and The Humber",
+    "YO51": "Yorkshire and The Humber",
+    "CB6": "East of England",
+    "M31": "North West",
+    "WR1": "West Midlands",
+    "NW9": "London",
+    "NR32": "East of England",
+    "SO14": "South East",
+    "NE40": "North East",
+    "CV4": "West Midlands",
+    "PO20": "South East",
+    "HG1": "Yorkshire and The Humber",
+    "SO15": "South East",
+    "B11": "West Midlands",
+    "BL9": "North West",
+    "B1": "West Midlands"
+  },
+  "metadata": {
+    "created_at": "2025-05-06 10:31:57",
+    "total_full_postcodes": 248,
+    "total_outward_codes": 197
+  }
+}

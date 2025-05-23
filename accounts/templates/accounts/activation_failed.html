@@ -1,0 +1,31 @@
+{% extends "checker/base.html" %}
+
+{% block title %}Activation Failed{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow">
+                <div class="card-header bg-danger text-white">
+                    <h4 class="mb-0">Activation Failed</h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-danger">
+                        <h5>Activation Link Invalid or Expired</h5>
+                        <p>We couldn't activate your account because the activation link was invalid or has expired.</p>
+                        <p>This could be because:</p>
+                        <ul>
+                            <li>The activation link was already used</li>
+                            <li>The activation link has expired</li>
+                            <li>The URL was incorrectly copied or modified</li>
+                        </ul>
+                    </div>
+                    <p class="mt-3">If you'd like to try registering again, please <a href="{% url 'accounts:register' %}">click here</a>.</p>
+                    <p><a href="{% url 'search_companies' %}" class="btn btn-outline-primary">Return to Home Page</a></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,113 @@
+{% extends "checker/base.html" %}
+{% load static %}
+
+{% block title %}Support Capacity Market Search{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="text-center">Support Capacity Market Search</h2>
+                </div>
+                <div class="card-body">
+                    <p class="lead text-center">
+                        If you find this tool useful, please consider supporting its development and maintenance.
+                    </p>
+                    
+                    <div class="text-center mb-4">
+                        <p>Choose an amount to donate:</p>
+                        <div class="btn-group" role="group" aria-label="Donation amounts">
+                            <button type="button" class="btn btn-outline-primary donation-amount" data-amount="3">£3</button>
+                            <button type="button" class="btn btn-outline-primary donation-amount" data-amount="5">£5</button>
+                            <button type="button" class="btn btn-outline-primary donation-amount active" data-amount="10">£10</button>
+                            <button type="button" class="btn btn-outline-primary donation-amount" data-amount="20">£20</button>
+                            <button type="button" class="btn btn-outline-primary donation-amount" data-amount="50">£50</button>
+                            <button type="button" class="btn btn-outline-primary donation-amount" data-amount="custom">Custom</button>
+                        </div>
+                    </div>
+                    
+                    <div id="custom-amount-container" class="mb-4" style="display: none;">
+                        <div class="input-group">
+                            <span class="input-group-text">£</span>
+                            <input type="number" class="form-control" id="custom-amount" min="1" value="10" step="1">
+                        </div>
+                    </div>
+                    
+                    <div class="text-center">
+                        <button id="checkout-button" class="btn btn-primary btn-lg">
+                            <i class="bi bi-credit-card me-2"></i> Donate Now
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://js.stripe.com/v3/"></script>
+<script>
+    let stripe = Stripe('{{ stripe_public_key }}');
+    let currentAmount = 10; // Default amount
+    
+    document.addEventListener('DOMContentLoaded', function() {
+        // Handle donation amount selection
+        const amountButtons = document.querySelectorAll('.donation-amount');
+        const customAmountContainer = document.getElementById('custom-amount-container');
+        const customAmountInput = document.getElementById('custom-amount');
+        
+        amountButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                // Remove active class from all buttons
+                amountButtons.forEach(btn => btn.classList.remove('active'));
+                // Add active class to clicked button
+                this.classList.add('active');
+                
+                const amount = this.dataset.amount;
+                if (amount === 'custom') {
+                    customAmountContainer.style.display = 'block';
+                    currentAmount = parseFloat(customAmountInput.value);
+                } else {
+                    customAmountContainer.style.display = 'none';
+                    currentAmount = parseFloat(amount);
+                }
+            });
+        });
+        
+        // Update amount when custom value changes
+        customAmountInput.addEventListener('change', function() {
+            currentAmount = parseFloat(this.value);
+        });
+        
+        // Handle checkout button
+        const checkoutButton = document.getElementById('checkout-button');
+        checkoutButton.addEventListener('click', function() {
+            // Create checkout session
+            fetch('/create-checkout-session/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `amount=${currentAmount}`
+            })
+            .then(response => response.json())
+            .then(session => {
+                // Redirect to Stripe Checkout
+                return stripe.redirectToCheckout({ sessionId: session.id });
+            })
+            .then(result => {
+                if (result.error) {
+                    alert(result.error.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred. Please try again later.');
+            });
+        });
+    });
+</script>
+{% endblock %}

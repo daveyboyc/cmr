@@ -1,0 +1,106 @@
+from django.urls import path
+from . import views
+from .services.component_detail import get_component_details
+from .debug_views import debug_component_duplicates
+from .services.component_search import search_components_service
+from .services.company_search import cmu_detail
+from .views import donation_page, create_checkout_session, donation_success, donation_cancel, help_view
+from django.http import HttpResponse
+
+urlpatterns = [
+    path("components/", views.search_components, name="search_components"),
+
+    # Help endpoint
+    path("help/", help_view, name="help"),
+    path("help/<str:section>/", help_view, name="help_section"),
+
+    # Donation endpoints
+    path('donate/', donation_page, name='donation_page'),
+    path('create-checkout-session/', create_checkout_session, name='create_checkout_session'),
+    path('donation-success/', donation_success, name='donation_success'),
+    path('donation-cancel/', donation_cancel, name='donation_cancel'),
+
+    # HTMX endpoints
+    path("api/company-years/<str:company_id>/<str:year>/",
+         views.htmx_company_years, name="htmx_company_years"),
+    path("api/company-years/<str:company_id>/<str:year>/<str:auction_name>/",
+         views.htmx_company_years, name="htmx_company_years_with_auction"),
+    path("api/auction-components/<str:company_id>/<str:year>/<str:auction_name>/",
+         views.htmx_auction_components, name="htmx_auction_components"),
+    path("api/cmu-details/<str:cmu_id>/",
+         views.get_cmu_details, name="htmx_cmu_details"),
+
+    # Component detail page - use integer primary key
+    path("component/<int:pk>/",
+         views.component_detail, name="component_detail"),
+    path("component/by-id/<str:component_id>/",
+         views.component_detail_by_id, name="component_detail_by_id"),
+
+    # Company detail page
+    path("company/<str:company_id>/",
+         views.company_detail, name="company_detail"),
+
+    # CMU detail page
+    path("cmu/<str:cmu_id>/",
+         cmu_detail, name="cmu_detail"),
+
+    # Map view and API
+    path('map/', views.map_view, name='map_view'),
+    path('api/map-data/', views.map_data_api, name='map_data_api'),
+    path('api/component-map-detail/<int:component_id>/', views.component_map_detail_api, name='component_map_detail_api'),
+
+    # Debug/admin endpoints
+    path("debug/mapping-cache/",
+         views.debug_mapping_cache, name="debug_mapping_cache"),
+
+    # API endpoint for getting auction components (redundant with HTMX endpoint above)
+    # path("api/auction-components/<str:company_id>/<str:year>/<str:auction_name>/", views.auction_components, name="auction_components_api"),
+    
+    # Debug endpoint for troubleshooting component issues
+    path("debug/auction-components/<str:company_id>/<str:year>/<str:auction_name>/", views.debug_auction_components, name="debug_auction_components"),
+
+    # Debug endpoints
+    path("debug/cache/<str:cmu_id>/",
+         views.debug_cache, name="debug_cache"),
+#    path("debug/mapping/",
+#         views.debug_mapping, name="debug_mapping"),
+    path("debug/mapping-cache/",
+         views.debug_mapping_cache, name="debug_mapping_cache"),
+         
+    # New debug endpoint for component investigation
+    path("debug/component-retrieval/<str:cmu_id>/",
+         views.debug_component_retrieval, name="debug_component_retrieval"),
+         
+    # Debug endpoint for company components
+    path("debug/company-components/",
+         views.debug_company_components, name="debug_company_components"),
+
+    # Debug URLs
+    path('debug/duplicates/<str:cmu_id>/', debug_component_duplicates, name='debug_duplicates'),
+    path('statistics/', views.statistics_view, name='statistics'),
+    
+    # Index information endpoint
+    path('debug/indexes/', views.index_info, name='index_info'),
+    
+    # New URL for technology-specific search results - Reverted back to PATH
+    path('technology/<path:technology_name_encoded>/', views.technology_search_results, name='technology_search'),
+
+    # New URL for full de-rated capacity list (components)
+    path('components/by-derated-capacity/', views.derated_capacity_list, name='derated_capacity_list'),
+
+    # New URL for full company list by total capacity
+    path('companies/by-total-capacity/', views.company_capacity_list, name='company_capacity_list'),
+
+    # Placeholder URL for full technology list
+    path('technologies/', views.technology_list_view, name='technology_list'), # NOW points to the real view
+    
+    # Market component lists
+    path('components/current-market/', views.current_market_list, name='current_market_list'),
+    path('components/past-market/', views.past_market_list, name='past_market_list'),
+
+    # GPT API endpoint
+    path('api/gpt-search/', views.gpt_search_api, name='gpt_search_api'),
+    
+    # Root path is now last to avoid catching more specific paths
+    path("", search_components_service, name="search_companies"),
+]

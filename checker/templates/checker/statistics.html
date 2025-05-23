@@ -1,0 +1,484 @@
+{% extends "checker/base.html" %}
+{% load static %}
+{% load humanize %}
+
+{% block title %}Statistics - Capacity Market Search{% endblock %}
+
+{% block content %}
+{% load checker_tags %}
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header">
+        <h1>Database Statistics</h1>
+        <a href="{% url 'search_companies' %}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-arrow-left"></i> Back to Search
+        </a>
+    </div>
+
+    <!-- Summary Numbers -->
+    <div class="row text-center mb-5 summary-numbers">
+        <div class="col-md-3">
+            <div class="card stats-card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-box-seam"></i> Total Components</h5>
+                    <p class="display-4 fw-bold">{{ total_components|intcomma }}</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stats-card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-archive"></i> Unique CMUs</h5>
+                    <p class="display-4 fw-bold">{{ total_cmus|intcomma }}</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stats-card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-building"></i> Total Companies</h5>
+                    <p class="display-4 fw-bold">{{ total_companies|intcomma }}</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stats-card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-geo-alt"></i> Unique Locations</h5>
+                    <p class="display-4 fw-bold">{{ total_unique_locations|intcomma }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# --- Pie Charts Row --- #}
+    <div class="row mb-5 text-center">
+        <div class="col-md-6">
+            <div class="chart-container mb-3" style="position: relative; height:40vh; width:80vw; max-width: 400px; margin: auto;">
+                <h4 class="mb-2">Company Distribution</h4>
+                <div class="btn-group btn-group-sm mb-2" role="group">
+                    <button type="button" class="btn btn-outline-primary active chart-toggle-btn" data-chart="companyPieChart" data-type="count">By Count</button>
+                    <button type="button" class="btn btn-outline-primary chart-toggle-btn" data-chart="companyPieChart" data-type="capacity">By Capacity</button>
+                </div>
+                <canvas id="companyPieChart"></canvas>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="chart-container mb-3" style="position: relative; height:40vh; width:80vw; max-width: 400px; margin: auto;">
+                <h4 class="mb-2">Technology Distribution</h4>
+                <div class="btn-group btn-group-sm mb-2" role="group">
+                    <button type="button" class="btn btn-outline-primary active chart-toggle-btn" data-chart="techPieChart" data-type="count">By Count</button>
+                    <button type="button" class="btn btn-outline-primary chart-toggle-btn" data-chart="techPieChart" data-type="capacity">By Capacity</button>
+                </div>
+                <canvas id="techPieChart"></canvas>
+            </div>
+        </div>
+    </div>
+    {# --- End Pie Charts Row --- #}
+
+    {# --- Main Content Row (Top 25 Lists) --- #}
+    <div class="row">
+        {# --- Left Column --- #}
+        <div class="col-lg-6 mb-4">
+            {# --- Top Companies Section --- #}
+            <div class="stats-card mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h2>Top {{ top_companies_data|length }} Companies</h2>
+                    <!-- Sort Controls moved inside header div -->
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Sort companies by">
+                         <a href="?company_sort=count&company_order={% if company_sort == 'count' and company_order == 'desc' %}asc{% else %}desc{% endif %}" 
+                           class="btn {% if company_sort == 'count' %}btn-primary{% else %}btn-outline-secondary{% endif %}" style="min-width: 120px;">
+                            Component
+                            {% if company_sort == 'count' %}
+                                {% if company_order == 'desc' %}<i class="bi bi-arrow-down-short"></i>{% else %}<i class="bi bi-arrow-up-short"></i>{% endif %}
+                            {% endif %}
+                        </a>
+                        <a href="?company_sort=capacity&company_order={% if company_sort == 'capacity' and company_order == 'desc' %}asc{% else %}desc{% endif %}" 
+                           class="btn {% if company_sort == 'capacity' %}btn-primary{% else %}btn-outline-secondary{% endif %}" style="min-width: 120px;">
+                            Capacity (MW)
+                            {% if company_sort == 'capacity' %}
+                                {% if company_order == 'desc' %}<i class="bi bi-arrow-down-short"></i>{% else %}<i class="bi bi-arrow-up-short"></i>{% endif %}
+                            {% endif %}
+                        </a>
+                    </div>
+                </div>
+                {# Removed outer sort controls div #}
+                
+                {# Removed list-container wrapper #}
+                {% for company in top_companies_data %}
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between">
+                             <a href="{% url 'company_detail' company_id=company.company_id %}" class="text-decoration-none">
+                                {{ company.company_name|truncatechars:45 }}
+                            </a>
+                            <span class="text-muted">
+                                {% if company_sort == 'count' %}
+                                    {{ company.count|intcomma }} components
+                                {% else %}
+                                    {{ company.total_capacity|floatformat:2|intcomma }} MW
+                                {% endif %}
+                            </span>
+                        </div>
+                        {% if company_sort == 'count' %}
+                        <div class="progress mt-1" style="height: 5px;">
+                            <div class="progress-bar company-bar" role="progressbar" 
+                                 style="width: {{ company.percentage }} %" 
+                                 aria-valuenow="{{ company.percentage }}" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100"></div>
+                        </div>
+                        {% endif %}
+                    </div>
+                {% empty %}
+                    <div class="list-group-item">No company data available.</div>
+                {% endfor %}
+                
+                <div class="text-center mt-3">
+                    {# TODO: Create dedicated view/URL for all companies by count #}
+                    <a href="{% url 'company_capacity_list' %}">Show full list...</a> 
+                </div>
+            </div> {# --- End Top Companies Section --- #}
+        </div> {# --- End Left Column --- #}
+
+        {# --- Right Column --- #}
+        <div class="col-lg-6 mb-4">
+             {# --- Technology Distribution Section --- #}
+            <div class="stats-card mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h2>Top 25 by Tech</h2> {# Renamed header #}
+                    <!-- Add Sort Controls for Technology -->
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Sort technologies by">
+                        <a href="?tech_sort=count&tech_order={% if tech_sort == 'count' and tech_order == 'desc' %}asc{% else %}desc{% endif %}" 
+                           class="btn {% if tech_sort == 'count' %}btn-primary{% else %}btn-outline-secondary{% endif %}" style="min-width: 120px;">
+                            Component
+                            {% if tech_sort == 'count' %}
+                                {% if tech_order == 'desc' %}<i class="bi bi-arrow-down-short"></i>{% else %}<i class="bi bi-arrow-up-short"></i>{% endif %}
+                            {% endif %}
+                        </a>
+                        <a href="?tech_sort=capacity&tech_order={% if tech_sort == 'capacity' and tech_order == 'desc' %}asc{% else %}desc{% endif %}" 
+                           class="btn {% if tech_sort == 'capacity' %}btn-primary{% else %}btn-outline-secondary{% endif %}" style="min-width: 120px;">
+                            Capacity (MW)
+                            {% if tech_sort == 'capacity' %}
+                                {% if tech_order == 'desc' %}<i class="bi bi-arrow-down-short"></i>{% else %}<i class="bi bi-arrow-up-short"></i>{% endif %}
+                            {% endif %}
+                        </a>
+                    </div>
+                </div>
+                
+                {# Removed list-container wrapper #}
+                {% for tech in tech_distribution %}
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between">
+                            <!-- Link to dedicated technology search results page -->
+                            <a href="{% url 'technology_search' technology_name_encoded=tech.technology|urlencode %}" class="text-decoration-none">
+                                {{ tech.technology|truncatechars:45 }}
+                            </a>
+                            <span class="text-muted">
+                                {% if tech_sort == 'count' %}
+                                    {{ tech.count|intcomma }} components 
+                                {% else %}
+                                    {{ tech.total_capacity|floatformat:2|intcomma }} MW
+                                {% endif %}
+                                {% if tech.percentage > 0 %}({{ tech.percentage|floatformat:1 }}%){% endif %} {# Show percentage if available #}
+                            </span>
+                        </div>
+                        <div class="progress mt-1" style="height: 5px;">
+                            {# Note: Progress bar width might need adjustment if sorting by capacity #}
+                            <div class="progress-bar tech-bar" role="progressbar" 
+                                 style="width: {{ tech.percentage }} %" 
+                                 aria-valuenow="{{ tech.percentage }}" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100"></div>
+                        </div>
+                    </div>
+                {% empty %}
+                    <div class="list-group-item">No technology data available.</div>
+                {% endfor %}
+                
+                {# Show Full List Link only if not showing all techs #}
+                {% if not show_all_techs %}
+                    <div class="text-center mt-3">
+                         {# TODO: Create dedicated view/URL for all technologies #}
+                        <a href="{% url 'technology_list' %}">Show full list...</a>
+                    </div>
+                {% endif %}
+            </div> {# --- End Technology Distribution Section --- #}
+        </div> {# --- End Right Column --- #}
+    </div> {# --- End Main Content Row --- #}
+
+    {# --- Lower Content Sections (Full Width) --- #}
+    {# --- Top Components by De-rated Capacity --- #}
+    <div class="mb-5">
+        <h3 class="mb-3">Top {{ top_derated_components|length }} Components by De-rated Capacity (MW)</h3>
+        <ul class="list-group list-group-flush">
+            {% for comp in top_derated_components %}
+                <li class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <!-- Link to component detail page -->
+                        <a href="{% url 'component_detail' pk=comp.id %}" class="fw-bold text-decoration-none">
+                            {{ comp.location|truncatechars:60 }}
+                        </a>
+                        <span class="badge bg-info rounded-pill">{{ comp.derated_capacity|floatformat:2|intcomma }} MW</span>
+                    </div>
+                    <div class="small text-muted">
+                        {{ comp.company_name|truncatechars:50 }}
+                    </div>
+                </li>
+            {% empty %}
+                <li class="list-group-item">No de-rated capacity data available or processed.</li>
+            {% endfor %}
+        </ul>
+        {# Show More link #}
+        {% if top_derated_components %}
+        <div class="text-center mt-3">
+            <a href="{% url 'derated_capacity_list' %}">Show full list...</a>
+        </div>
+        {% endif %}
+    </div> {# --- End Top Components by De-rated Capacity --- #}
+    
+    {# --- Components in Current Capacity Market (2025-2028) --- #}
+    <div class="mb-5">
+        <h3 class="mb-3">Components Currently in Capacity Market (2025-2028)</h3>
+        <p class="text-muted">Showing first {{ current_market_components|length }} of {{ current_market_count }} components currently in the capacity market (sorted A-Z by location)</p>
+        <ul class="list-group list-group-flush">
+            {% for comp in current_market_components %}
+                <li class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <a href="{% url 'component_detail' pk=comp.id %}" class="fw-bold text-decoration-none">
+                            {{ comp.location|default:"Unknown Location"|truncatechars:60 }}
+                        </a>
+                        <span class="badge bg-success rounded-pill">{{ comp.delivery_year }}</span>
+                    </div>
+                    <div class="small text-muted">
+                        <strong>{{ comp.company_name|default:"Unknown Company"|truncatechars:40 }}</strong> 
+                        {% if comp.technology %}| {{ comp.technology|truncatechars:30 }}{% endif %}
+                        {% if comp.cmu_id %}| CMU: {{ comp.cmu_id }}{% endif %}
+                    </div>
+                </li>
+            {% empty %}
+                <li class="list-group-item">No components found in the current capacity market (2025-2028).</li>
+            {% endfor %}
+        </ul>
+        {# Show More link for Current Market Components #}
+        {% if current_market_count > current_market_components|length %}
+        <div class="text-center mt-3">
+            <a href="{% url 'current_market_list' %}">Show all {{ current_market_count }} current components...</a>
+        </div>
+        {% endif %}
+    </div> {# --- End Components in Current Capacity Market --- #}
+    
+    {# --- Components Formerly in Capacity Market (Pre-2025) --- #}
+    <div class="mb-5">
+        <h3 class="mb-3">Components Formerly in Capacity Market (Pre-2025 Only)</h3>
+        <p class="text-muted">Showing first {{ past_market_components|length }} of {{ past_market_count }} CMUs/components that were in the market before 2025 but are no longer included (sorted A-Z by location)</p>
+        <ul class="list-group list-group-flush">
+            {% for comp in past_market_components %}
+                <li class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <a href="{% url 'component_detail' pk=comp.id %}" class="fw-bold text-decoration-none">
+                            {{ comp.location|default:"Unknown Location"|truncatechars:60 }}
+                        </a>
+                        <span class="badge bg-secondary rounded-pill">Last in {{ comp.delivery_year }}</span>
+                    </div>
+                    <div class="small text-muted">
+                        {{ comp.company_name|default:"Unknown Company"|truncatechars:50 }}
+                    </div>
+                </li>
+            {% empty %}
+                <li class="list-group-item">No components found that were only in the market before 2025.</li>
+            {% endfor %}
+        </ul>
+        {# Show More link for Past Market Components #}
+        {% if past_market_count > past_market_components|length %}
+        <div class="text-center mt-3">
+            <a href="{% url 'past_market_list' %}" class="btn btn-outline-primary btn-sm">Show more past components...</a>
+        </div>
+        {% endif %}
+    </div> {# --- End Components Formerly in Capacity Market --- #}
+
+    {# --- Delivery Year Distribution Section --- #}
+    <div class="mb-4">
+        <h2>Delivery Year Distribution</h2>
+        <p class="text-muted">Distribution of components by delivery year</p>
+        
+        {% for year in year_distribution %}
+            <div class="mb-3">
+                <div class="d-flex justify-content-between">
+                    <span>{{ year.delivery_year }}</span>
+                    <span class="text-muted">{{ year.count|intcomma }} ({{ year.percentage|floatformat:1 }}%)</span>
+                </div>
+                <div class="progress mt-1" style="height: 5px;">
+                    <div class="progress-bar year-bar" role="progressbar" 
+                         style="width: {{ year.percentage }} %" 
+                         aria-valuenow="{{ year.percentage }}" 
+                         aria-valuemin="0" 
+                         aria-valuemax="100"></div>
+                </div>
+            </div>
+        {% empty %}
+            <div class="list-group-item">No delivery year data available.</div>
+        {% endfor %}
+    </div> {# --- End Delivery Year Distribution Section --- #}
+
+</div>
+
+{# Embed chart data using json_script #}
+{{ company_count_chart_labels|json_script:"company-count-labels" }}
+{{ company_count_chart_values|json_script:"company-count-values" }}
+{{ company_capacity_chart_labels|json_script:"company-capacity-labels" }}
+{{ company_capacity_chart_values|json_script:"company-capacity-values" }}
+{{ tech_chart_labels|json_script:"tech-labels" }}
+{{ tech_chart_values|json_script:"tech-values" }}
+{{ tech_capacity_chart_labels|json_script:"tech-capacity-labels" }}
+{{ tech_capacity_chart_values|json_script:"tech-capacity-values" }}
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', (event) => {
+    // Helper function to get data from json_script tags
+    const getJsonData = (id) => JSON.parse(document.getElementById(id).textContent);
+
+    // Get the data using the helper function
+    const companyCountLabels = getJsonData("company-count-labels");
+    const companyCountValues = getJsonData("company-count-values");
+    const companyCapacityLabels = getJsonData("company-capacity-labels");
+    const companyCapacityValues = getJsonData("company-capacity-values");
+    const techCountLabels = getJsonData("tech-labels");
+    const techCountValues = getJsonData("tech-values");
+    const techCapacityLabels = getJsonData("tech-capacity-labels");
+    const techCapacityValues = getJsonData("tech-capacity-values");
+
+    // --- Chart Configurations (common settings) ---
+    const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'bottom',
+                labels: {
+                    boxWidth: 12,
+                    padding: 15
+                }
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        let label = context.label || '';
+                        if (label) {
+                            label += ': ';
+                        }
+                        if (context.parsed !== null) {
+                            // Check if the chart type is capacity to add MW
+                            let value = context.parsed;
+                            let suffix = '';
+                            if (context.chart.canvas.id === 'companyPieChart' && context.chart.config.type === 'capacity' ||
+                                context.chart.canvas.id === 'techPieChart' && context.chart.config.type === 'capacity') {
+                                suffix = ' MW'; // Add MW for capacity charts
+                                value = value.toLocaleString(undefined, { maximumFractionDigits: 0 }); // Format capacity nicely
+                            } else {
+                                value = value.toLocaleString(); // Format count nicely
+                            }
+                            label += value + suffix;
+                        }
+                        return label;
+                    }
+                }
+            }
+        }
+    };
+
+    // --- Initial Chart Data --- 
+    const initialCompanyData = {
+        labels: companyCountLabels,
+        datasets: [{
+            label: 'Component Count',
+            data: companyCountValues,
+            borderWidth: 1
+            // Colors will be automatically assigned by Chart.js
+        }]
+    };
+    const initialTechData = {
+        labels: techCountLabels,
+        datasets: [{
+            label: 'Component Count',
+            data: techCountValues,
+            borderWidth: 1
+            // Colors will be automatically assigned by Chart.js
+        }]
+    };
+
+    // --- Create Charts --- 
+    const companyCtx = document.getElementById('companyPieChart').getContext('2d');
+    const companyPieChart = new Chart(companyCtx, {
+        type: 'pie',
+        data: initialCompanyData,
+        options: commonOptions,
+        // Store the type for tooltip formatting
+        config: { type: 'count' } 
+    });
+
+    const techCtx = document.getElementById('techPieChart').getContext('2d');
+    const techPieChart = new Chart(techCtx, {
+        type: 'pie',
+        data: initialTechData,
+        options: commonOptions,
+        // Store the type for tooltip formatting
+        config: { type: 'count' } 
+    });
+
+    // --- Toggle Button Logic --- 
+    document.querySelectorAll('.chart-toggle-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const chartId = this.dataset.chart;
+            const type = this.dataset.type; // 'count' or 'capacity'
+            let chartInstance;
+            let newData;
+            let newLabel;
+            let newLabels;
+
+            if (chartId === 'companyPieChart') {
+                chartInstance = companyPieChart;
+                if (type === 'count') {
+                    newLabels = companyCountLabels;
+                    newData = companyCountValues;
+                    newLabel = 'Component Count';
+                } else { // capacity
+                    newLabels = companyCapacityLabels;
+                    newData = companyCapacityValues;
+                    newLabel = 'Total Capacity (MW)';
+                }
+            } else { // techPieChart
+                chartInstance = techPieChart;
+                if (type === 'count') {
+                    newLabels = techCountLabels;
+                    newData = techCountValues;
+                    newLabel = 'Component Count';
+                } else { // capacity
+                    newLabels = techCapacityLabels;
+                    newData = techCapacityValues;
+                    newLabel = 'Total Capacity (MW)';
+                }
+            }
+
+            // Update chart data and label
+            chartInstance.data.datasets[0].data = newData;
+            chartInstance.data.datasets[0].label = newLabel;
+            // Update labels 
+            chartInstance.data.labels = newLabels;
+            
+            // Update the stored type for tooltip formatting
+            chartInstance.config.type = type;
+
+            chartInstance.update();
+                
+            // Update button active state
+            this.closest('.btn-group').querySelectorAll('.chart-toggle-btn').forEach(btn => btn.classList.remove('active'));
+            this.classList.add('active');
+        });
+    });
+});
+</script>
+{% endblock %}

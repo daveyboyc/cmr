@@ -1,0 +1,34 @@
+{% extends "checker/base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Asda Store Load Curtailment Components</h1>
+    <div class="alert alert-info">
+        <p>Found {{ total_components }} components across {{ total_locations }} locations</p>
+    </div>
+
+    {% for location, components in grouped_components.items %}
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h3 class="h5 mb-0">{{ location }}</h3>
+        </div>
+        <div class="card-body">
+            {% for comp in components %}
+            <div class="component-item mb-3 p-3 border rounded">
+                <div class="row">
+                    <div class="col-md-8">
+                        <h4 class="h6">CMU ID: {{ comp.cmu_id }}</h4>
+                        <p class="mb-1"><strong>Description:</strong> {{ comp.description }}</p>
+                        <p class="mb-1"><strong>Company:</strong> {{ comp.company_name }}</p>
+                        <p class="mb-1"><strong>Delivery Year:</strong> {{ comp.delivery_year }}</p>
+                        <p class="mb-1"><strong>Auction:</strong> {{ comp.auction_name }}</p>
+                        <p class="mb-0"><strong>De-rated Capacity:</strong> {{ comp.derated_capacity }} MW</p>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %} 

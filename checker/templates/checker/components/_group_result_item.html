@@ -1,0 +1,67 @@
+{% load checker_tags %}
+<div class="result-item mb-3 border-bottom pb-3">
+    <h5>
+        {% if group.first_component.id %}
+            <a href="{% url 'component_detail' pk=group.first_component.id %}" class="text-decoration-none">
+                <i class="bi bi-geo-alt-fill me-1"></i>
+                <span title="Click to view details for this component">{{ group.location|default:"Location N/A" }}</span>
+            </a>
+        {% else %}
+            <i class="bi bi-geo-alt-fill me-1"></i>
+            {{ group.location|default:"Location N/A" }}
+        {% endif %}
+        
+        {% if group.active_status %}
+            <span class="badge bg-success ms-2" title="This component has auction years in 2024-25 or later">Active</span>
+        {% else %}
+            <span class="badge bg-secondary ms-2" title="This component only has auction years before 2024-25">In-Active</span>
+        {% endif %}
+    </h5>
+    <p class="mb-1">
+        {{ group.description|default:"No description available."|truncatewords:30 }}
+    </p>
+    <div>
+        {% if group.first_component.company_name %}
+            <a href="{% url 'company_detail' company_id=group.first_component.company_name|normalize %}" class="text-decoration-none">
+                <span class="badge bg-success me-1" title="Click to view all components for {{ group.first_component.company_name }}">{{ group.first_component.company_name }}</span>
+            </a>
+        {% endif %}
+
+        {# Use first_component.technology for check and display #}
+        {% if group.first_component.technology %}
+            <a href="{% url 'search_companies' %}?q={{ group.first_component.technology|urlencode }}" class="text-decoration-none">
+                <span class="badge bg-primary me-1" title="Click to search for all {{ group.first_component.technology }} components">{{ group.first_component.technology }}</span>
+            </a>
+        {% endif %}
+        
+        {# Use first_component.derated_capacity_mw for check and display #}
+        {% if group.first_component.derated_capacity_mw is not None %}
+            {# Check specifically for 'N/A' string if that's possible in the source data before conversion #}
+            {% if group.first_component.derated_capacity_mw == 'N/A' %}
+                <span class="badge bg-light text-dark me-1" title="De-Rated Capacity">Capacity N/A</span>
+            {% else %}
+                <span class="badge bg-info me-1" title="De-Rated Capacity">{{ group.first_component.derated_capacity_mw|floatformat:2 }} MW</span>
+            {% endif %}
+        {% else %}
+            <span class="badge bg-light text-dark me-1" title="De-Rated Capacity">Capacity N/A</span>
+        {% endif %}
+    </div>
+
+    {% if group.cmu_ids %}
+        <div class="cmu-badges-container d-flex flex-row flex-wrap gap-1 mt-2">
+            {% for cmu_id in group.cmu_ids %}
+                <a href="{% url 'search_companies' %}?q={{ cmu_id }}&search_type=cmu" class="text-decoration-none">
+                    <span class="badge bg-secondary me-1" title="Click to search for all components with CMU ID: {{ cmu_id }}">CMU: {{ cmu_id }}</span>
+                </a>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    {% if group.auction_names %}
+        <div class="auction-badges-container d-flex flex-column gap-2 mt-2">
+            {% for auction_name in group.auction_names %}
+                <span class="badge bg-warning text-dark" style="width: fit-content;">{{ auction_name }}</span>
+            {% endfor %}
+        </div>
+    {% endif %}
+</div>

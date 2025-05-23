@@ -1,0 +1,13 @@
+<div class="company-card">
+    <h4 class="mb-3">{{ company_name }}</h4>
+    {% if has_components %}
+        <p class="text-success small">Components found</p>
+    {% else %}
+        <p class="text-danger small">No components found</p>
+    {% endif %}
+    <div class="years-container">
+        {% for year_info in year_auction_data %}
+            {% include "checker/components/year_section.html" with year=year_info.year year_id=year_info.year_id auctions=year_info.auctions company_id=company_id %}
+        {% endfor %}
+    </div>
+</div> 

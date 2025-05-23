@@ -1,0 +1,141 @@
+{% extends "checker/base.html" %}
+{% load static %}
+{% load humanize %}
+
+{% block title %}Components in Current Capacity Market - Capacity Market Search{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header">
+        <h1>Components in Current Capacity Market (2025-2028)</h1>
+        <a href="{% url 'statistics' %}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-arrow-left"></i> Back to Statistics
+        </a>
+    </div>
+
+    <p class="text-muted">Showing {{ page_obj.start_index }} - {{ page_obj.end_index }} of {{ total_count }} items
+    {% if sort_by == 'location' %}sorted by location {{ order|upper }}{% elif sort_by == 'year' %}sorted by year {{ order|upper }}{% endif %}
+    </p>
+
+    {# Sort controls and list #}
+    <div class="mb-4">
+        <div class="list-group list-group-flush">
+            {# Header Row #}
+            <div class="list-group-item list-group-item-light d-none d-md-flex">
+                <div class="col-md-7 fw-bold">
+                    <a href="?sort_by=location&order={% if sort_by == 'location' and order == 'asc' %}desc{% else %}asc{% endif %}" class="text-decoration-none text-dark">
+                        Location
+                        {% if sort_by == 'location' %}
+                            <i class="bi bi-arrow-{% if order == 'desc' %}down{% else %}up{% endif %}-short"></i>
+                        {% endif %}
+                    </a>
+                </div>
+                <div class="col-md-3 fw-bold">
+                    Company / Tech / CMU
+                </div>
+                <div class="col-md-2 text-end fw-bold">
+                    <a href="?sort_by=year&order={% if sort_by == 'year' and order == 'asc' %}desc{% else %}asc{% endif %}" class="text-decoration-none text-dark">
+                        Year
+                        {% if sort_by == 'year' %}
+                            <i class="bi bi-arrow-{% if order == 'desc' %}down{% else %}up{% endif %}-short"></i>
+                        {% endif %}
+                    </a>
+                </div>
+            </div>
+
+            {# Data Rows #}
+            {% for comp in page_obj %}
+                <li class="list-group-item">
+                    <div class="row align-items-center">
+                        {# Location (Main Column) #}
+                        <div class="col-md-7 mb-2 mb-md-0">
+                            <a href="{% url 'component_detail' pk=comp.id %}" class="fw-bold text-decoration-none d-block mb-1">
+                                {{ comp.location|default:"Unknown Location"|truncatechars:60 }}
+                            </a>
+                        </div>
+                        {# Details Column #}
+                        <div class="col-md-3 mb-1 mb-md-0">
+                             <div class="small text-muted">
+                                <strong>{{ comp.company_name|default:"Unknown Company"|truncatechars:40 }}</strong>
+                                {% if comp.technology %} | {{ comp.technology|truncatechars:30 }}{% endif %}
+                                {% if comp.cmu_id %} | CMU: {{ comp.cmu_id }}{% endif %}
+                            </div>
+                        </div>
+                        {# Year Column #}
+                        <div class="col-md-2 text-md-end">
+                            <span class="badge {{ badge_class }} rounded-pill">
+                                {{ comp.delivery_year }}
+                            </span>
+                        </div>
+                    </div>
+                </li>
+            {% empty %}
+                <li class="list-group-item">No components found in the current capacity market.</li>
+            {% endfor %}
+        </div> {# End list-group #}
+    </div> {# End mb-4 wrapper #}
+
+    <!-- Pagination -->
+    {% if page_obj.has_other_pages %}
+    <nav aria-label="Page navigation">
+        <ul class="pagination justify-content-center">
+            {% if page_obj.has_previous %}
+                <li class="page-item">
+                    <a class="page-link" href="?page=1" aria-label="First">
+                        <span aria-hidden="true">&laquo;&laquo;</span>
+                    </a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}" aria-label="Previous">
+                        <span aria-hidden="true">&laquo;</span>
+                    </a>
+                </li>
+            {% else %}
+                <li class="page-item disabled">
+                    <a class="page-link" href="#" aria-label="First">
+                        <span aria-hidden="true">&laquo;&laquo;</span>
+                    </a>
+                </li>
+                <li class="page-item disabled">
+                    <a class="page-link" href="#" aria-label="Previous">
+                        <span aria-hidden="true">&laquo;</span>
+                    </a>
+                </li>
+            {% endif %}
+            
+            {% for num in page_obj.paginator.page_range %}
+                {% if page_obj.number == num %}
+                    <li class="page-item active"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>
+                {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                    <li class="page-item"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>
+                {% endif %}
+            {% endfor %}
+            
+            {% if page_obj.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.next_page_number }}" aria-label="Next">
+                        <span aria-hidden="true">&raquo;</span>
+                    </a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}" aria-label="Last">
+                        <span aria-hidden="true">&raquo;&raquo;</span>
+                    </a>
+                </li>
+            {% else %}
+                <li class="page-item disabled">
+                    <a class="page-link" href="#" aria-label="Next">
+                        <span aria-hidden="true">&raquo;</span>
+                    </a>
+                </li>
+                <li class="page-item disabled">
+                    <a class="page-link" href="#" aria-label="Last">
+                        <span aria-hidden="true">&raquo;&raquo;</span>
+                    </a>
+                </li>
+            {% endif %}
+        </ul>
+    </nav>
+    {% endif %}
+</div>
+{% endblock %}

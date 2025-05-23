@@ -1,0 +1,22 @@
+<!-- This template can be used for the CMU details HTMX endpoint -->
+<div id="cmu-content-{{ cmu_id }}">
+    <p><strong>Locations:</strong> {{ location_count }}</p>
+    {% if locations %}
+        <ul class="list-unstyled">
+            {% for location in locations %}
+                <li class="mb-2">
+                    <strong>{{ location }}</strong>
+                    <ul class="ms-3">
+                        {% for component in location_components %}
+                            {% if component.location == location %}
+                                <li><i>{{ component.description }}</i>{% if component.tech %} - {{ component.tech }}{% endif %}</li>
+                            {% endif %}
+                        {% endfor %}
+                    </ul>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="text-muted">No location information available</p>
+    {% endif %}
+</div>

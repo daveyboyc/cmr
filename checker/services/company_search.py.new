@@ -1,0 +1,1403 @@
+import pandas as pd
+import urllib.parse
+import logging
+import time
+import traceback
+import json
+from django.shortcuts import render, redirect
+from django.core.cache import cache
+from django.http import HttpResponse
+from django.template.loader import render_to_string
+import requests
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+import re
+from django.db.models import Count, Value
+from django.db.models.functions import Coalesce
+from ..models import Component
+from rapidfuzz import fuzz, process
+from django.urls import reverse
+import pickle
+import base64
+from django.db.models import Q
+
+from ..utils import (
+    normalize,
+    get_cache_key,
+    format_location_list,
+    safe_url_param,
+    from_url_param,
+)
+from .data_access import (
+    get_cmu_dataframe,
+    fetch_components_for_cmu_id,
+    get_component_data_from_json,
+    save_component_data_to_json,
+)
+from .search_logic import analyze_query
+from .company_index import get_company_links_html  # Import the new company index service
+
+logger = logging.getLogger(__name__)
+
+# Cache configuration for company links
+COMPANY_LINKS_CACHE_KEY_PREFIX = "company_links_v1"
+COMPANY_LINKS_CACHE_TTL = 3600 * 24 * 7  # 7 days (same as CMU dataframe)
+
+def search_companies_service(request, extra_context=None, return_data_only=False):
+    """
+    Search service that finds companies and their components.
+    Builds a dictionary of context data for rendering company search results.
+    Now uses the prebuilt company index for faster performance.
+    """
+    start_time = time.time()
+    context = {}
+    extra_context = extra_context or {}
+
+    # Try to get query parameters
+    query = request.GET.get("q", "").strip()
+    page = request.GET.get("page", "1")
+    per_page = int(request.GET.get("per_page", 10))
+    sort_by = request.GET.get("sort_by", "relevance")
+    sort_order = request.GET.get("sort_order", "desc")
+    
+    # Ensure integers for page and per_page
+    try:
+        page = int(page)
+    except (ValueError, TypeError):
+        page = 1
+
+    # Generate a cache key for this specific search request
+    cache_key = get_cache_key(
+        f"search_service_{query}_p{page}_pp{per_page}_sort{sort_by}_{sort_order}"
+    )
+
+    # Try to get from cache first
+    cached_context = cache.get(cache_key)
+    if cached_context:
+        logger.info(f"Using cached search results for '{query}' page {page}")
+        if return_data_only:
+            return cached_context
+        context.update(cached_context)
+        context["from_cache"] = True
+        return context
+
+    logger.info(f"Cache MISS (not found) for key {cache_key}. Proceeding with live fetch.")
+
+    # Live fetch - continue normal flow
+    context.update(
+        {
+            "query": query,
+            "note": None,
+            "component_count": 0,
+            "error": None,
+            "api_time": 0,
+            "sort_by": sort_by,
+            "sort_order": sort_order,
+            "page": page,
+            "per_page": per_page,
+            "from_cache": False,
+        }
+    )
+
+    # If no query, just return the context for rendering empty search
+    if not query:
+        logger.info("Rendering empty search page (no query)")
+        context.update(extra_context)
+        return context
+
+    # Measure performance for each search step
+    perf_data = {
+        "initial_setup_live_fetch": time.time() - start_time,
+    }
+    performance_start = time.time()
+
+    try:
+        # Use the new company index service to get company links
+        company_links, company_count, company_links_time = get_company_links_html(query)
+        perf_data["company_links_load"] = company_links_time
+        
+        logger.info(f"Found {len(company_links)} company links for '{query}'")
+        
+        # Update context with the search results
+        context.update({
+            "company_links": company_links,
+            "company_count": company_count,
+            "displayed_company_count": len(company_links),
+        })
+        
+        # Look for components matching the search query
+        logger.debug(f"Now searching for components matching '{query}'")
+        
+        # Continue with the rest of the existing search logic for components...
+        # [Rest of the component search logic remains unchanged]
+
+    except Exception as e:
+        logger.exception(f"Error in search_companies_service: {str(e)}")
+        context["error"] = f"Search error: {str(e)}"
+
+    # Calculate total search time
+    total_search_time = time.time() - start_time
+    perf_data["total_search_time"] = total_search_time
+    context["api_time"] = total_search_time
+
+    # Log the performance data to identify bottlenecks
+    logger.warning(f"PERFORMANCE TIMINGS (LIVE FETCH) for '{query}' (page {page}):")
+    for key, value in perf_data.items():
+        logger.warning(f"  {key}: {value:.4f}s")
+    logger.warning(f"  TOTAL (live fetch): {total_search_time:.4f}s")
+
+    # Cache the results for future use (if there are results or it's an empty search, but not on errors)
+    if "error" not in context or not context["error"]:
+        cache.set(cache_key, context, 900)  # 15 minute cache
+        logger.info(f"Cached context for key {cache_key}")
+
+    # Add extra context and return
+    context.update(extra_context)
+    
+    # Debug the context before rendering
+    logger.debug(f"Context before rendering checker/search.html: {context}")
+
+    # Return just the data if requested
+    if return_data_only:
+        return context
+    
+    return context
+
+
+def _perform_company_search(cmu_df, query):
+    """
+    Perform fuzzy search for companies based on the query using RapidFuzz.
+    Uses token_set_ratio for flexibility with extra words.
+    Returns a DataFrame of matching records, sorted by score.
+    """
+    logger = logging.getLogger(__name__)
+    min_score = 85
+    scorer = fuzz.partial_token_set_ratio
+    norm_query = normalize(query) # Normalize the incoming query
+
+    # Prepare choices for fuzzy matching
+    company_names = cmu_df["Normalized Full Name"].dropna().unique().tolist()
+
+    # --- DEBUG --- 
+    logger.debug(f"Normalized search query: '{norm_query}'")
+    sample_size = min(10, len(company_names))
+    logger.debug(f"Performing fuzzy match against {len(company_names)} unique normalized company names. Sample: {company_names[:sample_size]}")
+    # --- END DEBUG ---
+
+    # Perform fuzzy search
+    matches_list = process.extract(
+        norm_query, company_names, scorer=scorer, score_cutoff=min_score, limit=None
+    )
+
+    if not matches_list:
+        logger.info(f"No companies found for query '{query}' (normalized: '{norm_query}') with score >= {min_score}")
+        return pd.DataFrame(columns=cmu_df.columns)
+
+    # Build score dictionary and filter DataFrame
+    matches_with_scores = {match[0]: match[1] for match in matches_list}
+    matched_norm_names = set(matches_with_scores.keys())
+    
+    potential_matches_df = cmu_df[cmu_df["Normalized Full Name"].isin(matched_norm_names)]
+    potential_matches_df = potential_matches_df.drop_duplicates(subset=["Full Name"])
+
+    # Add score
+    def get_score(row):
+        return matches_with_scores.get(row["Normalized Full Name"], 0)
+
+    if potential_matches_df.empty:
+        return potential_matches_df
+    else:
+        potential_matches_df = potential_matches_df.copy()
+        potential_matches_df['match_score'] = potential_matches_df.apply(get_score, axis=1)
+        # Keep only matches > 0 (should always be true here)
+        potential_matches_df = potential_matches_df[potential_matches_df['match_score'] > 0]
+
+    # Sort
+    final_sorted_df = potential_matches_df.sort_values(by='match_score', ascending=False).reset_index(drop=True)
+
+    logger.info(f"Found and sorted {len(final_sorted_df)} companies with score >= {min_score} for query '{query}'")
+    return final_sorted_df
+
+
+def build_company_search_results(
+    cmu_df, unique_companies, sort_order, query, cmu_limit=5, add_debug_info=False
+):
+    """
+    Build search results for companies.
+    Returns a dictionary with query as key and list of formatted company links as values.
+
+    Args:
+        cmu_df: DataFrame with CMU data
+        unique_companies: List of company names to include
+        sort_order: Sort order for years ('asc' or 'desc')
+        query: Original search query
+        cmu_limit: Maximum number of CMU IDs to check per company (default: 5)
+        add_debug_info: Whether to log debug information
+
+    Returns:
+        Dictionary with query as key and list of formatted company links as values
+    """
+    logger = logging.getLogger(__name__)
+    results_list = []
+    company_count = len(unique_companies)
+    processed_normalized_names = set() # --- ADDED: Track processed normalized names ---
+    start_render_time = time.time() # Start timing here
+
+    # --- FIX: Return early if no companies were found ---
+    if company_count == 0:
+        logger.warning(f"No unique companies provided to build_company_search_results for query '{query}'. Returning empty results.")
+        return results_list, 0.0 # Return empty list and time
+    # --- END FIX ---
+
+    # Debug info for component retrieval
+    debug_info = {
+        "company_count": company_count,
+        "companies_with_years": 0,
+        "companies_with_components": 0,
+        "total_cmu_ids": 0,
+        "total_components": 0,
+    }
+
+    # Process each matching company
+    for company in unique_companies:
+        # Skip empty company names
+        if not company:
+            continue
+        
+        # --- ADDED: Check if normalized name already processed ---
+        normalized_company_id = normalize(company)
+        if normalized_company_id in processed_normalized_names:
+            logger.debug(f"Skipping duplicate normalized company: '{company}' (normalized: '{normalized_company_id}')")
+            continue
+        processed_normalized_names.add(normalized_company_id)
+        # --- END ADDED ---
+
+        # Get all CMU IDs for this company
+        company_records = cmu_df[cmu_df["Full Name"] == company]
+        # --- DEBUG: Log shape of slice passed to _organize_year_data ---
+        logger.debug(f"build_company_search_results: Processing company '{company}'. Records slice shape: {company_records.shape}")
+        # --- END DEBUG ---
+        
+        # Check if company_records is empty
+        if company_records.empty:
+            logger.debug(f"No records found for company '{company}', skipping")
+            continue
+            
+        cmu_ids = company_records["CMU ID"].unique().tolist()
+
+        debug_info["total_cmu_ids"] += len(cmu_ids)
+
+        # Organize years from the records
+        year_data = _organize_year_data(company_records, sort_order)
+
+        if year_data:
+            debug_info["companies_with_years"] += 1
+
+            # Check if any CMU has components, but limit the search to avoid timeouts
+            has_components = False
+            company_component_count = 0
+            cmu_ids_checked = 0
+
+            try:
+                # Use a direct database query to get component counts
+                from ..models import Component
+
+                # First, check if ANY components exist for this company name
+                if Component.objects.filter(company_name=company).exists():
+                    has_components = True
+                    # Get count from database
+                    company_component_count = Component.objects.filter(
+                        company_name=company
+                    ).count()
+                    # Get count of CMU IDs
+                    cmu_count_db = (
+                        Component.objects.filter(company_name=company)
+                        .values("cmu_id")
+                        .distinct()
+                        .count()
+                    )
+                    debug_info["companies_with_components"] += 1
+                else:
+                    # Only check a limited number of CMU IDs for components
+                    cmu_ids_to_check = cmu_ids[: min(cmu_limit, len(cmu_ids))]
+
+                    for cmu_id in cmu_ids_to_check:
+                        cmu_ids_checked += 1
+                        # Check if this CMU has components
+                        if Component.objects.filter(cmu_id=cmu_id).exists():
+                            has_components = True
+                            # Get an approximation of component count
+                            count = Component.objects.filter(cmu_id=cmu_id).count()
+                            company_component_count += count
+
+                        # If we found components already, no need to check more CMU IDs
+                        if has_components and company_component_count > 0:
+                            debug_info["companies_with_components"] += 1
+                            break
+            except Exception as e:
+                # If database check fails, fall back to JSON check
+                logger.warning(f"Database component check failed for {company}: {e}")
+
+                # Only check a limited number of CMU IDs for components
+                cmu_ids_to_check = cmu_ids[: min(cmu_limit, len(cmu_ids))]
+
+                for cmu_id in cmu_ids_to_check:
+                    cmu_ids_checked += 1
+                    # Check if this CMU has components
+                    try:
+                        from ..models import Component
+
+                        if Component.objects.filter(cmu_id=cmu_id).exists():
+                            has_components = True
+                            company_component_count += Component.objects.filter(
+                                cmu_id=cmu_id
+                            ).count()
+                            break
+                    except:
+                        # If that fails, try the JSON method
+                        try:
+                            components = get_component_data_from_json(cmu_id)
+                            if components:
+                                has_components = True
+                                company_component_count += len(components)
+                                break
+                        except:
+                            # If both methods fail, continue to the next CMU ID
+                            continue
+
+                if has_components:
+                    debug_info["companies_with_components"] += 1
+
+            debug_info["total_components"] += company_component_count
+
+            # Generate a simple blue link for the company
+            company_url = f'/company/{normalized_company_id}/'
+            link_html = f'<div><strong><a href="{company_url}">{company}</a></strong></div>'
+
+            # Add additional information about CMU IDs and components count
+            if len(cmu_ids) <= 3:
+                cmu_ids_str = ", ".join(cmu_ids)
+            else:
+                cmu_ids_str = ", ".join(cmu_ids[:3])
+                cmu_ids_str += f" and {len(cmu_ids) - 3} more"
+
+            # If we didn't find components, show that we have CMU IDs at least
+            if not has_components:
+                if cmu_ids_checked < len(cmu_ids):
+                    # Indicate we only checked some CMU IDs
+                    component_info = (
+                        f"{len(cmu_ids)} CMU IDs found (checked {cmu_ids_checked})"
+                    )
+                else:
+                    component_info = f"{len(cmu_ids)} CMU IDs found"
+            else:
+                # Show approximate component count
+                if "cmu_count_db" in locals():
+                    # If we have the DB count, show that
+                    component_info = f"{company_component_count} components across {cmu_count_db} CMU IDs"
+                else:
+                    # Otherwise estimate based on what we checked
+                    component_info = (
+                        f"At least {company_component_count} components found"
+                    )
+
+            company_html_with_details = f"""
+            <div>
+                <strong>{link_html}</strong>
+                <div class="mt-1 mb-1"><span class="text-muted">CMU IDs: {cmu_ids_str}</span></div>
+                <div>{component_info}</div>
+            </div>
+            """
+
+            # Append dictionary with both HTML and CMU IDs
+            results_list.append({
+                'html': company_html_with_details, # The generated HTML string
+                'cmu_ids': cmu_ids          # The list of CMU IDs
+            })
+
+    # Calculate total render time
+    render_time = time.time() - start_render_time
+
+    if add_debug_info:
+        logger.debug(f"_build_search_results Debug Info: {debug_info}")
+    
+    logger.info(f"_build_search_results generated {len(results_list)} links for {company_count} initial companies in {render_time:.4f}s.")
+    return results_list, render_time
+
+
+def _prepare_year_auction_data(records, company_id):
+    """
+    Prepare data structure for years and auctions.
+    """
+    year_auction_data = []
+    grouped = records.groupby("Delivery Year")
+
+    for year, group in grouped:
+        if year.startswith("Years:"):
+            year = year.replace("Years:", "").strip()
+
+        auctions = {}
+        if "Auction Name" in group.columns:
+            for _, row in group.iterrows():
+                auction_name = row.get("Auction Name", "")
+                if auction_name:
+                    if auction_name not in auctions:
+                        auctions[auction_name] = []
+                    auctions[auction_name].append(row.get("CMU ID"))
+
+        if not auctions:
+            continue
+
+        year_id = f"year-{year.replace(' ', '')}-{company_id}"
+        year_auction_data.append(
+            {"year": year, "auctions": auctions, "year_id": year_id}
+        )
+
+    return year_auction_data
+
+
+def _build_company_card_html(company_name, company_id, year_auction_data):
+    """
+    Build HTML for a company card using template.
+    """
+    return render_to_string(
+        "checker/components/company_card.html",
+        {
+            "company_name": company_name,
+            "company_id": company_id,
+            "year_auction_data": year_auction_data,
+        },
+    )
+
+
+def auction_components(request, company_id, year, auction_name):
+    """
+    API endpoint for fetching components for a specific auction
+    """
+    from django.http import HttpResponse
+    from django.db.models import Q
+    import logging
+    import traceback
+    from ..models import Component
+    from ..utils import normalize, from_url_param
+    from django.urls import reverse
+
+    logger = logging.getLogger(__name__)
+    logger.info(
+        f"Loading auction components: company_id={company_id}, year={year}, auction={auction_name}"
+    )
+
+    # Convert URL parameters from underscores back to spaces
+    year = from_url_param(year)
+    auction_name = from_url_param(auction_name)
+
+    try:
+        # Find company name
+        company_query = Component.objects.values("company_name").distinct()
+        company_name = None
+
+        for company in company_query:
+            curr_name = company["company_name"]
+            if curr_name and normalize(curr_name) == company_id:
+                company_name = curr_name
+                break
+
+        if not company_name:
+            # Try a more flexible match
+            for company in company_query:
+                curr_name = company["company_name"]
+                if curr_name and (
+                    company_id in normalize(curr_name)
+                    or normalize(curr_name) in company_id
+                ):
+                    company_name = curr_name
+                    break
+
+        if not company_name:
+            return HttpResponse(
+                f"<div class='alert alert-warning'>Company not found: {company_id}</div>"
+            )
+
+        logger.info(f"Found company: {company_name}")
+
+        # Build a more flexible query for components
+        query = Q(company_name=company_name)
+
+        # Add year filter with flexible matching
+        if year:
+            # Handle multiple year formats
+            year_query = Q(delivery_year=year)
+            year_query |= Q(delivery_year__icontains=year)
+            # Also try to match just the first part of a year range (e.g., 2026 in "2026-27")
+            import re
+
+            year_number_match = re.search(r"(\d{4})", year)
+            if year_number_match:
+                year_number = year_number_match.group(1)
+                year_query |= Q(delivery_year__icontains=year_number)
+
+            query &= year_query
+
+        # Add auction filter with flexible matching
+        if auction_name:
+            # The auction name might be stored differently, try several variations
+            auction_query = Q(auction_name=auction_name)
+            auction_query |= Q(auction_name__icontains=auction_name)
+
+            # Handle T-4/T-1 variations
+            if "T-4" in auction_name:
+                auction_query |= Q(auction_name__icontains="T4")
+                auction_query |= Q(auction_name__icontains="T 4")
+            elif "T-1" in auction_name:
+                auction_query |= Q(auction_name__icontains="T1")
+                auction_query |= Q(auction_name__icontains="T 1")
+
+            # Match year part of auction name
+            year_in_auction = re.search(r"(\d{4})[/-]?(\d{2})?", auction_name)
+            if year_in_auction:
+                year_part = year_in_auction.group(0)
+                auction_query |= Q(auction_name__icontains=year_part)
+
+            query &= auction_query
+
+        # Get matching components
+        components = Component.objects.filter(query)
+
+        # Get all unique CMU IDs
+        cmu_ids = components.values("cmu_id").distinct()
+
+        logger.info(
+            f"Found {components.count()} components across {cmu_ids.count()} CMU IDs"
+        )
+
+        if components.count() == 0:
+            return HttpResponse(
+                f"""
+                <div class='alert alert-warning'>
+                    <p>No components found matching these criteria:</p>
+                    <ul>
+                        <li>Company: {company_name}</li>
+                        <li>Year: {year}</li>
+                        <li>Auction: {auction_name}</li>
+                    </ul>
+                    <p>This could be due to differences in how the data is stored in the database.</p>
+                </div>
+            """
+            )
+
+        # Generate HTML with the matching components
+        html = f"<div class='component-results mb-3'>"
+        html += f"<div class='alert alert-info'>Found {components.count()} components across {cmu_ids.count()} CMU IDs</div>"
+
+        # Group by CMU ID
+        html += "<div class='row'>"
+
+        for cmu_id_obj in cmu_ids:
+            cmu_id = cmu_id_obj["cmu_id"]
+            if not cmu_id:
+                continue
+
+            # Get components for this CMU ID
+            cmu_components = components.filter(cmu_id=cmu_id)
+
+            # Get all locations for this CMU
+            locations = cmu_components.values("location").distinct()
+            
+            # Generate the URL for the CMU detail page
+            cmu_detail_url = reverse('cmu_detail', kwargs={'cmu_id': cmu_id})
+
+            # Format component records for the template
+            cmu_html = f"""
+            <div class="col-md-6 mb-3">
+                <div class="card cmu-card">
+                    <div class="card-header bg-light">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span>CMU ID: <strong>{cmu_id}</strong></span>
+                            <a href="{cmu_detail_url}" class="btn btn-sm btn-info">View Details</a>
+                        </div>
+                        <div class="small text-muted mt-1">Found {cmu_components.count()} components</div>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Components:</strong> {cmu_components.count()}</p>
+            """
+
+            # Add locations list
+            if locations:
+                cmu_html += "<ul class='list-unstyled'>"
+
+                for location_obj in locations:
+                    location = location_obj["location"]
+                    if not location:
+                        continue
+
+                    # Add components at this location
+                    location_components = cmu_components.filter(location=location)
+
+                    # Create component ID for linking
+                    component_id = f"{cmu_id}_{normalize(location)}"
+
+                    # Format location as a blue link
+                    location_html = f'<a href="/component/{component_id}/" style="color: blue; text-decoration: underline;">{location}</a>'
+
+                    cmu_html += f"""
+                        <li class="mb-2">
+                            <strong>{location_html}</strong> <span class="text-muted">({location_components.count()} components)</span>
+                            <ul class="ms-3">
+                    """
+
+                    # Add description of components
+                    for component in location_components:
+                        desc = component.description or "No description"
+                        tech = component.technology or ""
+
+                        cmu_html += f"""
+                            <li><i>{desc}</i>{f" - {tech}" if tech else ""}</li>
+                        """
+
+                    cmu_html += """
+                            </ul>
+                        </li>
+                    """
+
+                cmu_html += "</ul>"
+            else:
+                cmu_html += "<p>No location information available</p>"
+
+            cmu_html += """
+                    </div>
+                </div>
+            </div>
+            """
+
+            html += cmu_html
+
+        html += "</div></div>"
+
+        return HttpResponse(html)
+
+    except Exception as e:
+        logger.error(f"Error loading auction components: {str(e)}")
+        logger.error(traceback.format_exc())
+        error_message = f"Error loading auction components: {str(e)}"
+        error_html = f"""
+            <div class='alert alert-danger'>
+                <p><strong>We're having trouble loading these components.</strong></p>
+                <p>Please try again or choose a different auction.</p>
+                <button class="btn btn-primary mt-2" onclick="location.reload()">Try Again</button>
+            </div>
+        """
+
+        if request.GET.get("debug"):
+            error_html += f"<pre>{traceback.format_exc()}</pre>"
+
+        return HttpResponse(error_html)
+
+
+def try_parse_year(year_str):
+    """Try to parse a year string to an integer for sorting."""
+    if not year_str:
+        return 0
+
+    try:
+        # First try direct conversion
+        if isinstance(year_str, (int, float)):
+            return int(year_str)
+
+        # For strings, check different formats
+        if isinstance(year_str, str):
+            # Look for 4-digit years like "2024"
+            import re
+
+            year_matches = re.findall(r"20\d\d", year_str)
+            if year_matches:
+                return int(year_matches[0])
+
+            # Look for year ranges like "2024/25" or "2024-25"
+            range_matches = re.findall(r"(20\d\d)[/-]\d\d", year_str)
+            if range_matches:
+                return int(range_matches[0])
+
+            # Last try: just convert any numbers
+            numeric_matches = re.findall(r"\d+", year_str)
+            if numeric_matches:
+                return int(numeric_matches[0])
+
+        return 0
+    except:
+        return 0
+
+
+def get_company_years(company_id, year, auction_name=None):
+    """
+    Get year details for a company.
+    This function is used by the HTMX endpoint to load year details lazily.
+    """
+    cmu_df, _ = get_cmu_dataframe()
+
+    if cmu_df is None:
+        return "<div class='alert alert-danger'>Error loading CMU data</div>"
+
+    company_name = None
+    for _, row in cmu_df.iterrows():
+        if normalize(row.get("Full Name", "")) == company_id:
+            company_name = row.get("Full Name")
+            break
+
+    if not company_name:
+        return f"<div class='alert alert-warning'>Company not found: {company_id}</div>"
+
+    company_records = cmu_df[cmu_df["Full Name"] == company_name]
+    year_records = company_records[company_records["Delivery Year"] == year]
+
+    if year_records.empty:
+        return f"<div class='alert alert-info'>No CMUs found for {company_name} in {year}</div>"
+
+    if auction_name and "Auction Name" in year_records.columns:
+        year_records = year_records[year_records["Auction Name"] == auction_name]
+        if year_records.empty:
+            return f"<div class='alert alert-info'>No CMUs found for {company_name} in {year} with auction {auction_name}</div>"
+
+    cmu_ids = year_records["CMU ID"].unique().tolist()
+    debug_info = f"Found {len(cmu_ids)} CMU IDs for {company_name} in {year}"
+    if auction_name:
+        debug_info += f" (Auction: {auction_name})"
+    debug_info += f": {', '.join(cmu_ids)}"
+    print(debug_info)
+
+    html = f"<div class='small text-muted mb-2'>{debug_info}</div><div class='row'>"
+
+    for cmu_id in cmu_ids:
+        components, _ = fetch_components_for_cmu_id(cmu_id)
+        component_debug = f"Found {len(components)} components for CMU ID {cmu_id}"
+        print(component_debug)
+
+        filtered_components = _filter_components_by_year_auction(
+            components, year, auction_name
+        )
+        if not filtered_components:
+            component_debug += f" (filtered to 0 for {year}"
+            if auction_name:
+                component_debug += f", {auction_name}"
+            component_debug += ")"
+            continue
+
+        html += _build_cmu_card_html(cmu_id, filtered_components, component_debug)
+
+    html += "</div>"
+    return html
+
+
+def _filter_components_by_year_auction(components, year, auction_name=None):
+    """
+    Filter components by year and auction name with strict matching for auction types.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # If no auction name specified, return all components
+    if not auction_name:
+        return components
+
+    # Extract auction type from auction name
+    auction_type = None
+    if "T-1" in auction_name or "T1" in auction_name:
+        auction_type = "T-1"
+    elif "T-3" in auction_name or "T3" in auction_name:
+        auction_type = "T-3"
+    elif "T-4" in auction_name or "T4" in auction_name:
+        auction_type = "T-4"
+    elif "TR" in auction_name:
+        auction_type = "TR"
+
+    logger.info(
+        f"Filtering {len(components)} components for year={year}, auction_type={auction_type}"
+    )
+
+    filtered_components = []
+    for comp in components:
+        # Ensure we have string values to work with
+        comp_year = (
+            str(comp.get("Delivery Year", ""))
+            if comp.get("Delivery Year") is not None
+            else ""
+        )
+        comp_auction = (
+            str(comp.get("Auction Name", ""))
+            if comp.get("Auction Name") is not None
+            else ""
+        )
+
+        # First match by year
+        if not year or year in comp_year:
+            # Then strictly match by auction type - this is the key part!
+            if auction_type:
+                # Only include components with this specific auction type
+                if auction_type == "T-1" and (
+                    "T-1" in comp_auction or "T1" in comp_auction
+                ):
+                    filtered_components.append(comp)
+                elif auction_type == "T-3" and (
+                    "T-3" in comp_auction or "T3" in comp_auction
+                ):
+                    filtered_components.append(comp)
+                elif auction_type == "T-4" and (
+                    "T-4" in comp_auction or "T4" in comp_auction
+                ):
+                    filtered_components.append(comp)
+                elif auction_type == "TR" and "TR" in comp_auction:
+                    filtered_components.append(comp)
+            else:
+                # If no auction type extracted, include all components for this year
+                filtered_components.append(comp)
+
+    logger.info(f"Filtered to {len(filtered_components)} components")
+    return filtered_components
+
+
+def _build_cmu_card_html(cmu_id, components, component_debug):
+    """
+    Build HTML for a CMU card using template.
+    """
+    # Get auction info for this CMU ID
+    auction_year_info = {}
+    for comp in components:
+        auction = comp.get("Auction Name", "")
+        if auction:
+            # Extract auction year and type
+            parts = auction.split()
+            auction_type = parts[0] if len(parts) >= 1 else ""
+            auction_year = parts[1] if len(parts) >= 2 else ""
+            key = f"{auction_type} {auction_year}"
+            auction_year_info[key] = True
+
+    # Create a comma-separated string of auction info
+    auction_info = ", ".join(auction_year_info.keys())
+
+    # Get unique locations
+    locations = set()
+    for comp in components:
+        location = comp.get("Location and Post Code", "")
+        if location:
+            locations.add(location)
+
+    # Get company name if available
+    company_name = None
+    if components and "Company Name" in components[0]:
+        company_name = components[0]["Company Name"]
+
+    # Get location HTML
+    location_html = format_location_list(locations, components)
+
+    # Render template
+    return render_to_string(
+        "checker/components/cmu_card.html",
+        {
+            "cmu_id": cmu_id,
+            "components": components,
+            "component_debug": component_debug,
+            "auction_info": auction_info,
+            "location_html": location_html,
+            "company_name": company_name,
+        },
+    )
+
+
+def get_cmu_details(cmu_id):
+    """
+    HTMX endpoint to get CMU details.
+    """
+    components, _ = fetch_components_for_cmu_id(cmu_id)
+
+    if not components:
+        return f"<div>No components found for CMU ID {cmu_id}</div>"
+
+    locations = set()
+    for component in components:
+        location = component.get("Location and Post Code", "")
+        if location:
+            locations.add(location)
+
+    html = f"""
+    <div id="cmu-content-{cmu_id}">
+        <p><strong>Components:</strong> {len(components)}</p>
+        {format_location_list(locations, components)}
+    </div>
+    """
+    return html
+
+
+def company_detail(request, company_id):
+    """Displays details for a specific company, including years, auctions, and potentially components."""
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+    from ..models import Component
+    from django.db.models import Sum  # Import Sum
+
+    logger.info(f"Company detail page requested for company_id: {company_id}")
+
+    # Determine view mode and sort order from GET parameters
+    view_mode = request.GET.get("view_mode", "all_components")
+    sort_field = request.GET.get(
+        "sort_by", "location"  # Default sort changed to location
+    )
+    # Check if sort order was explicitly provided in the request
+    sort_order_provided = "sort" in request.GET 
+    # Get sort order, default to 'asc' initially
+    sort_order = request.GET.get("sort", "asc")  
+    page = request.GET.get("page", 1)
+    per_page = 50  # Components per page for capacity and all_components views
+
+    # Override default sort order to 'desc' for year_auction view if not provided
+    if view_mode == 'year_auction' and not sort_order_provided:
+        sort_order = 'desc'
+
+    # Validate view_mode
+    if view_mode not in ["year_auction", "capacity", "all_components"]:
+        view_mode = "all_components"
+
+    # Validate sort_order (apply default based on view_mode if invalid)
+    if sort_order not in ["asc", "desc"]:
+        sort_order = 'desc' if view_mode == 'year_auction' else 'asc' 
+
+    # Validate sort_field for 'all_components' view
+    allowed_sort_fields = [
+        "delivery_year",
+        "auction_name",
+        "derated_capacity_mw",
+        "location",
+    ]
+    if view_mode == "all_components" and sort_field not in allowed_sort_fields:
+        sort_field = "location"  # Default if invalid changed to location
+
+    context = {
+        "company_id": company_id,
+        "company_name": None,  # Will be populated later
+        "view_mode": view_mode,
+        "sort_field": sort_field,  # Add sort_field to context
+        "sort_order": sort_order,
+        "error": None,
+        "year_auction_data": [],
+        "page_obj": None,
+        "paginator": None,
+        "total_count": 0,
+    }
+
+    start_time = time.time()
+
+    # Find all company name variations based on the normalized company_id
+    # (This logic might need adjustment if company_id isn't the normalized name)
+    all_db_company_names = Component.objects.values_list(
+        "company_name", flat=True
+    ).distinct()
+    company_name_variations = []
+    primary_company_name = None
+    for name in all_db_company_names:
+        if name and normalize(name) == company_id:
+            company_name_variations.append(name)
+            if primary_company_name is None:
+                primary_company_name = name
+
+    if not company_name_variations:
+        context["error"] = (
+            f"Company variations not found for ID '{company_id}'. Cannot load details."
+        )
+        return render(request, "checker/company_detail.html", context)
+
+    context["company_name"] = primary_company_name  # Set the display name
+
+    # --- Data Fetching based on view_mode ---
+    try:
+        if view_mode == "year_auction":
+            # Existing logic for year/auction view
+            company_records = (
+                Component.objects.filter(company_name__in=company_name_variations)
+                .values(
+                    "delivery_year",
+                    "auction_name",  # Removed auction_type as it's not a direct field
+                )
+                .distinct()
+            )
+            # Convert queryset to DataFrame for processing - might be inefficient for large sets
+            # Consider direct DB aggregation if performance is an issue
+            if company_records.exists():
+                df = pd.DataFrame(list(company_records))
+                context["year_auction_data"] = _organize_year_data(df, sort_order)
+            else:
+                context["year_auction_data"] = []
+
+        elif view_mode == "capacity":
+            # Existing logic for capacity view
+            components_query = Component.objects.filter(
+                company_name__in=company_name_variations
+            ).exclude(derated_capacity_mw__isnull=True)
+
+            # Apply sorting
+            order_direction = "-" if sort_order == "desc" else ""
+            components_query = components_query.order_by(
+                f"{order_direction}derated_capacity_mw", "delivery_year"
+            )
+
+            total_count = components_query.count()
+            paginator = Paginator(components_query, per_page)
+            try:
+                page_obj = paginator.page(page)
+            except PageNotAnInteger:
+                page_obj = paginator.page(1)
+            except EmptyPage:
+                page_obj = paginator.page(paginator.num_pages)
+
+            context["page_obj"] = page_obj
+            context["paginator"] = paginator
+            context["total_count"] = total_count
+
+        elif view_mode == "all_components":
+            # NEW Logic for all_components view
+            components_query = Component.objects.filter(
+                company_name__in=company_name_variations
+            )
+
+            # Apply sorting based on sort_field and sort_order
+            order_direction = "-" if sort_order == "desc" else ""
+            # Add nulls_last/nulls_first if needed depending on DB and field type
+            if sort_field:
+                components_query = components_query.order_by(
+                    f"{order_direction}{sort_field}"
+                )
+
+            total_count = components_query.count()
+            paginator = Paginator(components_query, per_page)
+            try:
+                page_obj = paginator.page(page)
+            except PageNotAnInteger:
+                page_obj = paginator.page(1)
+            except EmptyPage:
+                page_obj = paginator.page(paginator.num_pages)
+
+            context["page_obj"] = page_obj
+            context["paginator"] = paginator
+            context["total_count"] = total_count
+
+    except Exception as e:
+        logger.error(
+            f"Error fetching data for company '{company_id}', view '{view_mode}': {e}"
+        )
+        logger.error(traceback.format_exc())
+        context["error"] = f"An error occurred while loading data: {e}"
+        # Optionally add traceback to context if debug is enabled
+        if request.GET.get("debug"):
+            context["traceback"] = traceback.format_exc()
+
+    # Common context updates
+    context["api_time"] = time.time() - start_time
+    return render(request, "checker/company_detail.html", context)
+
+
+def cmu_detail(request, cmu_id):
+    """Displays details for a specific CMU ID, including components."""
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+    from ..models import Component
+    import logging
+    import time
+    import traceback
+
+    logger = logging.getLogger(__name__)
+    logger.info(f"CMU detail page requested for cmu_id: {cmu_id}")
+
+    # Get sorting parameters
+    sort_field = request.GET.get("sort_by", "location") # Default to location
+    sort_order = request.GET.get("sort", "asc")
+    page = request.GET.get("page", 1)
+    per_page = 50 # Components per page
+
+    # Validate sort_order
+    if sort_order not in ["asc", "desc"]:
+        sort_order = "asc"
+
+    # Validate sort_field
+    allowed_sort_fields = ["location", "delivery_year"]
+    if sort_field not in allowed_sort_fields:
+        sort_field = "location"
+
+    context = {
+        "cmu_id": cmu_id,
+        "sort_field": sort_field,
+        "sort_order": sort_order,
+        "error": None,
+        "page_obj": None,
+        "paginator": None,
+        "total_count": 0,
+    }
+
+    start_time = time.time()
+
+    try:
+        # Fetch components for the given CMU ID
+        components_query = Component.objects.filter(cmu_id__iexact=cmu_id)
+
+        # Apply sorting
+        order_direction = "-" if sort_order == "desc" else ""
+        # Add nulls_last/nulls_first depending on DB and field type if needed
+        # For basic text/year fields, this should be okay
+        components_query = components_query.order_by(
+            f"{order_direction}{sort_field}"
+        )
+
+        total_count = components_query.count()
+        paginator = Paginator(components_query, per_page)
+        try:
+            page_obj = paginator.page(page)
+        except PageNotAnInteger:
+            page_obj = paginator.page(1)
+        except EmptyPage:
+            page_obj = paginator.page(paginator.num_pages)
+
+        context["page_obj"] = page_obj
+        context["paginator"] = paginator
+        context["total_count"] = total_count
+
+    except Exception as e:
+        logger.error(
+            f"Error fetching data for CMU ID '{cmu_id}': {e}"
+        )
+        logger.error(traceback.format_exc())
+        context["error"] = f"An error occurred while loading data: {e}"
+        if request.GET.get("debug"):
+            context["traceback"] = traceback.format_exc()
+
+    context["api_time"] = time.time() - start_time
+    return render(request, "checker/cmu_detail.html", context)
+
+
+def _organize_year_data(company_df):
+    """
+    Extract and organize auction/year data for a specific company.
+    Helper function for build_company_links.
+    """
+    logger.debug(f"_organize_year_data: Input DF shape: {company_df.shape}")
+    logger.debug(f"_organize_year_data: Input DF head:\n{company_df.head()}")
+    
+    # Extract and organize auction years
+    year_auctions = {}
+    
+    # Process each row
+    for idx, row in company_df.iterrows():
+        try:
+            year = row.get("Delivery Year", "").strip()
+            auction = row.get("Auction Name", "").strip()
+            
+            logger.debug(f"_organize_year_data: Row {idx} - Extracted Year: '{year}', Auction: '{auction}'")
+            
+            if year and auction:
+                if year not in year_auctions:
+                    year_auctions[year] = {}
+
+                if auction not in year_auctions[year]:
+                    year_auctions[year][auction] = True
+                    logger.debug(f"_organize_year_data: Row {idx} - Added Auction '{auction}' for Year '{year}'")
+        except Exception as e:
+            logger.error(f"Error processing row {idx}: {str(e)}")
+    
+    logger.debug(f"_organize_year_data: Built year_auctions dict: {year_auctions}")
+    return year_auctions
+
+
+def _build_search_results(company_matches, df, limit=20):
+    """
+    Build search results for the given company matches.
+    Helper function for get_cached_company_links.
+    """
+    if not company_matches:
+        logger.warning(f"No unique companies provided to _build_search_results. Returning empty results.")
+        return []
+    
+    start_time = time.time()
+    
+    # Store results
+    company_data_list = []
+    company_count = 0
+    companies_with_years = 0
+    companies_with_components = 0
+    total_cmu_ids = 0
+    total_components = 0
+    
+    # Process each company match
+    for company_name, score in company_matches[:limit]:
+        company_count += 1
+        
+        try:
+            # Filter dataframe for this company
+            company_df = df[df["Normalized Full Name"] == company_name]
+            original_company_name = company_df.iloc[0]["Full Name"] if not company_df.empty else company_name
+            
+            # Get records shape
+            num_records = len(company_df)
+            logger.debug(f"_build_search_results: Processing company '{original_company_name}'. Records slice shape: {company_df.shape}")
+            
+            if num_records == 0:
+                continue
+            
+            # Get unique CMU IDs for this company
+            cmu_ids = company_df["CMU ID"].unique()
+            num_cmu_ids = len(cmu_ids)
+            total_cmu_ids += num_cmu_ids
+            total_components += num_records
+            
+            # Extract year data
+            year_auctions = _organize_year_data(company_df)
+            
+            # Construct data for this company
+            if year_auctions:
+                companies_with_years += 1
+            
+            # Only include companies that have components or CMUs
+            if num_cmu_ids > 0:
+                companies_with_components += 1
+                
+                # Create search result entry
+                company_url_name = normalize(original_company_name).replace(" ", "").lower()
+                
+                # Build years html
+                years_html = ""
+                sorted_years = sorted(year_auctions.keys(), reverse=True)
+                for year in sorted_years:
+                    years_html += f'<span class="badge rounded-pill bg-primary me-1">{year}</span>'
+                
+                # Build HTML for this company
+                company_html = f"""
+            <div>
+                <strong><div><strong><a href="/company/{company_url_name}/">{original_company_name}</a></strong></div></strong>
+                <div class="small">
+                    <span class="text-muted">{num_cmu_ids} CMU ID{'' if num_cmu_ids == 1 else 's'}, {num_records} component{'' if num_records == 1 else 's'}</span>
+                </div>
+                <div class="mt-2">
+                    {years_html}
+                </div>
+            </div>
+                """
+                
+                company_data_list.append({
+                    "html": company_html,
+                    "company_name": original_company_name,
+                    "num_cmu_ids": num_cmu_ids,
+                    "num_components": num_records,
+                    "years": sorted_years,
+                    "url": f"/company/{company_url_name}/",
+                    "score": score
+                })
+
+        except Exception as e:
+            logger.error(f"Error processing company '{company_name}': {str(e)}")
+    
+    # Log debug information
+    debug_info = {
+        "company_count": company_count,
+        "companies_with_years": companies_with_years,
+        "companies_with_components": companies_with_components,
+        "total_cmu_ids": total_cmu_ids,
+        "total_components": total_components
+    }
+    logger.debug(f"_build_search_results Debug Info: {debug_info}")
+
+    elapsed_time = time.time() - start_time
+    logger.info(f"_build_search_results generated {len(company_data_list)} links for {company_count} initial companies in {elapsed_time:.4f}s.")
+
+    return company_data_list
+
+
+def build_cached_company_links(search_term, df, limit=20, force_rebuild=False):
+    """
+    Build company links with Redis caching.
+    This wraps _build_search_results to add a caching layer.
+    
+    Args:
+        search_term (str): The search term to match against companies
+        df (pandas.DataFrame): The CMU dataframe
+        limit (int): Maximum number of results to return
+        force_rebuild (bool): Force rebuilding the cache even if exists
+    
+    Returns:
+        list: List of company link dictionaries
+    """
+    if not search_term or not isinstance(search_term, str):
+        return []
+    
+    # Create a cache key for this search term
+    normalized_term = normalize(search_term)
+    cache_key = f"{COMPANY_LINKS_CACHE_KEY_PREFIX}_{normalized_term}"
+    
+    # Check cache first unless force_rebuild is True
+    if not force_rebuild:
+        # Try to get from Redis cache
+        serialized_links = cache.get(cache_key)
+        if serialized_links is not None:
+            try:
+                # Deserialize the company links from Redis
+                company_links = pickle.loads(base64.b64decode(serialized_links))
+                logger.info(f"Using cached company links for '{search_term}' ({len(company_links)} links)")
+                return company_links
+            except Exception as e:
+                logger.error(f"Error deserializing company links from Redis: {str(e)}")
+                # Continue with live fetch if deserialization fails
+    
+    # Cache miss or forced rebuild - find company matches and build links
+    start_time = time.time()
+    company_matches = find_company_matches(search_term, df)
+    
+    # Check if company_matches is not empty before proceeding
+    if company_matches and len(company_matches) > 0:
+        company_links = _build_search_results(company_matches, df, limit)
+        
+        # Cache the results if we got some matches
+        if company_links:
+            try:
+                serialized_links = base64.b64encode(pickle.dumps(company_links)).decode('utf-8')
+                cache.set(cache_key, serialized_links, COMPANY_LINKS_CACHE_TTL)
+                logger.info(f"Cached {len(company_links)} company links for '{search_term}' (expires in {COMPANY_LINKS_CACHE_TTL//3600} hours)")
+            except Exception as e:
+                logger.error(f"Error serializing company links for Redis: {str(e)}")
+        
+        elapsed_time = time.time() - start_time
+        logger.info(f"_build_search_results generated {len(company_links)} company links.")
+        
+        return company_links
+    else:
+        logger.info(f"No company matches found for '{search_term}'")
+        return []
+
+
+def find_company_matches(search_term, df, score_cutoff=75):
+    """
+    Find companies that match the search term using fuzzy matching.
+    Uses a lower default score_cutoff (75) to get more potential matches.
+    """
+    if not search_term or not isinstance(search_term, str):
+        return []
+    
+    start_time = time.time()
+    normalized_term = normalize(search_term)
+    
+    # Extract unique normalized company names
+    unique_companies = df["Normalized Full Name"].unique()
+    
+    logger.debug(f"Performing fuzzy match against {len(unique_companies)} unique normalized company names. Sample: {list(unique_companies[:10])}")
+    
+    # Find matches using RapidFuzz
+    matches = []
+    for company in unique_companies:
+        score = fuzz.ratio(normalized_term, company)
+        if score >= score_cutoff:
+            matches.append((company, score))
+    
+    # Sort by score descending
+    matches.sort(key=lambda x: x[1], reverse=True)
+    
+    # Log the match results
+    match_count = len(matches)
+    if match_count > 0:
+        top_match = matches[0][0] if matches else "None"
+        top_score = matches[0][1] if matches else 0
+        logger.info(f"Found {match_count} companies for query '{search_term}' (normalized: '{normalized_term}'). Top match: {top_match} ({top_score})")
+    else:
+        logger.info(f"No companies found for query '{search_term}' (normalized: '{normalized_term}') with score >= {score_cutoff}")
+    
+    return matches
+

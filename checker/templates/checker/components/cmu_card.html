@@ -1,0 +1,23 @@
+<div class="col-12 mb-3">
+    <div class="card cmu-card">
+        <div class="card-header bg-light">
+            <div class="d-flex justify-content-between align-items-center">
+                <span>CMU ID: <strong>{{ cmu_id }}</strong></span>
+                <a href="/components/?q={{ cmu_id }}" class="btn btn-sm btn-info">View Components</a>
+            </div>
+            <div class="small text-muted mt-1">{{ component_debug }} (filtered to {{ components|length }})</div>
+            {% if auction_info %}
+                <div class="small mt-1">Auctions: {{ auction_info }}</div>
+            {% endif %}
+            {% if company_name %}
+                <div class="small mt-1">
+                    <span class="badge bg-success">{{ company_name }}</span>
+                </div>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            <p><strong>Components:</strong> {{ components|length }}</p>
+            {{ location_html|safe }}
+        </div>
+    </div>
+</div> 

@@ -1,0 +1,36 @@
+{% extends "checker/base.html" %}
+
+{% block title %}Registration Pending{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">Registration Successful</h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-success">
+                        <h5>Thank you for registering!</h5>
+                        <p>Your account has been created, but needs to be activated before you can use it.</p>
+                    </div>
+                    
+                    <div class="alert alert-warning mt-3">
+                        <h5><i class="bi bi-envelope-check"></i> Next Step: Check Your Email</h5>
+                        <p><strong>We've sent an activation link to your email address.</strong></p>
+                        <p>Please check your inbox and click on the activation link to complete your registration.</p>
+                        <p><strong>Important:</strong> If you don't see the email within a few minutes, please check your spam/junk folder.</p>
+                    </div>
+                    
+                    <div class="alert alert-info mt-3">
+                        <h5><i class="bi bi-clock"></i> Free Access Information</h5>
+                        <p>Once activated, you'll have <strong>1 hour</strong> of free access to explore all features.</p>
+                        <p>You'll be able to view your remaining time on your account page after activation.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

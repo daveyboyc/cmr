@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Search Components</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    {% load static %}
+    <link rel="icon" type="image/png" href="{% static 'images/favicon.png' %}">
+    <!-- Add HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.2" integrity="sha384-L6OqL9pRWyyFU3+/bjdSri+iIphTN/bvYyM37tICVyOJkWZLpP2vGn6VUEXgzg6h" crossorigin="anonymous"></script>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            background-image: url('/static/images/backgrounds/industrial_background.jpeg');
+            background-size: cover;
+            background-position: center center;
+            background-attachment: fixed;
+            background-repeat: no-repeat;
+            color: #333;
+        }
+        .search-container {
+            text-align: center;
+            width: 100%;
+            max-width: 960px; /* Increased from 600px */
+            padding: 20px;
+            background-color: rgba(255, 255, 255, 0.9);
+            border-radius: 10px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+        }
+        .search-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .search-form {
+            margin-top: 20px;
+        }
+        .input-group {
+            width: 100%;
+        }
+        .form-control {
+            font-size: 16px;
+            padding: 10px;
+            border-radius: 24px;
+            box-shadow: 0 1px 6px rgba(32, 33, 36, 0.28);
+            border: 1px solid #dfe1e5;
+        }
+        .btn-primary {
+            padding: 10px 20px;
+            border-radius: 24px;
+            background-color: #4285f4;
+            border: none;
+            color: white;
+        }
+        .btn-primary:hover {
+            background-color: #357abd;
+        }
+        .results-section {
+            text-align: left;
+            margin-top: 20px;
+        }
+        .text-muted {
+            color: #70757a;
+        }
+        .switch-link {
+            display: inline-flex;
+            align-items: center;
+            color: #4285f4;
+            text-decoration: none;
+            font-size: 16px;
+        }
+        .switch-link:hover {
+            text-decoration: underline;
+            color: #357abd;
+        }
+        .switch-icon {
+            width: 20px;
+            height: 20px;
+            margin-right: 5px;
+        }
+        /* Add this new style for highlighting */
+        .highlight {
+            background-color: yellow;
+            font-weight: bold;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        /* Style for sort toggle button */
+        .sort-toggle {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 10px;
+            padding: 8px 15px;
+            border-radius: 24px;
+            background-color: #f8f9fa;
+            border: 1px solid #dfe1e5;
+            color: #4285f4;
+            text-decoration: none;
+            font-size: 14px;
+            transition: background-color 0.2s;
+        }
+        .sort-toggle:hover {
+            background-color: #e8eaed;
+            text-decoration: none;
+        }
+
+        /* List layout for results - Google style */
+        .results-list {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .result-item {
+            padding: 16px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .result-item:last-child {
+            border-bottom: none;
+        }
+
+        /* Badge styling */
+        .badge {
+            font-weight: normal;
+            padding: 5px 10px;
+        }
+
+        /* Company links section styling */
+        .company-links-section {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        .company-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .toggle-icon {
+            font-weight: bold;
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="search-container">
+        <div class="search-header">
+            <h1 class="d-inline">Search Components</h1>
+            {% load static %}
+            <a href="{% url 'search_companies' %}" class="switch-link">
+                <img src="{% static 'images/switch-icon.png' %}" alt="Switch Icon" class="switch-icon">
+                Switch to Companies (CMU)
+            </a>
+        </div>
+
+        <form method="get" class="search-form">
+            <div class="input-group">
+                <input type="text" name="q" class="form-control" placeholder="Search company name, postcode, or CMU ID" value="{{ request.GET.q }}">
+                <button type="submit" class="btn btn-primary">Search</button>
+            </div>
+        </form>
+
+        <!-- Add this after the search form -->
+        {% if record_count > 0 or total_component_count > 0 %}
+        <div class="alert alert-info mt-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <span>
+                        Displaying <strong>{{ displayed_component_count|default:"0" }}</strong> of <strong>{{ total_component_count|default:record_count }}</strong> matching components
+                        {% if page and total_pages > 1 %}
+                            (Page {{ page }} of {{ total_pages }})
+                        {% endif %}
+                    </span>
+                    
+                    {% if total_component_count >= 5000 %}
+                    <div class="small mt-1">
+                        <em>Note: Large result set detected. Showing 500 results per page.</em>
+                    </div>
+                    {% endif %}
+                </div>
+                
+                {% if request.GET.q and total_pages > 1 %}
+                <div>
+                    <a href="?q={{ request.GET.q }}&page=1&comp_sort={{ sort_order }}" class="btn btn-sm btn-outline-primary me-1">
+                        First
+                    </a>
+                    {% if has_prev %}
+                    <a href="?q={{ request.GET.q }}&page={{ page|add:'-1' }}&comp_sort={{ sort_order }}" class="btn btn-sm btn-outline-primary me-1">
+                        Previous
+                    </a>
+                    {% endif %}
+                    {% if has_next %}
+                    <a href="?q={{ request.GET.q }}&page={{ page|add:'1' }}&comp_sort={{ sort_order }}" class="btn btn-sm btn-outline-primary me-1">
+                        Next
+                    </a>
+                    {% endif %}
+                    <a href="?q={{ request.GET.q }}&page={{ total_pages }}&comp_sort={{ sort_order }}" class="btn btn-sm btn-outline-primary">
+                        Last
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if error %}
+            <div class="alert alert-danger mt-3">{{ error }}</div>
+        {% endif %}
+
+        <!-- Company Links Section -->
+        {% if company_links %}
+            <div class="section-header">
+                <h3>Matching Companies ({{ company_links|length }})</h3>
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#companyLinksCollapse" aria-expanded="{% if company_links|length < 5 %}true{% else %}false{% endif %}" aria-controls="companyLinksCollapse">
+                    <span class="toggle-icon"></span>
+                    <span class="toggle-text">{% if company_links|length < 5 %}Hide{% else %}Show{% endif %}</span>
+                </button>
+            </div>
+            <div class="company-links-section collapse {% if company_links|length < 5 %}show{% endif %}" id="companyLinksCollapse">
+                <div class="company-links">
+                    {% for link in company_links %}
+                        {{ link|safe }}
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+
+        {% if results %}
+            <div class="alert alert-info" role="alert">
+                Click on the Blue Location Links to view in Companies
+            </div>
+
+            <!-- Add sort order explanation when results are shown -->
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="text-muted">
+                    Results sorted by delivery year ({% if sort_order == "desc" %}newest first{% else %}oldest first{% endif %})
+                </div>
+                
+                <!-- Add clickable sort toggle button -->
+                {% if sort_order == "desc" %}
+                    <a href="?q={{ request.GET.q }}&page={{ page }}&comp_sort=asc" class="sort-toggle">
+                        <span>↑</span> Sort Components: Oldest First
+                    </a>
+                {% else %}
+                    <a href="?q={{ request.GET.q }}&page={{ page }}&comp_sort=desc" class="sort-toggle">
+                        <span>↓</span> Sort Components: Newest First
+                    </a>
+                {% endif %}
+            </div>
+        {% endif %}
+
+        {% for query, matches in results.items %}
+            <div class="results-section">
+                <h3>Results for "{{ query }}"</h3>
+                <div class="results-list">
+                    {% for match in matches %}
+                        <div class="result-item mb-3">
+                            {{ match|safe }}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endfor %}
+
+        <!-- Add this at the bottom of the page after results -->
+        {% if total_component_count > per_page and total_pages > 1 %}
+        <div class="mt-4">
+          <nav aria-label="Page navigation">
+            <ul class="pagination justify-content-center">
+              <li class="page-item {% if not has_prev %}disabled{% endif %}">
+                <a class="page-link" href="?q={{ query }}&page=1&comp_sort={{ sort_order }}" aria-label="First">
+                  <span aria-hidden="true">&laquo;&laquo; First</span>
+                </a>
+              </li>
+              <li class="page-item {% if not has_prev %}disabled{% endif %}">
+                <a class="page-link" href="?q={{ query }}&page={{ page|add:'-1' }}&comp_sort={{ sort_order }}" aria-label="Previous">
+                  <span aria-hidden="true">&laquo; Previous</span>
+                </a>
+              </li>
+              
+              {% for p in page_range %}
+                <li class="page-item {% if p == page %}active{% endif %}">
+                  <a class="page-link" href="?q={{ query }}&page={{ p }}&comp_sort={{ sort_order }}">{{ p }}</a>
+                </li>
+              {% endfor %}
+              
+              <li class="page-item {% if not has_next %}disabled{% endif %}">
+                <a class="page-link" href="?q={{ query }}&page={{ page|add:'1' }}&comp_sort={{ sort_order }}" aria-label="Next">
+                  <span aria-hidden="true">Next &raquo;</span>
+                </a>
+              </li>
+              <li class="page-item {% if not has_next %}disabled{% endif %}">
+                <a class="page-link" href="?q={{ query }}&page={{ total_pages }}&comp_sort={{ sort_order }}" aria-label="Last">
+                  <span aria-hidden="true">Last &raquo;&raquo;</span>
+                </a>
+              </li>
+            </ul>
+          </nav>
+        </div>
+        {% endif %}
+
+        {% if api_time > 0 %}
+            <p class="text-muted mt-3">API request took {{ api_time|floatformat:2 }} seconds.</p>
+        {% endif %}
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+    // Toggle icon and text for collapse buttons
+    document.addEventListener('DOMContentLoaded', function() {
+        // Set initial toggle icons
+        const toggleButtons = document.querySelectorAll('[data-bs-toggle="collapse"]');
+        toggleButtons.forEach(button => {
+            const isExpanded = button.getAttribute('aria-expanded') === 'true';
+            const iconSpan = button.querySelector('.toggle-icon');
+            const textSpan = button.querySelector('.toggle-text');
+            
+            if (iconSpan) {
+                iconSpan.innerHTML = isExpanded ? '−' : '+';
+            }
+        });
+        
+        // Add event listeners for all collapse elements
+        const collapseElements = document.querySelectorAll('.collapse');
+        collapseElements.forEach(collapse => {
+            collapse.addEventListener('show.bs.collapse', function() {
+                const button = document.querySelector(`[data-bs-target="#${collapse.id}"]`);
+                if (button) {
+                    const iconSpan = button.querySelector('.toggle-icon');
+                    const textSpan = button.querySelector('.toggle-text');
+                    
+                    if (iconSpan) iconSpan.innerHTML = '−';
+                    if (textSpan) textSpan.innerHTML = 'Hide';
+                }
+            });
+            
+            collapse.addEventListener('hide.bs.collapse', function() {
+                const button = document.querySelector(`[data-bs-target="#${collapse.id}"]`);
+                if (button) {
+                    const iconSpan = button.querySelector('.toggle-icon');
+                    const textSpan = button.querySelector('.toggle-text');
+                    
+                    if (iconSpan) iconSpan.innerHTML = '+';
+                    if (textSpan) textSpan.innerHTML = 'Show';
+                }
+            });
+        });
+    });
+    </script>
+</body>
+</html>

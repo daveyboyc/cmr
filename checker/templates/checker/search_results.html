@@ -1,0 +1,319 @@
+{% extends "checker/base.html" %}
+{% load static %}
+{% load checker_tags %}
+{% load humanize %}
+
+{% block title %}Search Results{% endblock %}
+
+{% block extra_head %}
+{# --- Add Font Awesome --- #}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+<style>
+    .component-record {
+        opacity: 0;
+        transition: opacity 0.3s ease-in-out;
+    }
+    
+    /* Loading indicator styling */
+    #loading-spinner {
+        transition: all 0.3s ease;
+    }
+    
+    /* Highlight the results count message */
+    .results-count-message {
+        font-size: 1.1rem;
+        padding: 10px;
+        background-color: #e9f5ff;
+        border-radius: 5px;
+        margin-bottom: 15px;
+    }
+    
+    /* Make show all button stand out */
+    .btn-show-all {
+        background-color: #0d6efd;
+        color: white;
+        font-weight: bold;
+    }
+    /* Sort controls styling */
+    .sort-controls {
+        margin-bottom: 15px;
+        padding: 10px;
+        background-color: #f8f9fa;
+        border-radius: 5px;
+        font-size: 0.9rem;
+    }
+    .sort-controls a {
+        margin-right: 10px;
+        text-decoration: none;
+        color: #0d6efd;
+    }
+    .sort-controls .active-sort {
+        font-weight: bold;
+        color: #000;
+    }
+    .sort-controls .sort-icon {
+         margin-left: 3px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <!-- Add loading spinner -->
+    <div id="loading-spinner" class="text-center my-5"
+         style="{% if components or error or company_count > 0 or (query and not components and not error and not company_count) %}display: none;{% else %}display: block;{% endif %}">
+        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-2">Loading results, please wait...</p>
+    </div>
+
+    <form method="get" action="{% url 'search' %}" class="mb-4">
+        <div class="input-group">
+            <input type="text" name="q" class="form-control" placeholder="Search by company name, location, CMU ID..." value="{{ query }}" required>
+            <input type="hidden" name="per_page" value="{{ per_page|default:'50' }}">
+            {% if sort_by %}<input type="hidden" name="sort_by" value="{{ sort_by }}">{% endif %}
+            {% if sort_order %}<input type="hidden" name="sort_order" value="{{ sort_order }}">{% endif %}
+            <button class="btn btn-primary" type="submit" id="search-button">Search</button>
+        </div>
+    </form>
+    
+    <div id="results-container"
+         style="{% if components or error or company_count > 0 or (query and not components and not error and not company_count) %}display: block;{% else %}display: none;{% endif %}">
+        {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+        {% else %}
+            <div class="results-meta mb-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h3>Search Results for "{{ query }}"</h3>
+                    {% if from_cache %}
+                        <span class="badge bg-info text-dark">Cached Results</span>
+                    {% endif %}
+                </div>
+                <div class="text-muted">
+                    Found in {{ api_time|floatformat:2 }} seconds
+                </div>
+            </div>
+            
+            {% if company_count > 0 %}
+                <div class="mb-4">
+                    <h4>Companies ({{ company_count }})</h4>
+                    <div class="list-group">
+                        {% for company in companies %}
+                            <div class="list-group-item">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-1">{{ company.name }}</h5>
+                                    <span class="badge bg-primary rounded-pill">{{ company.component_count }} components</span>
+                                </div>
+                                <p class="mb-1"><small>CMU IDs: {{ company.cmu_ids_display }}</small></p>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+            
+            {% if components %}
+                <h4>Components ({{ total_count }})</h4>
+                
+                <!-- NEW: Results count message with prominent display -->
+                {% if total_count > components|length %}
+                <div class="results-count-message">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>Showing {{ components|length }} of {{ total_count }} matching components</strong>
+                        </div>
+                        <a href="{{ base_search_url }}?q={{ query|urlencode }}&per_page={{ total_count }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}" class="btn btn-show-all">
+                            Show All {{ total_count }} Results
+                        </a>
+                    </div>
+                </div>
+                {% endif %}
+                
+                <!-- Sort controls -->
+                <div class="sort-controls d-flex justify-content-between align-items-center">
+                    <div>
+                        Sort by:
+                        {% url 'search' as base_search_url %}
+                        <!-- Relevance Sort Link (Default) -->
+                        {% with current_sort_field='relevance' %}
+                            {% with next_sort_dir='asc' if current_sort_field == sort_by and sort_order == 'desc' else 'desc' %}
+                                <a href="{{ base_search_url }}?q={{ query|urlencode }}&per_page={{ per_page }}&sort_by={{ current_sort_field }}&sort_order={{ next_sort_dir }}" 
+                                   class="{% if current_sort_field == sort_by %}active-sort{% endif %}">
+                                   Relevance
+                                    {% if current_sort_field == sort_by %}<span class="sort-icon"><i class="fas fa-sort-{% if sort_order == 'asc' %}up{% else %}down{% endif %}"></i></span>{% endif %}
+                                </a>
+                            {% endwith %}
+                        {% endwith %}
+
+                        <!-- Location Sort Link -->
+                        {% with current_sort_field='location' %}
+                            {% with next_sort_dir='desc' if current_sort_field == sort_by and sort_order == 'asc' else 'asc' %}
+                                <a href="{{ base_search_url }}?q={{ query|urlencode }}&per_page={{ per_page }}&sort_by={{ current_sort_field }}&sort_order={{ next_sort_dir }}" 
+                                   class="{% if current_sort_field == sort_by %}active-sort{% endif %}">
+                                   Location
+                                    {% if current_sort_field == sort_by %}<span class="sort-icon"><i class="fas fa-sort-{% if sort_order == 'asc' %}up{% else %}down{% endif %}"></i></span>{% endif %}
+                                </a>
+                            {% endwith %}
+                        {% endwith %}
+
+                        <!-- Date Sort Link -->
+                        {% with current_sort_field='date' %}
+                            {% with next_sort_dir='asc' if current_sort_field == sort_by and sort_order == 'desc' else 'desc' %}
+                                <a href="{{ base_search_url }}?q={{ query|urlencode }}&per_page={{ per_page }}&sort_by={{ current_sort_field }}&sort_order={{ next_sort_dir }}" 
+                                   class="{% if current_sort_field == sort_by %}active-sort{% endif %}">
+                                   Date
+                                    {% if current_sort_field == sort_by %}<span class="sort-icon"><i class="fas fa-sort-{% if sort_order == 'asc' %}up{% else %}down{% endif %}"></i></span>{% endif %}
+                                </a>
+                            {% endwith %}
+                        {% endwith %}
+                    </div>
+                    <div class="text-muted small">
+                         {% if sort_by == 'relevance' %}Sorted by Relevance{% if sort_order == 'asc' %} (Lowest First){% endif %}{% endif %}
+                         {% if sort_by == 'location' %}Sorted by Location{% if sort_order == 'asc' %} (A-Z){% else %} (Z-A){% endif %}{% endif %}
+                         {% if sort_by == 'date' %}Sorted by Date{% if sort_order == 'asc' %} (Oldest First){% else %} (Newest First){% endif %}{% endif %}
+                    </div>
+                 </div>
+                
+                {% for component in components %}
+                    <div class="card mb-3 component-record">
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                {% if component.cmu_id %}
+                                    {{ component.cmu_id }}
+                                {% elif component.CMU_ID %}
+                                    {{ component.CMU_ID }}
+                                {% else %}
+                                    {{ component.id }}
+                                {% endif %}
+                            </h5>
+                            <h6 class="card-subtitle mb-2 text-muted">
+                                {{ component.company_name }}
+                            </h6>
+                            
+                            <p class="card-text">
+                                <strong>Location: </strong>
+                                <a href="{% url 'component_detail' component_id=component._id %}" class="location-link text-primary">
+                                    {% if component.location %}
+                                        {{ component.location }}
+                                    {% else %}
+                                        Unknown Location
+                                    {% endif %}
+                                </a>
+                            </p>
+                            
+                            <p class="card-text">
+                                <strong>Description: </strong>
+                                {% if component.description %}
+                                    {{ component.description|truncatechars:150 }}
+                                {% else %}
+                                    No description available
+                                {% endif %}
+                            </p>
+                            
+                            {% if component.debug_matched_fields %}
+                            <div class="alert alert-info small">
+                                <strong>Debug:</strong> Matched in fields: {{ component.debug_matched_fields|join:", " }}
+                            </div>
+                            {% endif %}
+                            
+                            <button class="btn btn-sm btn-outline-primary" onclick="toggleDetails('component-{{ component.id|default:component._id }}')">
+                                Show Details
+                            </button>
+                            <div id="component-{{ component.id|default:component._id }}" class="mt-2 component-details" style="display: none;">
+                                <table class="table table-sm">
+                                    <tbody>
+                                        {% for key, value in component.items %}
+                                            {% if key != "Description_of_CMU_Components" and key != "description" and key != "Location_and_Post_Code" and key != "location" and key != "_id" and key != "debug_matched_fields" and key != "relevance_score" %}
+                                                <tr>
+                                                    <td><strong>{{ key }}</strong></td>
+                                                    <td>{{ value }}</td>
+                                                </tr>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+                
+                {% if total_count > components|length %}
+                    <div class="alert alert-warning">
+                        <p><strong>Want to see more?</strong> You're currently viewing {{ components|length }} of {{ total_count }} total matching components.</p>
+                        <div class="btn-group" role="group">
+                            <a href="{{ base_search_url }}?q={{ query|urlencode }}&per_page=100&sort_by={{ sort_by }}&sort_order={{ sort_order }}" class="btn btn-outline-primary">Show 100</a>
+                            <a href="{{ base_search_url }}?q={{ query|urlencode }}&per_page=200&sort_by={{ sort_by }}&sort_order={{ sort_order }}" class="btn btn-outline-primary">Show 200</a>
+                            <a href="{{ base_search_url }}?q={{ query|urlencode }}&per_page=500&sort_by={{ sort_by }}&sort_order={{ sort_order }}" class="btn btn-outline-primary">Show 500</a>
+                            <a href="{{ base_search_url }}?q={{ query|urlencode }}&per_page={{ total_count }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}" class="btn btn-primary">Show All {{ total_count }}</a>
+                        </div>
+                        <p class="small text-muted mt-2">Note: Loading more results may take longer</p>
+                    </div>
+                {% endif %}
+            {% else %}
+                <div class="alert alert-warning">No components found matching your search.</div>
+            {% endif %}
+
+            {% if companies|length == 1 and components|length < total_count %}
+            <div class="alert alert-info mb-4">
+                <p>
+                    <strong>Showing {{ components|length }} of {{ total_count }} components for {{ companies.0.name }}</strong>
+                </p>
+                <p>To see more components, use the links below:</p>
+                <div class="mt-2">
+                    <a href="{{ base_search_url }}?q={{ query|urlencode }}&per_page=100&sort_by={{ sort_by }}&sort_order={{ sort_order }}" class="btn btn-sm btn-primary">Show 100 components</a>
+                    {% if total_count > 100 %}
+                    <a href="{{ base_search_url }}?q={{ query|urlencode }}&per_page=200&sort_by={{ sort_by }}&sort_order={{ sort_order }}" class="btn btn-sm btn-primary">Show 200 components</a>
+                    {% endif %}
+                    {% if total_count > 200 %}
+                    <a href="{{ base_search_url }}?q={{ query|urlencode }}&per_page={{ total_count }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}" class="btn btn-sm btn-primary">Show all {{ total_count }} components</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function toggleDetails(id) {
+        var detailsDiv = document.getElementById(id);
+        if (detailsDiv.style.display === "none") {
+            detailsDiv.style.display = "block";
+        } else {
+            detailsDiv.style.display = "none";
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchForm = document.querySelector('form');
+        const resultsContainer = document.getElementById('results-container');
+        const loadingSpinner = document.getElementById('loading-spinner');
+
+        if (searchForm) {
+            searchForm.addEventListener('submit', function() {
+                if(loadingSpinner) loadingSpinner.style.display = 'block';
+                if(resultsContainer) resultsContainer.style.display = 'none';
+            });
+        }
+
+        // Handle clicks on sort links and pagination/show more links to show loading
+        const actionLinks = document.querySelectorAll('.sort-controls a, .alert .btn-group a, .results-count-message a'); // Include show all link
+        actionLinks.forEach(link => {
+            link.addEventListener('click', function() {
+                if(loadingSpinner) loadingSpinner.style.display = 'block';
+                if(resultsContainer) resultsContainer.style.display = 'none';
+            });
+        });
+        
+        // Add fade-in effect for search results (keep this)
+        const componentRecords = document.querySelectorAll('.component-record');
+        componentRecords.forEach((record, index) => {
+            setTimeout(() => {
+                record.style.opacity = '1';
+            }, index * 50); // 50ms delay per item
+        });
+    });
+</script>
+{% endblock %} 

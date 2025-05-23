@@ -1,0 +1,40 @@
+{% extends "checker/base.html" %}
+{% load static %}
+
+{% block title %}Access Expired{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 text-center">
+        <div class="card shadow-sm border-warning">
+            <div class="card-header bg-warning text-dark">
+                <h2 class="card-title mb-0"><i class="bi bi-clock-history me-2"></i>Free Access Expired</h2>
+            </div>
+            <div class="card-body">
+                <p class="lead">
+                    Thank you for using Capacity Market Search!
+                </p>
+                <p>
+                    Your complimentary access period for this session has ended.
+                </p>
+                <p>
+                    To continue accessing detailed data and features without interruption, please upgrade to a paid account.
+                </p>
+                <hr class="my-4">
+                <div class="d-grid gap-2">
+                    <div class="alert alert-info">
+                        One-time payment of <strong>£5</strong> for unlimited access
+                    </div>
+                    <a href="{% url 'accounts:initiate_payment' %}" class="btn btn-warning btn-lg">
+                         <i class="bi bi-credit-card-2-front-fill me-2"></i>Upgrade Now (£5 One-Off Payment)
+                    </a>
+                    <form method="post" action="{% url 'logout' %}" style="display: inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-outline-secondary btn-sm mt-2">Logout</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

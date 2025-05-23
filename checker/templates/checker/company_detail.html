@@ -1,0 +1,457 @@
+{% extends "checker/base.html" %}
+{% load static %}
+{% load humanize %}
+{% load checker_tags %}
+
+{% block title %}{{ company_name }} - Company Details{% endblock %}
+
+{% block content %}
+<div class="container mt-4 with-background">
+    <!-- Header -->
+    <div class="page-header mb-3">
+        <h1>{{ company_name }}</h1>
+        <a href="{% url 'search_companies' %}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-arrow-left"></i> Back to Search
+        </a>
+    </div>
+
+    <!-- Navigation Links & View Toggle -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <span></span>
+        <div class="dropdown ms-2">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="viewModeDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="bi bi-eye"></i> 
+                {% if view_mode == 'capacity' %}Capacity
+                {% elif view_mode == 'all_components' %}All Components
+                {% else %}Year/Auction
+                {% endif %}
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="viewModeDropdown">
+                <li>
+                    <a class="dropdown-item {% if view_mode == 'year_auction' %}active{% endif %}" href="?view_mode=year_auction">
+                        <i class="bi bi-calendar-week me-2"></i>View by Year/Auction
+                    </a>
+                </li>
+                <li>
+                    <a class="dropdown-item {% if view_mode == 'capacity' %}active{% endif %}" href="?view_mode=capacity">
+                        <i class="bi bi-bar-chart-line me-2"></i>View by Capacity
+                    </a>
+                </li>
+                <li>
+                    <a class="dropdown-item {% if view_mode == 'all_components' %}active{% endif %}" href="?view_mode=all_components">
+                         <i class="bi bi-list-ul me-2"></i>View All Components
+                    </a>
+                </li>
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                    <a class="dropdown-item" href="{% url 'search_companies' %}?q={{ company_name|urlencode }}" target="_blank">
+                        <i class="bi bi-search me-2"></i>View All on Search Page
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Debug Output -->
+    {% if request.GET.debug %}
+    <div class="alert alert-secondary">
+        <h4>Debug Info</h4>
+        <p>company_name: {{ company_name }}</p>
+        <p>company_id: {{ company_id }}</p>
+        <p>year_auction_data exists: {% if year_auction_data %}Yes{% else %}No{% endif %}</p>
+        <p>year_auction_data length: {{ year_auction_data|length }}</p>
+        <p>sort_order: {{ sort_order }}</p>
+    </div>
+    {% endif %}
+
+    <!-- Error Message -->
+    {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+        {% if traceback %}
+            <div class="alert alert-secondary">
+                <pre>{{ traceback }}</pre>
+            </div>
+        {% endif %}
+    {% endif %}
+
+    <!-- Conditional Content Display -->
+    {% if view_mode == 'capacity' %}
+        {# --- CAPACITY VIEW --- #}
+        <div class="capacity-view">
+            <h2 class="h4 mb-3">Components Ranked by De-rated Capacity</h2>
+
+            <!-- Sort Toggle Buttons -->
+            <div class="d-flex justify-content-end mb-3">
+                <a href="?view_mode=capacity&sort={% if sort_order == 'desc' %}asc{% else %}desc{% endif %}" 
+                   class="btn btn-outline-secondary btn-sm">
+                    {% if sort_order == "desc" %}
+                        <i class="bi bi-arrow-up-short"></i> Sort: Smallest First
+                    {% else %}
+                        <i class="bi bi-arrow-down-short"></i> Sort: Largest First
+                    {% endif %}
+                </a>
+            </div>
+
+            <p class="text-muted">Displaying {{ page_obj.start_index }}-{{ page_obj.end_index }} of {{ total_count|intcomma }} components with capacity data.</p>
+
+            <ul class="list-group list-group-flush mb-4">
+                {% for component in page_obj.object_list %}
+                    <li class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                             <a href="{% url 'component_detail' pk=component.id %}" class="fw-bold text-decoration-none">
+                                {{ component.location|truncatechars:80|default:"No Location Info" }}
+                            </a>
+                            <span class="badge bg-info rounded-pill">{{ component.derated_capacity_mw|floatformat:2|intcomma }} MW</span>
+                        </div>
+                        <div class="small text-muted">
+                            {{ component.technology|truncatechars:70|default:"No Technology Info" }}
+                        </div>
+                        {% if component.description %}
+                        <div class="small text-muted mt-1">
+                            <i>{{ component.description|truncatechars:100 }}</i>
+                        </div>
+                        {% endif %}
+                    </li>
+                {% empty %}
+                    <li class="list-group-item">No components with de-rated capacity data found for this company.</li>
+                {% endfor %}
+            </ul>
+
+            <!-- Pagination for Capacity View -->
+            {% if paginator.num_pages > 1 %}
+                <nav aria-label="Component navigation" class="pagination-nav">
+                    <ul class="pagination justify-content-center">
+                        {% with base_url="?view_mode=capacity&sort="|add:sort_order %}
+                        {% if page_obj.has_previous %}
+                            <li class="page-item"><a class="page-link" href="{{ base_url }}&page=1">First</a></li>
+                            <li class="page-item"><a class="page-link" href="{{ base_url }}&page={{ page_obj.previous_page_number }}">Previous</a></li>
+                        {% else %}
+                            <li class="page-item disabled"><span class="page-link">First</span></li>
+                            <li class="page-item disabled"><span class="page-link">Previous</span></li>
+                        {% endif %}
+
+                        {% for i in page_obj.paginator.get_elided_page_range %}
+                            {% if i == page_obj.number %}
+                                <li class="page-item active" aria-current="page"><span class="page-link">{{ i }}</span></li>
+                            {% elif i == page_obj.paginator.ELLIPSIS %}
+                                 <li class="page-item disabled"><span class="page-link">...</span></li>
+                            {% else %}
+                                <li class="page-item"><a class="page-link" href="{{ base_url }}&page={{ i }}">{{ i }}</a></li>
+                            {% endif %}
+                        {% endfor %}
+
+                        {% if page_obj.has_next %}
+                            <li class="page-item"><a class="page-link" href="{{ base_url }}&page={{ page_obj.next_page_number }}">Next</a></li>
+                            <li class="page-item"><a class="page-link" href="{{ base_url }}&page={{ paginator.num_pages }}">Last</a></li>
+                        {% else %}
+                            <li class="page-item disabled"><span class="page-link">Next</span></li>
+                            <li class="page-item disabled"><span class="page-link">Last</span></li>
+                        {% endif %}
+                        {% endwith %}
+                    </ul>
+                </nav>
+            {% endif %}
+
+        </div>
+
+    {% elif view_mode == 'all_components' %}
+        {# --- ALL COMPONENTS VIEW --- #}
+        <div class="all-components-view">
+            <h2 class="h4 mb-3">All Components for {{ company_name }}</h2>
+
+            {# --- Sorting Controls --- #}
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="text-muted small">
+                    Found {{ total_count|intcomma }} component record{{ total_count|pluralize }}.
+                </div>
+                <div class="d-flex">
+                    {# Sort Field Dropdown #}
+                    <div class="dropdown me-2">
+                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="sortFieldDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                             {{ sort_field|replace_underscores|title }}
+                        </button>
+                        <ul class="dropdown-menu" aria-labelledby="sortFieldDropdown">
+                            <li><a class="dropdown-item {% if sort_field == 'delivery_year' %}active{% endif %}" href="?view_mode=all_components&sort_by=delivery_year&sort={{ sort_order }}">Delivery Year</a></li>
+                            <li><a class="dropdown-item {% if sort_field == 'auction_name' %}active{% endif %}" href="?view_mode=all_components&sort_by=auction_name&sort={{ sort_order }}">Auction Name</a></li>
+                            <li><a class="dropdown-item {% if sort_field == 'derated_capacity_mw' %}active{% endif %}" href="?view_mode=all_components&sort_by=derated_capacity_mw&sort={{ sort_order }}">De-Rated Capacity</a></li>
+                            <li><a class="dropdown-item {% if sort_field == 'location' %}active{% endif %}" href="?view_mode=all_components&sort_by=location&sort={{ sort_order }}">Location</a></li>
+                        </ul>
+                    </div>
+                    {# Sort Order Button #}
+                    <a href="?view_mode=all_components&sort_by={{ sort_field }}&sort={% if sort_order == 'desc' %}asc{% else %}desc{% endif %}" 
+                       class="btn btn-outline-secondary btn-sm">
+                        {% if sort_order == "desc" %}
+                            <i class="bi bi-arrow-up-short"></i> Asc
+                        {% else %}
+                            <i class="bi bi-arrow-down-short"></i> Desc
+                        {% endif %}
+                    </a>
+                </div>
+            </div>
+            {# --- End Sorting Controls --- #}
+
+            {# --- Component List --- #}
+            <p class="text-muted">Displaying {{ page_obj.start_index }}-{{ page_obj.end_index }} of {{ total_count|intcomma }}.</p>
+            <ul class="list-group list-group-flush mb-4">
+                {% for component in page_obj.object_list %}
+                    <li class="list-group-item py-2">
+                        <div class="d-flex justify-content-between align-items-start mb-1">
+                            <div class="flex-grow-1 me-3">
+                                <a href="{% url 'component_detail' pk=component.id %}" class="fw-bold text-decoration-none mb-1 d-block">
+                                    {{ component.location|truncatechars:80|default:"No Location Info" }}
+                                </a>
+                                <div class="small text-muted">
+                                    {{ component.technology|truncatechars:70|default:"No Technology Info" }}
+                                    {% if component.description %}
+                                        <span class="ms-1 fst-italic"> - {{ component.description|truncatechars:100 }}</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="text-end text-nowrap">
+                                {% if component.derated_capacity_mw is not None %}
+                                    <span class="badge bg-info rounded-pill">{{ component.derated_capacity_mw|floatformat:2|intcomma }} MW</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-start align-items-center mt-1 small text-muted">
+                           {% if component.cmu_id %}
+                               <a href="{% url 'search_companies' %}?q={{ component.cmu_id }}&search_type=cmu" class="text-decoration-none me-2">
+                                   <span class="badge bg-light text-dark border">CMU: {{ component.cmu_id }}</span>
+                               </a>
+                           {% endif %}
+                           <span class="me-2">{{ component.auction_name|shorten_auction_name|default:"N/A" }}</span>
+                        </div>
+                    </li>
+                {% empty %}
+                    <li class="list-group-item">No components found for this company.</li>
+                {% endfor %}
+            </ul>
+            {# --- End Component List --- #}
+
+            {# --- Pagination --- #}
+            {% if paginator.num_pages > 1 %}
+                <nav aria-label="Component navigation" class="pagination-nav">
+                    <ul class="pagination justify-content-center">
+                        {% with base_url="?view_mode=all_components&sort_by="|add:sort_field|add:"&sort="|add:sort_order %}
+                        {% if page_obj.has_previous %}
+                            <li class="page-item"><a class="page-link" href="{{ base_url }}&page=1">First</a></li>
+                            <li class="page-item"><a class="page-link" href="{{ base_url }}&page={{ page_obj.previous_page_number }}">Previous</a></li>
+                        {% else %}
+                            <li class="page-item disabled"><span class="page-link">First</span></li>
+                            <li class="page-item disabled"><span class="page-link">Previous</span></li>
+                        {% endif %}
+
+                        {% for i in page_obj.paginator.get_elided_page_range %}
+                            {% if i == page_obj.number %}
+                                <li class="page-item active" aria-current="page"><span class="page-link">{{ i }}</span></li>
+                            {% elif i == page_obj.paginator.ELLIPSIS %}
+                                 <li class="page-item disabled"><span class="page-link">...</span></li>
+                            {% else %}
+                                <li class="page-item"><a class="page-link" href="{{ base_url }}&page={{ i }}">{{ i }}</a></li>
+                            {% endif %}
+                        {% endfor %}
+
+                        {% if page_obj.has_next %}
+                            <li class="page-item"><a class="page-link" href="{{ base_url }}&page={{ page_obj.next_page_number }}">Next</a></li>
+                            <li class="page-item"><a class="page-link" href="{{ base_url }}&page={{ paginator.num_pages }}">Last</a></li>
+                        {% else %}
+                            <li class="page-item disabled"><span class="page-link">Next</span></li>
+                            <li class="page-item disabled"><span class="page-link">Last</span></li>
+                        {% endif %}
+                        {% endwith %}
+                    </ul>
+                </nav>
+            {% endif %}
+            {# --- End Pagination --- #}
+        </div>
+
+    {% elif view_mode == 'year_auction' %}
+        {# --- YEAR/AUCTION VIEW --- #}
+        <div class="year-auction-view">
+            <p class="text-muted">Showing components grouped by delivery year and auction.</p>
+            
+            <div class="mb-3 d-flex justify-content-between align-items-center">
+                {# Sort Years Link #}
+                {% if sort_order == "desc" %}
+                    <a href="?view_mode=year_auction&sort=asc" class="sort-toggle">
+                        <i class="bi bi-arrow-up-short"></i> Sort Years: Oldest First
+                    </a>
+                {% else %}
+                    <a href="?view_mode=year_auction&sort=desc" class="sort-toggle">
+                        <i class="bi bi-arrow-down-short"></i> Sort Years: Newest First
+                    </a>
+                {% endif %}
+                
+                <button id="collapse-all-button" class="btn btn-outline-secondary ms-2 btn-sm">
+                    <i class="bi bi-arrows-collapse"></i> Collapse All
+                </button>
+            </div>
+
+            <div class="years-container">
+                {% for year_info in year_auction_data %}
+                    <button class="year-button btn btn-light border mb-2 w-100 text-start fw-bold" data-target="year-content-{{ year_info.year_id }}">
+                        Delivery Year: {{ year_info.year }} <i class="bi bi-chevron-down float-end"></i>
+                    </button>
+                    <div id="year-content-{{ year_info.year_id }}" class="year-content collapse border rounded p-3 mb-2">
+                        {% for auction_name, auction_id, badge_class, auction_type in year_info.auctions_display %}
+                            <button id="button-{{ auction_id }}" class="auction-button btn btn-outline-dark mb-2 w-100 text-start" data-target="auction-content-{{ auction_id }}" data-component-url="/api/auction-components/{{ company_id }}/{{ year_info.year|url_safe }}/{{ auction_name|url_safe }}/">
+                                <span class="badge {{ badge_class }} me-2">{{ auction_type }}</span>
+                                Auction: {{ auction_name }} <i class="bi bi-chevron-down float-end"></i>
+                            </button>
+                            <div id="auction-content-{{ auction_id }}" class="auction-content collapse border rounded p-3 mb-2"
+                                 hx-get="/api/auction-components/{{ company_id }}/{{ year_info.year|url_safe }}/{{ auction_name|url_safe }}/"
+                                 hx-trigger="intersect once"
+                                 hx-target="find .auction-data"
+                                 hx-indicator="#spinner-{{ auction_id }}"
+                                 hx-swap="innerHTML">
+                                <div class="auction-data">
+                                    <div class="text-center p-4 loading-placeholder">
+                                        <div class="spinner-border spinner-border-sm htmx-indicator" role="status" id="spinner-{{ auction_id }}"></div>
+                                        <span class="text-muted ms-2">Loading components for {{ auction_name }}...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        {% empty %}
+                             <p class="text-muted ms-3">No specific auctions listed for this year.</p>
+                        {% endfor %}
+                    </div>
+                {% empty %}
+                    <div class="alert alert-warning">No delivery year data found for this company.</div>
+                {% endfor %}
+            </div>
+
+        </div>
+
+    {% else %}
+        <div class="alert alert-info">Select a view mode above to see company data.</div>
+    {% endif %}
+
+    {# --- Debug API Time --- #}
+    {% if api_time is not None %}
+        <p class="text-muted small mt-4">Data fetch time: {{ api_time|floatformat:3 }}s</p>
+    {% endif %}
+
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    console.log('DOM loaded, initializing auction handlers...');
+
+    // Expand/Collapse Individual Year Sections
+    document.querySelectorAll('.year-button').forEach(button => {
+        button.addEventListener('click', function () {
+            const targetId = this.getAttribute('data-target');
+            const targetElement = document.getElementById(targetId);
+            if (targetElement) {
+                var bsCollapse = new bootstrap.Collapse(targetElement, {
+                    toggle: true
+                });
+            }
+        });
+    });
+
+    // Handle auction button clicks with manual content loading
+    document.querySelectorAll('.auction-button').forEach(button => {
+        button.addEventListener('click', function () {
+            const targetId = this.getAttribute('data-target');
+            const componentUrl = this.getAttribute('data-component-url');
+            const targetElement = document.getElementById(targetId);
+            
+            if (targetElement) {
+                console.log(`Auction button clicked for: ${targetId}, URL: ${componentUrl}`);
+                
+                // Toggle collapse using Bootstrap
+                var bsCollapse = new bootstrap.Collapse(targetElement, {
+                    toggle: true
+                });
+                
+                // Check if we need to load content (only if expanding and not loaded yet)
+                if (!targetElement.classList.contains('show') && !targetElement.dataset.loaded) {
+                    console.log(`Loading component data from: ${componentUrl}`);
+                    
+                    // Show loading indicator
+                    const loadingPlaceholder = targetElement.querySelector('.loading-placeholder');
+                    if (loadingPlaceholder) {
+                        loadingPlaceholder.style.display = 'block';
+                    }
+                    
+                    // Fetch the content
+                    console.log('Starting fetch request...');
+                    fetch(componentUrl)
+                        .then(response => {
+                            console.log(`Fetch response received, status: ${response.status}`);
+                            if (!response.ok) {
+                                throw new Error(`HTTP error! status: ${response.status}`);
+                            }
+                            return response.text();
+                        })
+                        .then(html => {
+                            console.log(`Content received, length: ${html.length} characters`);
+                            // Replace content
+                            targetElement.innerHTML = html;
+                            targetElement.dataset.loaded = "true";
+                            console.log(`Content loaded for ${targetId}`);
+                        })
+                        .catch(error => {
+                            console.error(`Error loading content for ${targetId}:`, error);
+                            targetElement.innerHTML = `
+                                <div class="alert alert-danger">
+                                    <p><strong>Error loading components: ${error.message}</strong></p>
+                                    <p>Please try again or choose a different auction.</p>
+                                </div>
+                            `;
+                        });
+                }
+            }
+        });
+    });
+
+    // Collapse All Button
+    const collapseAllButton = document.getElementById('collapse-all-button');
+    if (collapseAllButton) {
+        collapseAllButton.addEventListener('click', function() {
+            document.querySelectorAll('.year-content.show, .auction-content.show').forEach(element => {
+                var bsCollapse = bootstrap.Collapse.getInstance(element);
+                if (bsCollapse) {
+                    bsCollapse.hide();
+                }
+            });
+        });
+    }
+});
+
+// HTMX event listener for afterSwap to show loading indicators
+htmx.on('htmx:beforeRequest', function(evt) {
+    const indicator = evt.detail.elt.querySelector('.htmx-indicator');
+    if (indicator) {
+        indicator.style.display = 'inline-block';
+    }
+});
+
+htmx.on('htmx:afterSwap', function(evt) {
+    const indicator = evt.detail.target.querySelector('.htmx-indicator');
+    if (indicator) {
+        indicator.style.display = 'none'; 
+    }
+    // Remove placeholder if content loaded
+    const placeholder = evt.detail.target.querySelector('.loading-placeholder');
+    if (placeholder && evt.detail.xhr.responseText.trim() !== '') {
+        placeholder.remove();
+    }
+});
+
+htmx.on('htmx:responseError', function(evt) {
+    console.error("HTMX Request Error:", evt.detail.error);
+    // Handle error display if needed, e.g., show an error message
+    const indicator = evt.detail.target.querySelector('.htmx-indicator');
+    if (indicator) {
+        indicator.style.display = 'none'; 
+    }
+     const placeholder = evt.detail.target.querySelector('.loading-placeholder');
+    if (placeholder) {
+        placeholder.innerHTML = '<div class="alert alert-danger">Error loading data. Please try again.</div>';
+    }
+});
+</script>
+
+{% endblock %}

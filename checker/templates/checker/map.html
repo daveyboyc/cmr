@@ -1,0 +1,2399 @@
+{% extends "checker/base.html" %}
+{% load static %}
+
+{% block title %}Component Map - Capacity Market Search{% endblock %}
+
+{# Override the container class to use container-fluid for full width #}
+{% block container_class %}container-fluid{% endblock %}
+
+{% block extra_head %}
+<style>
+    #map-container {
+        position: relative;
+        width: 100%;
+        height: 850px; /* Reverted to 850px */
+        /* min-height: 500px; /* Removed min-height */
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    
+    #map {
+        height: 100%;
+        width: 100%;
+    }
+    
+    /* Filter Panel Styling (Overlay on map) */
+    .map-controls {
+        position: absolute;
+        top: 10px; 
+        right: 60px; 
+        background-color: rgba(var(--bs-body-bg-rgb), 0.90); 
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+        z-index: 1000; 
+        width: auto; 
+        max-width: 400px; 
+        /* Removed padding from main container, will be on header/body */
+    }
+
+    .filter-panel-header {
+        padding: 8px 10px;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid rgba(var(--bs-border-color-rgb), 0.5); /* Optional: separator line */
+    }
+
+    .filter-panel-title {
+        font-weight: bold;
+    }
+
+    .filter-panel-body {
+        padding: 10px;
+        transition: max-height 0.3s ease-out, padding 0.3s ease-out; /* Smooth transition */
+        max-height: 500px; /* Adjust as needed to fit content when expanded */
+        overflow: hidden;
+    }
+
+    .map-controls.collapsed .filter-panel-body {
+        max-height: 0;
+        padding-top: 0;
+        padding-bottom: 0;
+        border-bottom: none; /* Hide border when collapsed */
+    }
+
+    .map-controls.collapsed .filter-panel-header i {
+        transform: rotate(180deg); /* Flip chevron down */
+    }
+
+    .filter-panel-header i {
+        transition: transform 0.3s ease-in-out;
+    }
+
+    /* Legend Styling (Positioned top-left) */
+    .map-legend {
+        position: absolute;
+        top: 75px; /* Lowered the panel */
+        left: 10px; 
+        width: 200px; /* Fixed width for expansion */
+        background-color: rgba(var(--bs-body-bg-rgb), 0.85); /* Use theme variable */
+        padding: 10px;
+        /* Remove left padding, add right padding for toggle */
+        padding-right: 35px; 
+        border-radius: 4px;
+        z-index: 1000; 
+    }
+    
+    .map-legend.collapsed {
+        /* State when collapsed */
+        transform: translateX(calc(-100% + 30px)); 
+        overflow: hidden; /* Hide content beyond the small visible part */
+    }
+
+    /* Hide title/items instantly when collapsing, fade in */
+    .map-legend .legend-title,
+    .map-legend .legend-item {
+         transition: opacity 0.1s linear;
+         opacity: 1;
+    }
+    .map-legend.collapsed .legend-title,
+    .map-legend.collapsed .legend-item {
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .legend-toggle {
+        position: absolute;
+        /* Position on the right edge */
+        right: 5px; 
+        top: 10px;
+        width: 25px;
+        height: 25px;
+        background-color: white;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+        box-shadow: 0 0 4px rgba(0, 0, 0, 0.1);
+        z-index: 1001; 
+    }
+    
+    .legend-title {
+        font-weight: bold;
+        margin-bottom: 10px;
+        padding-right: 15px;
+    }
+    
+    .legend-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 5px;
+        padding: 4px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+    
+    .legend-item:hover {
+        background-color: rgba(0, 0, 0, 0.05);
+    }
+    
+    .legend-item.active {
+        background-color: rgba(0, 0, 0, 0.1);
+        font-weight: bold;
+    }
+    
+    .legend-color {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        margin-right: 8px;
+        flex-shrink: 0;
+    }
+    
+    .info-window h5 {
+        margin-bottom: 5px;
+    }
+    
+    .info-window .badges {
+        margin-bottom: 10px;
+    }
+    
+    .loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.8);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+    
+    /* Style for the custom marker label overlay */
+    .marker-label {
+        position: absolute;
+        background-color: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 2px 4px;
+        border-radius: 3px;
+        font-size: 9px;
+        font-weight: bold;
+        white-space: nowrap;
+        transform: translate(-50%, -150%); /* Position above */
+        pointer-events: none; /* Allow clicks to pass through */
+        user-select: none;
+        z-index: 100; 
+    }
+    
+    .cluster-info {
+        max-width: 300px;
+        font-size: 14px;
+    }
+    
+    .cluster-info h5 {
+        font-size: 16px;
+        margin-bottom: 8px;
+        color: #333;
+    }
+    
+    .component-list {
+        list-style: none;
+        padding: 0;
+        margin: 10px 0;
+    }
+    
+    .component-list li {
+        margin-bottom: 6px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid #eee;
+    }
+    
+    .component-list li:last-child {
+        border-bottom: none;
+    }
+    
+    .tech-tag {
+        display: inline-block;
+        background-color: #f0f0f0;
+        color: #666;
+        padding: 2px 5px;
+        border-radius: 3px;
+        font-size: 11px;
+        margin-left: 5px;
+    }
+    
+    /* Status message styling */
+    #map-status {
+        position: absolute;
+        bottom: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(255,255,255,0.9);
+        padding: 8px 15px;
+        border-radius: 20px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+        font-size: 13px;
+        z-index: 100;
+        pointer-events: none;
+        transition: opacity 0.3s;
+        opacity: 0;
+    }
+    
+    #map-status.visible {
+        opacity: 1;
+    }
+    
+    /* Loading overlay improvements */
+    #loading-overlay {
+        z-index: 1000;
+        background-color: rgba(255,255,255,0.8);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+    }
+    
+    .spinner-border {
+        width: 3rem;
+        height: 3rem;
+    }
+    
+    /* REMOVE - No longer needed as container is now fluid */
+    /* .map-page-container {
+        padding-left: 0 !important; 
+        padding-right: 0 !important;
+    } */
+
+    /* --- Add CSS overrides for info window in dark mode --- */
+    html[data-bs-theme="dark"] .info-window:not(.badge):not(.badge *),
+    html[data-bs-theme="dark"] .cluster-info:not(.badge):not(.badge *) {
+        color: #212529 !important; /* Default dark text, except badges */
+        background-color: white !important;
+    }
+
+    /* Target strong specifically for black text */
+    html[data-bs-theme="dark"] .info-window strong,
+    html[data-bs-theme="dark"] .cluster-info h5 {
+        color: #000 !important; /* Black */
+    }
+
+    /* Target muted/small text, EXCLUDING badge contents */
+    html[data-bs-theme="dark"] .info-window .text-muted:not(.badge *),
+    html[data-bs-theme="dark"] .info-window small:not(.badge *),
+    html[data-bs-theme="dark"] .cluster-info li:not(.badge *),
+    html[data-bs-theme="dark"] .cluster-info .small:not(.badge *) {
+        color: #495057 !important; /* Dark gray */
+    }
+
+    /* Target links, EXCLUDING badge contents */
+    html[data-bs-theme="dark"] .info-window a:not(.badge *) {
+        color: #0d6efd !important; /* Default link blue */
+    }
+
+    /* Keep specific tech-tag styling */
+    html[data-bs-theme="dark"] .tech-tag {
+        color: #666 !important; 
+        background-color: #f0f0f0 !important;
+    }
+
+    /* --- Explicitly keep badge styling in dark mode --- */
+    /* This might not be strictly necessary if excluding above works, but belt-and-braces */
+    html[data-bs-theme="dark"] .info-window .badge.bg-success {
+        color: #fff !important;
+        background-color: var(--bs-success) !important; /* Use BS variable */
+    }
+    html[data-bs-theme="dark"] .info-window .badge.bg-secondary {
+        color: #fff !important;
+        background-color: var(--bs-secondary) !important; /* Use BS variable */
+    }
+    
+    /* --- Secondary Technology Filter --- */
+    .subtypes-legend {
+        width: 220px; /* Wider to fit longer technology names */
+        z-index: 999; /* Below main legend */
+        transition: transform 0.3s ease-in-out;
+    }
+
+    .subtypes-legend.collapsed {
+        transform: translateX(calc(-100% + 30px)); /* Show just the toggle button when collapsed */
+        overflow: hidden;
+    }
+    
+    /* Hide title/items when collapsed */
+    .subtypes-legend.collapsed .subtype-item,
+    .subtypes-legend.collapsed #subtype-category-name {
+        opacity: 0;
+        pointer-events: none;
+    }
+    
+    /* Subtype items styling */
+    .subtype-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 5px;
+        padding: 4px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+        font-size: 0.9em; /* Slightly smaller text */
+    }
+    
+    .subtype-item:hover {
+        background-color: rgba(0, 0, 0, 0.05);
+    }
+    
+    .subtype-item.active {
+        background-color: rgba(0, 0, 0, 0.1);
+        font-weight: bold;
+    }
+    
+    .subtype-count {
+        margin-left: auto;
+        font-size: 0.8em;
+        color: #6c757d;
+        background-color: rgba(0, 0, 0, 0.05);
+        padding: 1px 5px;
+        border-radius: 10px;
+    }
+    
+    /* --- CM Period Toggle Styling --- */
+    .btn-check + label {
+        padding: 0.375rem 0.5rem;
+        font-size: 0.8rem;
+        line-height: 1.1;
+        transition: all 0.2s ease-in-out;
+    }
+    
+    .btn-check:checked + label {
+        background-color: var(--bs-primary);
+        color: white;
+        border-color: var(--bs-primary);
+    }
+    
+    /* Make the period toggle labels a bit more compact */
+    .btn-group label.btn {
+        display: inline-block;
+        width: 50%;
+        text-align: center;
+    }
+
+    /* Add rule to force hide the buttons */
+    .hidden-map-buttons {
+        display: none !important;
+    }
+    
+    /* Make heading and geocoded status white */
+    .mt-4 > .d-flex > h1, 
+    .mb-3.text-muted.small {
+        color: white !important;
+    }
+
+    /* Technology Warning Message (Inside Map Container, After Filter Panel, but this one should be styled by CSS as part of the filter panel itself if it's the one intended to be shown *within* the panel) */
+    #technology-warning {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background-color: rgba(255, 0, 0, 0.7);
+        color: white;
+        padding: 5px 10px;
+        border-radius: 5px;
+        z-index: 1001;
+        font-size: 12px;
+        text-align: center;
+    }
+
+    .filter-section {
+        padding: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+{# REMOVE map-page-container class - base provides container-fluid now #}
+<div class="mt-4"> 
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1>Component Map</h1>
+        <div>
+            <a href="{% url 'search_companies' %}" class="btn btn-outline-primary">
+                <i class="bi bi-arrow-left"></i> Back to Search
+            </a>
+        </div>
+    </div>
+    
+    {# Geocoding Status Summary - KEEP THIS #}
+    <div class="mb-3 text-muted small">
+        Geocoded Components: {{ geocoded_count|default:0 }} / {{ total_count|default:0 }}
+        {% if total_count > 0 %}
+            ({% widthratio geocoded_count total_count 100 %}%) 
+        {% endif %}
+    </div>
+
+    <!-- Map Container -->
+    <div id="map-container" class="position-relative">
+        <!-- Filter Panel (Moved inside map-container) -->
+    <div class="map-controls" id="filter-panel">
+            <div class="filter-panel-header" id="filter-panel-toggle">
+                <span class="filter-panel-title">Company / Date</span> <!-- Changed text -->
+                <i class="bi bi-chevron-up"></i> 
+            </div>
+            <div class="filter-panel-body">
+                <!-- EXISTING CONTENT OF .map-controls STARTS HERE -->
+        <div class="row g-3 mb-3"> <!-- Single Row for Filters -->
+            <!-- Left Column (Company Filters) -->
+            <div class="col-md-6"> 
+                <!-- Company Type Toggle -->
+                <div class="form-check form-switch mb-2"> 
+                    <input class="form-check-input" type="checkbox" role="switch" id="company-type-switch" title="Toggle between Top 20 and Residential/Other companies">
+                    <label class="form-check-label" for="company-type-switch" id="company-type-switch-label">Top 20</label> 
+                </div>
+
+                <!-- Top 20 Dropdown Container (Visible by default) -->
+                <div id="top-company-filter-container"> 
+                    <select id="top-company-filter" class="form-select">
+                        <option value="" selected>All Companies (Excl. Residential)</option> 
+                        {% for company_data in top_companies %}
+                            <option value="{{ company_data.company_name }}">{{ company_data.company_name }} ({{ company_data.count }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Residential Dropdown Container (Hidden by default) -->
+                <div id="residential-company-filter-container" style="display: none;"> 
+                    <select id="residential-company-filter" class="form-select">
+                        <option value="" selected>Select...</option> 
+                        <option value="AXLE ENERGY LIMITED">AXLE ENERGY LIMITED</option>
+                        <option value="OCTOPUS ENERGY LIMITED">OCTOPUS ENERGY LIMITED</option>
+                        <!-- Add others here if needed -->
+                    </select>
+                    <div class="form-text small">Select specific residential provider</div>
+                </div>
+            </div>
+
+            <!-- Right Column (Date Filters) -->
+            <div class="col-md-6"> 
+                 <div class="form-check form-switch mb-2"> 
+                             <input class="form-check-input" type="checkbox" role="switch" id="cm-period-switch" title="Toggle between In-Active (2016-2023) and Active (2024-2028) years" checked>
+                             <label class="form-check-label" for="cm-period-switch" id="cm-period-switch-label">Active (2024-2028)</label> 
+                 </div>
+                 
+                 <select id="year-select-filter" class="form-select mt-2" title="Delivery Year">
+                             <option value="" selected>(2024-2028)</option> 
+                     {% for year in delivery_years %}
+                         <option value="{{ year }}">{{ year }}</option>
+                     {% endfor %}
+                 </select>
+             </div>
+
+            <!-- Hidden Technology Filter - RESTORE THIS with original implementation -->
+            <div class="col-md-0" style="display: none;"> 
+                 <label for="technology-filter" class="form-label visually-hidden">Technology (Hidden)</label>
+                 <select id="technology-filter" class="form-select">
+                     <option value="">All Technologies</option>
+                     {% for tech in technologies %}
+                         <option value="{{ tech }}">{{ tech }}</option>
+                     {% endfor %}
+                 </select>
+            </div>
+        </div>
+             
+        <!-- Keep original company filter hidden -->
+        <div class="row g-3 mt-3" style="display: none;">
+             <div class="col-md-3" title="Full company list (up to 100)">
+                 <label for="company-filter" class="form-label">Company (Full List)</label>
+                 <select id="company-filter" class="form-select">
+                     <option value="">All Companies</option>
+                     {% for company in companies %}
+                         <option value="{{ company }}">{{ company }}</option>
+                     {% endfor %}
+                 </select>
+             </div>
+        </div>
+
+                <div class="mt-3 d-flex justify-content-between hidden-map-buttons"> 
+            <button id="apply-filters" class="btn btn-primary btn-sm">
+                <i class="bi bi-filter"></i> Apply
+            </button>
+            <button id="reset-filters" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-counterclockwise"></i> Reset
+            </button>
+        </div>
+                <!-- EXISTING CONTENT OF .map-controls ENDS HERE -->
+            </div> <!-- End of .filter-panel-body -->
+    </div>
+        <!-- End of Filter Panel -->
+
+        <div id="map"></div>
+        <div id="loading-overlay" style="display: none;">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+        <div id="map-status"></div>
+        <!-- Technology Legend (Positioned absolutely via CSS) -->
+        <div class="map-legend" id="map-legend">
+            <div class="legend-toggle" id="legend-toggle" title="Toggle Legend">
+                <i class="bi bi-chevron-right"></i>
+            </div>
+            <div class="legend-title">Technology Types</div>
+            <div id="legend-items">
+                <!-- Legend items will be added here dynamically -->
+            </div>
+        </div>
+        
+        <!-- Secondary Technology Filter (Initially hidden) -->
+        <div class="map-legend subtypes-legend" id="subtypes-legend" style="display: none; left: 220px;">
+            <div class="legend-title">
+                <span id="subtype-category-name">Technology Subtypes</span>
+                <button id="close-subtypes" class="btn btn-sm p-0" style="position: absolute; right: 5px; top: 10px;" title="Close">
+                    <i class="bi bi-x"></i>
+                </button>
+            </div>
+            <div id="subtype-items">
+                <!-- Subtype items will be added here dynamically -->
+            </div>
+        </div>
+    </div>
+    
+    <!-- Marker Count / Map Controls (Below Map) -->
+    <div class="mt-3">
+        <div class="d-flex justify-content-between">
+            <div>
+                <span id="marker-count" class="badge bg-primary">0</span> components displayed
+                <small class="d-block text-muted">(Limited to 200 per request to optimize performance)</small>
+            </div>
+            <div>
+                <button id="reset-map-view" class="btn btn-sm btn-outline-secondary ms-2">
+                    <i class="bi bi-arrow-clockwise"></i> Reset View
+                </button>
+                <button id="toggle-overlap" class="btn btn-sm btn-outline-secondary ms-2">
+                    <i class="bi bi-chevron-contract"></i> Group Overlaps
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{ cm_period_years|json_script:"cm-period-years-data" }}
+
+<!-- Cache Debug Panel -->
+<div id="cache-debug-panel" class="mt-3 border rounded p-3" style="display: none; background-color: rgba(var(--bs-body-bg-rgb), 0.95);">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="mb-0">Cache Debug Panel</h5>
+        <button id="close-debug-panel" class="btn btn-sm btn-close"></button>
+    </div>
+    <div class="row">
+        <div class="col-md-6">
+            <div class="mb-3">
+                <strong>Cache Stats:</strong>
+                <ul class="list-unstyled ms-3 small">
+                    <li>Entries: <span id="debug-cache-entries">0</span></li>
+                    <li>Size: <span id="debug-cache-size">0 KB</span></li>
+                    <li>Hit Rate: <span id="debug-cache-hit-rate">0%</span></li>
+                    <li>Hits: <span id="debug-cache-hits">0</span></li>
+                    <li>Misses: <span id="debug-cache-misses">0</span></li>
+                </ul>
+            </div>
+            <div class="mb-3">
+                <strong>Actions:</strong>
+                <div class="btn-group btn-group-sm mt-2">
+                    <button id="debug-clear-cache" class="btn btn-outline-danger">Clear Cache</button>
+                    <button id="debug-simulate-request" class="btn btn-outline-primary">Simulate Request</button>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <strong>Cache Contents:</strong>
+            <div id="debug-cache-contents" class="small mt-2" style="max-height: 200px; overflow-y: auto; font-family: monospace;">
+                <!-- Cache entries will be listed here -->
+                No cached entries.
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add a button to show the debug panel -->
+<div class="mt-3 text-end">
+    <button id="show-cache-debug" class="btn btn-sm btn-outline-secondary" style="display: none;">
+        <i class="bi bi-gear-fill"></i> Cache Debug
+    </button>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<!-- Special map page timer debugging -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Map Page Debug: Checking timer values');
+    console.log('Map Page Timer Stage:', sessionStorage.getItem('redirectTimerStage'));
+    console.log('Map Page Timer Start:', sessionStorage.getItem('redirectTimerStart'));
+    
+    // Check if htmx is involved in loading this page
+    const isHtmx = document.querySelector('body[hx-request]') !== null;
+    console.log('Map Page Loaded via htmx:', isHtmx);
+    
+    // Add debug for page transition methods
+    console.log('Map Page document.referrer:', document.referrer);
+    
+    // Create a backup of timer values in case they get overwritten
+    const backupTimerStage = sessionStorage.getItem('redirectTimerStage');
+    const backupTimerStart = sessionStorage.getItem('redirectTimerStart');
+    const backupTimerId = sessionStorage.getItem('redirectTimerId');
+    
+    if (backupTimerStage && backupTimerStart) {
+        // Listen for map events that might interfere with the timer
+        document.addEventListener('gmp-click', function() {
+            console.log('Map interaction detected, checking timer values');
+            
+            // Check if timer values changed due to map interaction
+            const currentStage = sessionStorage.getItem('redirectTimerStage');
+            const currentStart = sessionStorage.getItem('redirectTimerStart');
+            
+            if (currentStage !== backupTimerStage || !currentStage) {
+                console.log('Timer stage changed or removed, restoring from backup');
+                sessionStorage.setItem('redirectTimerStage', backupTimerStage);
+            }
+            
+            if (currentStart !== backupTimerStart || !currentStart) {
+                console.log('Timer start changed or removed, restoring from backup');
+                sessionStorage.setItem('redirectTimerStart', backupTimerStart);
+            }
+            
+            if (backupTimerId && !sessionStorage.getItem('redirectTimerId')) {
+                console.log('Timer ID missing, restoring from backup');
+                sessionStorage.setItem('redirectTimerId', backupTimerId);
+            }
+        });
+    }
+    
+    // DIRECT MAP PAGE TIMER - Simplified approach
+    // This is a separate, dedicated timer just for the map page
+    // that will work regardless of other timer issues
+    
+    // Only set up this timer for non-authenticated users
+    if (!document.body.classList.contains('user-authenticated')) {
+        console.log('MAP DIRECT TIMER: Setting up 25-second redirect timer for map page');
+        
+        // Define auth paths that should be excluded
+        const authPaths = [
+            '/accounts/login/',
+            '/accounts/register/', 
+            '/accounts/must-register/', 
+            '/accounts/password_reset/', 
+            '/accounts/activate/', 
+            '/accounts/registration-pending/',
+            '/accounts/activation-failed/',
+            '/accounts/reset/',
+            '/login/', 
+            '/register/',
+            '/accounts/',
+            '/account/'
+        ];
+        
+        // Check if we're on an auth page (shouldn't happen for the map, but check anyway)
+        const currentPath = window.location.pathname;
+        const isAuthPage = authPaths.some(path => currentPath.startsWith(path));
+        
+        if (isAuthPage) {
+            console.log('MAP DIRECT TIMER: On an auth page, no timer needed');
+            return;
+        }
+        
+        // Use a dedicated key for the map timer to avoid conflicts
+        const mapTimerKey = 'mapPageDirectTimer';
+        
+        // Check if we already started this timer in this session
+        if (!sessionStorage.getItem(mapTimerKey)) {
+            // Mark that we've started this timer
+            sessionStorage.setItem(mapTimerKey, 'started');
+            
+            // Set a simple 25-second timeout
+            const mapTimeout = setTimeout(function() {
+                console.log('MAP DIRECT TIMER: 25 seconds elapsed, checking if redirect is appropriate');
+                
+                // Check if we're now on an auth page
+                const currentPathNow = window.location.pathname;
+                const isAuthPageNow = authPaths.some(path => currentPathNow.startsWith(path));
+                
+                if (!isAuthPageNow) {
+                    console.log('MAP DIRECT TIMER: Not on auth page, redirecting now!');
+                    window.location.href = "{% url 'accounts:must_register' %}";
+                } else {
+                    console.log('MAP DIRECT TIMER: User is now on an auth page, canceling redirect');
+                }
+            }, 25000);
+            
+            // Log that the timer is running
+            console.log('MAP DIRECT TIMER: 25-second timer started');
+            
+            // Also set a backup interval to check and enforce the redirect
+            // This runs every 5 seconds as an additional safeguard
+            const checkInterval = setInterval(function() {
+                console.log('MAP DIRECT TIMER: Still active, checking...');
+                
+                // Check if we're now on an auth page
+                const currentPathNow = window.location.pathname;
+                const isAuthPageNow = authPaths.some(path => currentPathNow.startsWith(path));
+                
+                if (isAuthPageNow) {
+                    console.log('MAP DIRECT TIMER: User is now on an auth page, clearing interval');
+                    clearInterval(checkInterval);
+                    return;
+                }
+                
+                const startTime = sessionStorage.getItem(mapTimerKey + '_start');
+                
+                if (startTime) {
+                    const elapsed = Date.now() - parseInt(startTime);
+                    console.log(`MAP DIRECT TIMER: ${Math.round(elapsed/1000)}s elapsed of 25s`);
+                    
+                    if (elapsed >= 25000) {
+                        console.log('MAP DIRECT TIMER: Time elapsed (via interval check), redirecting!');
+                        clearInterval(checkInterval);
+                        
+                        // Check if we're now on an auth page
+                        const currentPathCheck = window.location.pathname;
+                        const isAuthPageCheck = authPaths.some(path => currentPathCheck.startsWith(path));
+                        
+                        if (!isAuthPageCheck) {
+                            window.location.href = "{% url 'accounts:must_register' %}";
+                        } else {
+                            console.log('MAP DIRECT TIMER: User is now on an auth page, canceling redirect');
+                        }
+                    }
+                }
+            }, 5000);
+            
+            // Record the start time
+            sessionStorage.setItem(mapTimerKey + '_start', Date.now().toString());
+        } else {
+            // Timer already started in this session, verify elapsed time
+            const startTime = sessionStorage.getItem(mapTimerKey + '_start');
+            
+            if (startTime) {
+                const elapsed = Date.now() - parseInt(startTime);
+                console.log(`MAP DIRECT TIMER: Already started, ${Math.round(elapsed/1000)}s elapsed of 25s`);
+                
+                // If 25 seconds already passed, redirect immediately
+                if (elapsed >= 25000) {
+                    console.log('MAP DIRECT TIMER: Time already elapsed, checking if redirect is appropriate');
+                    
+                    // Check if we're now on an auth page
+                    const currentPathNow = window.location.pathname;
+                    const isAuthPageNow = authPaths.some(path => currentPathNow.startsWith(path));
+                    
+                    if (!isAuthPageNow) {
+                        console.log('MAP DIRECT TIMER: Not on auth page, redirecting immediately!');
+                        window.location.href = "{% url 'accounts:must_register' %}";
+                    } else {
+                        console.log('MAP DIRECT TIMER: User is now on an auth page, canceling redirect');
+                    }
+                } else {
+                    // Otherwise set a timer for the remaining time
+                    const remainingTime = 25000 - elapsed;
+                    console.log(`MAP DIRECT TIMER: Setting timer for remaining ${Math.round(remainingTime/1000)}s`);
+                    
+                    setTimeout(function() {
+                        console.log('MAP DIRECT TIMER: Remaining time elapsed, checking if redirect is appropriate');
+                        
+                        // Check if we're now on an auth page
+                        const currentPathNow = window.location.pathname;
+                        const isAuthPageNow = authPaths.some(path => currentPathNow.startsWith(path));
+                        
+                        if (!isAuthPageNow) {
+                            console.log('MAP DIRECT TIMER: Not on auth page, redirecting now!');
+                            window.location.href = "{% url 'accounts:must_register' %}";
+                        } else {
+                            console.log('MAP DIRECT TIMER: User is now on an auth page, canceling redirect');
+                        }
+                    }, remainingTime);
+                }
+            } else {
+                // Start time missing, restart the timer
+                console.log('MAP DIRECT TIMER: Start time missing, restarting 25s timer');
+                sessionStorage.setItem(mapTimerKey + '_start', Date.now().toString());
+                
+                setTimeout(function() {
+                    console.log('MAP DIRECT TIMER: 25 seconds elapsed (restart), checking if redirect is appropriate');
+                    
+                    // Check if we're now on an auth page
+                    const currentPathNow = window.location.pathname;
+                    const isAuthPageNow = authPaths.some(path => currentPathNow.startsWith(path));
+                    
+                    if (!isAuthPageNow) {
+                        console.log('MAP DIRECT TIMER: Not on auth page, redirecting now!');
+                        window.location.href = "{% url 'accounts:must_register' %}";
+                    } else {
+                        console.log('MAP DIRECT TIMER: User is now on an auth page, canceling redirect');
+                    }
+                }, 25000);
+            }
+        }
+    } else {
+        console.log('MAP DIRECT TIMER: User is authenticated, no timer needed');
+    }
+});
+</script>
+<!-- Load MarkerClusterer from local static files -->
+<script src="{% static 'checker/js/markerclusterer.min.js' %}" defer></script>
+
+<!-- Start main script containing all map functionality -->
+<script>
+    // Define constants (UK_CENTER, etc.)
+    const UK_CENTER = { lat: 54.00366, lng: -2.547855 };
+    const UK_BOUNDS = {
+        north: 59.3607741849963,
+        south: 49.9028622252397,
+        west: -8.623555279187622,
+        east: 1.7627089160329895
+    };
+    
+    // Declare globals
+    let map, infoWindow, markers = [], markerLabels = [], markerClustererEnabled = true, mapClusterManager = null;
+    let currentTech = null, debouncedLoadMarkers;
+    let overlappingMarkers = [], showTechLabels = true, separateOverlaps = true;
+    
+    // Frontend Cache
+    let mapDataCache = {}; // Use let for easy clearing
+    const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+    
+    // Data tracking 
+    window.sessionStats = {
+        requestCount: 0,
+        cachedRequestsCount: 0,
+        totalDataSize: 0,
+        cacheSizeBytes: 0,
+        cacheHits: 0,
+        cacheMisses: 0
+    };
+    
+    // Global debug settings
+    const DEBUG_CACHE = true;
+    
+    // Cache management functions
+    const MapCache = {
+        // Check if a key exists and is valid
+        has: function(key) {
+            const item = mapDataCache[key];
+            if (!item) return false;
+            
+            const isValid = Date.now() - item.timestamp < CACHE_DURATION_MS;
+            if (!isValid) {
+                // Remove expired items when checked
+                this.remove(key);
+                return false;
+            }
+            return true;
+        },
+        
+        // Get a value from cache
+        get: function(key) {
+            if (this.has(key)) {
+                window.sessionStats.cacheHits++;
+                console.log(`%cCache HIT: ${key}`, 'color: green');
+                return mapDataCache[key].data;
+            }
+            window.sessionStats.cacheMisses++;
+            console.log(`%cCache MISS: ${key}`, 'color: red');
+            return null;
+        },
+        
+        // Store a value in cache
+        set: function(key, data) {
+            const serializedSize = JSON.stringify(data).length;
+            window.sessionStats.cacheSizeBytes += serializedSize;
+            
+            mapDataCache[key] = {
+                data: data,
+                timestamp: Date.now(),
+                size: serializedSize
+            };
+            console.log(`%cCache SET: ${key} (${Math.round(serializedSize/1024)}KB)`, 'color: blue');
+        },
+        
+        // Remove a key from cache
+        remove: function(key) {
+            if (mapDataCache[key]) {
+                if (mapDataCache[key].size) {
+                    window.sessionStats.cacheSizeBytes -= mapDataCache[key].size;
+                }
+                delete mapDataCache[key];
+                console.log(`Cache removed: ${key}`);
+            }
+        },
+        
+        // Clear entire cache
+        clear: function() {
+            console.log('%cCache CLEARED', 'color: orange; font-weight: bold');
+            mapDataCache = {};
+            window.sessionStats.cacheSizeBytes = 0;
+        },
+        
+        // Get cache statistics
+        stats: function() {
+            const cacheKeys = Object.keys(mapDataCache);
+            return {
+                entryCount: cacheKeys.length,
+                totalSize: window.sessionStats.cacheSizeBytes,
+                hitRate: window.sessionStats.cacheHits + window.sessionStats.cacheMisses > 0 ? 
+                    (window.sessionStats.cacheHits / (window.sessionStats.cacheHits + window.sessionStats.cacheMisses) * 100).toFixed(1) : 0
+            };
+        }
+    };
+    
+    // Technology color mapping
+    const techColors = {
+        'Gas': '#ff5252',
+        'DSR': '#f57c00',
+        'Nuclear': '#8d6e63',
+        'CHP': '#5c6bc0', 
+        'Solar': '#fdd835',
+        'Wind': '#29b6f6',
+        'Battery': '#4caf50',
+        'Biomass': '#8bc34a',
+        'Hydro': '#0097a7',
+        'Interconnector': '#9c27b0',
+        'Coal': '#424242',
+        'default': '#757575'
+    };
+    
+    // Add debounce function definition
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func.apply(this, args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+    
+    // Initialize debouncedLoadMarkers using debounce
+    debouncedLoadMarkers = debounce(function(tech) {
+        // Check if loadMarkers is defined before calling
+        if (typeof loadMarkers === 'function') {
+            loadMarkers(tech);
+        } else {
+            console.error("loadMarkers function not defined when debounced version was called.");
+        }
+    }, 300);
+
+    // --- START: Filter Validation Logic --- (Moved Before initLegend)
+    // This function creates and manages the warning message INSIDE the filter panel.
+    let filterWarningEl; // Declare globally within this script scope
+
+    function validateFilters() {
+        const yearSelect = document.getElementById('year-select-filter');
+        const topCompanySelect = document.getElementById('top-company-filter');
+        const residentialCompanySelect = document.getElementById('residential-company-filter');
+
+        const yearValue = yearSelect ? yearSelect.value : 'specific'; 
+        const companyTypeSwitch = document.getElementById('company-type-switch');
+        const useResidentialFilter = companyTypeSwitch ? companyTypeSwitch.checked : false;
+        let companyValue = '';
+        if (useResidentialFilter) {
+             companyValue = residentialCompanySelect ? residentialCompanySelect.value : '';
+        } else {
+             companyValue = topCompanySelect ? topCompanySelect.value : '';
+        }
+
+        console.log(`[validateFilters] currentTech: '${currentTech}', companyValue: '${companyValue}'`);
+
+        let isValid = true;
+        let warningMessage = '';
+
+        if (!currentTech && !companyValue) {
+             isValid = false;
+             warningMessage = 'Please select a technology or company.';
+             console.log('[validateFilters] Condition met: Show warning');
+        } else {
+             console.log('[validateFilters] Condition NOT met: Hide warning');
+        }
+        
+        // Initialize filterWarningEl if it hasn't been already (e.g. on first call)
+        if (!filterWarningEl) {
+            const filterPanelBody = document.querySelector('.filter-panel-body');
+            if (filterPanelBody) {
+                filterWarningEl = document.createElement('div');
+                filterWarningEl.id = 'filter-warning'; // This is the ID for the warning INSIDE the panel
+                filterWarningEl.className = 'text-danger small mt-2'; // Bootstrap classes
+                filterWarningEl.style.display = 'none'; // Start hidden
+                filterPanelBody.appendChild(filterWarningEl); // Append it to the filter panel body
+                console.log('[validateFilters] Created and appended filterWarningEl to .filter-panel-body');
+            } else {
+                console.error('.filter-panel-body not found, cannot create filterWarningEl');
+                return isValid; // Can't proceed without the element
+            }
+        }
+
+        if (filterWarningEl) {
+            filterWarningEl.textContent = warningMessage;
+            filterWarningEl.style.display = isValid ? 'none' : 'block';
+            console.log(`[validateFilters] filterWarningEl display set to: ${isValid ? 'none' : 'block'}`);
+        }
+        return isValid;
+    }
+    // --- END: Filter Validation Logic ---
+
+    // --- START: Reinstated Helper Functions ---
+
+    // Function to show status messages
+    function showStatus(message, duration = 3000) {
+        const statusEl = document.getElementById('map-status');
+        if (!statusEl) return;
+        statusEl.textContent = message;
+        statusEl.classList.add('visible');
+        setTimeout(() => {
+            statusEl.classList.remove('visible');
+        }, duration);
+    }
+
+    // Function to clear existing markers and labels
+    function clearMarkers() {
+        console.log(`Clearing ${markers.length} markers and ${markerLabels.length} labels.`); 
+        // Re-enable cluster clearing
+        if (mapClusterManager) {
+            mapClusterManager.clearMarkers();
+        }
+        markers.forEach(marker => marker.map = null); // Use AdvancedMarkerElement property
+        markers = []; 
+
+        // Remove labels 
+        markerLabels.forEach(label => label.map = null);
+        markerLabels = [];
+        
+        infoWindow.close(); 
+    }
+    
+    // Function to create a badge for company display
+    function createCompanyBadge(companyName) {
+        if (!companyName || companyName === 'Unknown') return '';
+        // This function is no longer directly used for the main badge, but keep it for potential other uses
+        // Or update it to handle linking as well if needed elsewhere
+        return `<span class="badge bg-success me-1">${companyName}</span>`; // Changed default to success
+    }
+
+    // Function to display the info window for a marker (or cluster)
+    function showInfoWindow(marker, contentData) {
+        console.log('>>> showInfoWindow called'); // LOG 3
+        let content = '';
+        if (contentData.isCluster) {
+            // Cluster Info Window
+            content = `<div class="cluster-info p-2"><h5>${contentData.count} Components</h5>`;
+            content += '<ul class="component-list small">';
+            contentData.components.slice(0, 10).forEach(comp => {
+                content += `<li>${comp.title || 'Component'} <span class="tech-tag">${comp.display_technology || ''}</span></li>`;
+            });
+            if (contentData.count > 10) {
+                content += `<li>...and ${contentData.count - 10} more</li>`;
+            }
+            content += '</ul></div>';
+        } else {
+            // Single Component Info Window (expects data from component_map_detail_api)
+             content = `
+                <div class="info-window p-2">
+                    <div>
+                        <strong>${contentData.title}</strong><br>
+                        ${contentData.description ? `<small class="text-muted d-block mb-2">${contentData.description.substring(0, 100)}${contentData.description.length > 100 ? '...' : ''}</small>` : ''}
+                        <small>
+                            ${contentData.company_id ? 
+                                `<a href="/company/${contentData.company_id}/" target="_blank" class="badge bg-success text-decoration-none me-1">${contentData.company}</a>` : 
+                                (contentData.company !== 'Unknown' ? `<span class="badge bg-secondary me-1">${contentData.company}</span>` : '')
+                            }<br>
+                            Technology: ${contentData.technology || 'N/A'}<br>
+                            Year: ${contentData.delivery_year || 'N/A'}<br>
+                            CMU ID: ${contentData.cmu_id || 'N/A'}<br>
+                        </small><br>
+                        <a href="${contentData.detailUrl}" target="_blank" class="btn btn-link btn-sm p-0">View Details</a>
+                    </div>
+                </div>
+            `;
+        }
+        infoWindow.setContent(content);
+        infoWindow.open({ 
+            map: map,
+            anchor: marker, 
+            shouldFocus: false // Prevent automatic map pan if desired
+        }); 
+    }
+
+    // Function to load component details (used for progressive loading)
+    const componentDetailsCache = {};
+    function loadComponentDetails(componentId, marker) {
+        console.log('>>> loadComponentDetails called for ID:', componentId); // LOG 2
+        
+        // Always open the loading indicator first
+        infoWindow.setContent('<div class="p-2">Loading details...</div>');
+        infoWindow.open({ 
+            map: map, 
+            anchor: marker, 
+            shouldFocus: false 
+        });
+        
+        // If data is cached, use it immediately after the loading indicator has been displayed
+        if (componentDetailsCache[componentId]) {
+            // Use setTimeout to ensure the loading indicator shows first
+            setTimeout(() => {
+            showInfoWindow(marker, componentDetailsCache[componentId]);
+            }, 10);
+            return;
+        }
+        
+        // Otherwise fetch the data
+        fetch(`/api/component-map-detail/${componentId}/`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    componentDetailsCache[componentId] = data.data;
+                    // Show final content (showInfoWindow handles reopening)
+                    showInfoWindow(marker, data.data);
+                } else {
+                    console.error("Error fetching details:", data.error);
+                    infoWindow.setContent('<div class="p-2">Error loading details.</div>');
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching component details:', error);
+                infoWindow.setContent('<div class="p-2">Error loading details.</div>');
+            });
+    }
+
+    // Function to create a single ADVANCED marker (Restore)
+    function createMarker(feature) {
+        const position = { 
+            lat: feature.geometry.coordinates[1], 
+            lng: feature.geometry.coordinates[0] 
+        };
+        
+        // Always use full technology name for color assignment to maintain unique colors
+        // This ensures "All Technologies" view keeps technology-specific colors
+        const simplifiedTech = feature.properties.display_technology || 'default';
+        const fullTech = feature.properties.technology || 'Unknown';
+        
+        // Get color - prefer simplified tech for standard categories, but use original tech if needed
+        const isAllTechnologyView = currentTech === 'All';
+        
+        // For "All Technologies" view, use the full tech name to get diverse colors
+        const techForColor = isAllTechnologyView ? fullTech : simplifiedTech;
+        const color = techColors[techForColor] || techColors[simplifiedTech] || techColors['default'];
+
+        // --- Create custom HTML element for the marker --- 
+        const markerElement = document.createElement('div');
+        markerElement.style.width = '30px'; // Increased size
+        markerElement.style.height = '30px';
+        markerElement.style.backgroundColor = color;
+        markerElement.style.borderRadius = '50%';
+        markerElement.style.border = '2.5px solid white'; // Slightly thicker border
+        markerElement.style.boxShadow = '0 1px 2px rgba(0,0,0,0.3)'; // Add shadow
+        markerElement.style.cursor = 'pointer';
+
+        // --- Create the Advanced Marker --- 
+        const marker = new google.maps.marker.AdvancedMarkerElement({
+            position: position,
+            map: map,
+            content: markerElement, // Use the custom element
+            title: feature.properties.description || feature.properties.title || ''
+        });
+
+        // Store component data directly on the marker object (outside constructor)
+        marker.componentData = feature.properties;
+
+        // Add click listener using new event name 'gmp-click' (Restore)
+        marker.addListener('gmp-click', () => { 
+            console.log('>>> gmp-click event fired for marker'); 
+            const data = marker.componentData;
+            if (!data) {
+                console.warn('Clicked marker missing componentData');
+                return;
+            }
+            
+            if (data.id) { 
+                loadComponentDetails(data.id, marker);
+            } else {
+                console.warn('Clicked marker missing componentData.id');
+            }
+        });
+        console.log('>>> Added gmp-click listener to marker'); 
+
+        return marker;
+    }
+    
+    // Dictionary to store subtypes for each category
+    let technologySubtypes = {};
+    let currentSelectedCategory = null;
+    let currentSelectedSubtype = null;
+    
+    // Function to populate and show secondary filter with subtypes
+    function showSubtypesFilter(category) {
+        const subtypesLegend = document.getElementById('subtypes-legend');
+        const subtypeItems = document.getElementById('subtype-items');
+        const titleElement = document.getElementById('subtype-category-name');
+        
+        if (!subtypesLegend || !subtypeItems || !titleElement) return;
+        
+        // Store the current category
+        currentSelectedCategory = category;
+        currentSelectedSubtype = null;
+        
+        // Update the title
+        titleElement.textContent = `${category} Types`;
+        
+        // Clear existing items
+        subtypeItems.innerHTML = '';
+        
+        // For the "Other" category, log extra debugging info
+        if (category === 'Other') {
+            console.log('Debugging "Other" category...');
+            // We could add a message here later if needed
+        }
+        
+        // Check if we already have cached subtypes for this category
+        if (!technologySubtypes[category]) {
+            // Need to fetch subtypes from server
+            console.log(`Fetching subtypes for ${category}...`);
+            technologySubtypes[category] = []; // Initialize empty array
+            
+            // Get all options from technology dropdown
+            const techFilter = document.getElementById('technology-filter');
+            if (techFilter) {
+                Array.from(techFilter.options).forEach(option => {
+                    const techName = option.value;
+                    if (techName) {
+                        // Attempt to determine category (simplified type)
+                        let techCategory = determineCategory(techName);
+                        if (techCategory === category) {
+                            technologySubtypes[category].push(techName);
+                        }
+                    }
+                });
+            }
+        }
+        
+        // Sort subtypes alphabetically
+        technologySubtypes[category].sort();
+        console.log(`Found ${technologySubtypes[category].length} subtypes for ${category}:`, technologySubtypes[category]);
+        
+        // Add "All <Category>" option at the top
+        const allItem = document.createElement('div');
+        allItem.className = 'subtype-item active';
+        allItem.dataset.technology = category;
+        allItem.innerHTML = `<span><strong>All ${category}</strong></span>`;
+        allItem.addEventListener('click', () => {
+            // Set filter and reload markers
+            selectSubtype(category, null);
+        });
+        subtypeItems.appendChild(allItem);
+        
+        // Add all subtypes
+        technologySubtypes[category].forEach(subtype => {
+            const item = document.createElement('div');
+            item.className = 'subtype-item';
+            item.dataset.technology = subtype;
+            item.innerHTML = `<span>${subtype}</span>`;
+            
+            item.addEventListener('click', () => {
+                // Set filter and reload markers
+                selectSubtype(category, subtype);
+            });
+            
+            subtypeItems.appendChild(item);
+        });
+        
+        // Show the subtypes legend
+        console.log(`[showSubtypesFilter] Setting display=block for category: ${category}`);
+        subtypesLegend.style.display = 'block';
+    }
+    
+    // Function to select a subtype
+    function selectSubtype(category, subtype) {
+        console.log(`Selecting subtype: ${subtype} (category: ${category})`);
+        
+        // Set the correct subtype value
+        if (subtype === null) {
+            // If selecting "All <Category>", set to null
+            currentSelectedSubtype = null;
+            console.log("Setting currentSelectedSubtype to null for 'All' selection");
+        } else {
+            // When selecting a specific subtype, use that value
+            currentSelectedSubtype = subtype;
+            console.log(`Setting currentSelectedSubtype to "${subtype}"`);
+        }
+        
+        // Update active state in subtype list
+        document.querySelectorAll('.subtype-item').forEach(item => {
+            item.classList.remove('active');
+            if ((subtype === null && item.dataset.technology === category) || 
+                (subtype !== null && item.dataset.technology === subtype)) {
+                item.classList.add('active');
+            }
+        });
+        
+        // Clear cache when changing subtype
+        MapCache.clear();
+        console.log("Frontend cache cleared due to subtype selection.");
+        
+        // If subtype is null, load all for the category
+        if (subtype === null) {
+            // Set dropdown to the category
+            const techFilter = document.getElementById('technology-filter');
+            if (techFilter) techFilter.value = category;
+            
+            // Load markers for the category
+            loadMarkers(category);
+        } else {
+            // Set dropdown to the specific subtype
+            const techFilter = document.getElementById('technology-filter');
+            if (techFilter) techFilter.value = subtype;
+            
+            // Load markers for the specific subtype
+            loadMarkers(subtype);
+        }
+    }
+    
+    // Helper function to determine simplified category for a technology name
+    function determineCategory(techName) {
+        // This is a client-side approximation of get_simplified_technology
+        const lowerTech = techName.toLowerCase();
+        
+        // First check for specific interconnector types
+        const interconnectorTypes = [
+            'britned', 'eleclink', 'ewic', 'greenlink', 
+            'ifa', 'ifa2', 'moyle', 'nemo', 'neuconnect', 
+            'nsl', 'vikinglink', 'ireland', 'france', 
+            'belgium', 'norway', 'denmark', 'netherlands', 'germany'
+        ];
+        
+        // If it's an interconnector or contains interconnector keywords
+        if (lowerTech.includes('interconnector') || 
+            interconnectorTypes.some(type => lowerTech.includes(type))) {
+            return 'Interconnector';
+        }
+        
+        // Then check other categories
+        if (lowerTech.includes('battery') || lowerTech.includes('storage') && !lowerTech.includes('pumped')) {
+            return 'Battery';
+        } else if (lowerTech.includes('wind')) {
+            return 'Wind';
+        } else if (lowerTech.includes('solar') || lowerTech.includes('photovoltaic')) {
+            return 'Solar';
+        } else if (lowerTech.includes('gas') || lowerTech.includes('ocgt') || lowerTech.includes('ccgt') || 
+                  lowerTech.includes('reciprocating') || lowerTech.includes('engines') || 
+                  lowerTech.includes('oil-fired')) {
+            return 'Gas';
+        } else if (lowerTech.includes('nuclear')) {
+            return 'Nuclear';
+        } else if (lowerTech.includes('hydro')) {
+            return 'Hydro';
+        } else if (lowerTech.includes('chp') || lowerTech.includes('combined heat')) {
+            return 'CHP';
+        } else if (lowerTech.includes('biomass') || lowerTech.includes('waste')) {
+            return 'Biomass';
+        } else if (lowerTech.includes('coal')) {
+            return 'Coal';
+        } else if (lowerTech.includes('dsr')) {
+            return 'DSR';
+        } else {
+            return 'Other';
+        }
+    }
+    
+    // Function to prefetch data for adjacent map areas (basic placeholder)
+    function prefetchAdjacentRegions(bounds, technology) {
+        // Basic idea: calculate bounds for adjacent areas and call loadMarkers
+        // This needs refinement to avoid excessive requests
+        console.log("Prefetch logic needs implementation.");
+    }
+
+    // Function to initialize the legend
+    function initLegend() {
+        const legendItems = document.getElementById('legend-items');
+        const legendToggle = document.getElementById('legend-toggle');
+        const mapLegend = document.getElementById('map-legend');
+        if (!legendItems || !legendToggle || !mapLegend) return;
+
+        legendItems.innerHTML = ''; // Clear existing
+        
+        // Check if a company is selected
+        let companySelected = false;
+        const companyTypeSwitch = document.getElementById('company-type-switch');
+        const useResidentialFilter = companyTypeSwitch ? companyTypeSwitch.checked : false;
+        
+        if (useResidentialFilter) {
+            const residentialCompanyFilter = document.getElementById('residential-company-filter');
+            companySelected = residentialCompanyFilter && residentialCompanyFilter.value;
+        } else {
+            const topCompanyFilter = document.getElementById('top-company-filter');
+            companySelected = topCompanyFilter && topCompanyFilter.value;
+        }
+
+        // If a company is selected, add "All Technologies" option
+        if (companySelected) {
+            const allItem = document.createElement('div');
+            allItem.className = 'legend-item' + (currentTech === 'All' ? ' active' : '');
+            allItem.dataset.technology = 'All';
+            allItem.innerHTML = `
+                <div class="legend-color" style="background: linear-gradient(135deg, #e91e63, #9c27b0, #3f51b5, #2196f3, #009688, #4caf50);"></div>
+                <span>All Technologies</span>
+            `;
+            allItem.addEventListener('click', () => {
+                // Set filter and reload markers for All technologies
+                const techFilter = document.getElementById('technology-filter');
+                if (techFilter) techFilter.value = 'All';
+                
+                currentTech = 'All'; // Explicitly set currentTech
+                
+                mapDataCache = {}; // Clear cache on legend click
+                console.log("Frontend cache cleared due to legend click on All Technologies.");
+
+                loadMarkers('All');
+                // Update active state
+                document.querySelectorAll('.legend-item.active').forEach(active => active.classList.remove('active'));
+                allItem.classList.add('active');
+                
+                // Hide subtypes filter for "All" technology
+                const subtypesLegend = document.getElementById('subtypes-legend');
+                if (subtypesLegend) {
+                    subtypesLegend.style.display = 'none';
+                }
+                validateFilters(); // Add this call to update the warning inside the panel
+            });
+            legendItems.appendChild(allItem);
+        }
+
+        Object.entries(techColors).forEach(([tech, color]) => {
+            if (tech === 'default') return; // Skip default
+                const item = document.createElement('div');
+            item.className = 'legend-item' + (tech === currentTech ? ' active' : '');
+            item.dataset.technology = tech;
+            item.innerHTML = `
+                <div class="legend-color" style="background-color: ${color};"></div>
+                <span>${tech}</span>
+            `;
+                item.addEventListener('click', () => {
+                // Set filter and reload markers
+                const techFilter = document.getElementById('technology-filter');
+                if (techFilter) techFilter.value = tech; // Assuming legend tech names match filter values
+                
+                currentTech = tech; // Set currentTech
+
+                // Reset company filters when a specific technology is chosen from legend
+                const topCompanyFilter = document.getElementById('top-company-filter');
+                if (topCompanyFilter) topCompanyFilter.value = '';
+                const residentialCompanyFilter = document.getElementById('residential-company-filter');
+                if (residentialCompanyFilter) residentialCompanyFilter.value = '';
+                // Ensure the company type switch reflects no specific company type if necessary
+                // const companyTypeSwitch = document.getElementById('company-type-switch');
+                // if (companyTypeSwitch) companyTypeSwitch.checked = false; // Assuming default is Top 20 / All
+                // updateCompanyFilterVisibility(); // If you have a function to update visibility based on switch
+                
+                mapDataCache = {}; // Clear cache on legend click
+                console.log("Frontend cache cleared due to specific technology legend click.");
+
+                initLegend(); // Re-initialize legend (will remove 'All Technologies' if no company)
+                loadMarkers(tech);
+                // Update active state in legend
+                document.querySelectorAll('.legend-item.active').forEach(active => active.classList.remove('active'));
+                item.classList.add('active');
+                
+                // Show the subtypes filter for this technology category
+                console.log(`[Legend Click] About to call showSubtypesFilter for: ${tech}`);
+                showSubtypesFilter(tech);
+                console.log(`[Legend Click] Finished calling showSubtypesFilter for: ${tech}`);
+                validateFilters(); 
+            });
+            legendItems.appendChild(item);
+        });
+
+        // Toggle functionality
+        legendToggle.addEventListener('click', () => {
+            mapLegend.classList.toggle('collapsed');
+            const icon = legendToggle.querySelector('i');
+            if (mapLegend.classList.contains('collapsed')) {
+                icon.className = 'bi bi-chevron-left';
+                legendToggle.title = 'Collapse Legend';
+                
+                // Also hide/close the subtypes legend when main legend is collapsed
+                const subtypesLegend = document.getElementById('subtypes-legend');
+                if (subtypesLegend && subtypesLegend.style.display !== 'none') {
+                    console.log('[Legend Toggle] Hiding subtypes legend because main legend collapsed.');
+                    subtypesLegend.style.display = 'none';
+                }
+            } else {
+                icon.className = 'bi bi-chevron-right';
+                legendToggle.title = 'Expand Legend';
+            }
+        });
+        // Start expanded
+        const initialIcon = legendToggle.querySelector('i');
+        initialIcon.className = 'bi bi-chevron-left'; // Icon for collapsing
+        legendToggle.title = 'Collapse Legend'; // Initial title
+    }
+
+    // Function to process API data (either fetched or cached)
+    function processMapData(data, source = 'fetch') { // Add source param for logging
+        console.log(`Processing data from ${source}: ${data.features.length} features, total: ${data.metadata.total}`);
+        const markerCountEl = document.getElementById('marker-count'); // Ensure this line is present
+
+        clearMarkers(); // Clear previous markers
+
+        let processedMarkers = []; 
+        data.features.forEach(feature => {
+            const marker = createMarker(feature); 
+            processedMarkers.push(marker); 
+        });
+
+        markers = processedMarkers; 
+
+        // Re-enable clusterer logic
+        console.log(`Checking clustering: markerClustererEnabled=${markerClustererEnabled}, mapClusterManager exists? ${!!mapClusterManager}`);
+
+        if (markerClustererEnabled && mapClusterManager) {
+            mapClusterManager.addMarkers(processedMarkers); 
+            console.log(`Added ${processedMarkers.length} markers to clusterer.`);
+            } else {
+             console.log(`Added ${processedMarkers.length} markers directly to map (clustering disabled).`);
+        }
+
+        if (markerCountEl) {
+             markerCountEl.textContent = data.metadata.count; // Use count from metadata
+             const totalNote = document.querySelector('#marker-count + small');
+             if (totalNote && data.metadata.count < data.metadata.total) {
+                 totalNote.textContent = `(Showing ${data.metadata.count} of ${data.metadata.total} matching components in view)`;
+             } else if (totalNote) {
+                  totalNote.textContent = ''; 
+             }
+        }
+            
+        showStatus("Map updated.", 1500);
+        // Note: Rendering time measured in loadMarkers context
+    }
+
+    // Main function to load markers
+    function loadMarkers(overrideTechnology = null) {
+        // --- START: Clear existing markers FIRST --- 
+        clearMarkers();
+        // --- END: Clear existing markers FIRST --- 
+        
+        const startTime = performance.now();
+        console.log("loadMarkers called", overrideTechnology ? `for tech: ${overrideTechnology}` : '');
+        showStatus("Loading map data...");
+        const loadingOverlay = document.getElementById('loading-overlay');
+        if (loadingOverlay) loadingOverlay.style.display = 'flex';
+
+        const techFilter = document.getElementById('technology-filter');
+        // Get the new dropdowns
+        const topCompanyFilter = document.getElementById('top-company-filter');
+        const yearSelectFilter = document.getElementById('year-select-filter'); 
+        // Keep reference to old company filter if needed, though it's hidden
+        const companyFilter = document.getElementById('company-filter'); // Hidden full list
+        const residentialCompanyFilter = document.getElementById('residential-company-filter'); // New dropdown
+
+        // Determine if a company is selected first
+        let company = '';
+        const companyTypeSwitch = document.getElementById('company-type-switch');
+        const useResidentialFilter = companyTypeSwitch ? companyTypeSwitch.checked : false;
+        
+        if (useResidentialFilter) {
+            const residentialCompanyFilter = document.getElementById('residential-company-filter');
+            company = residentialCompanyFilter ? residentialCompanyFilter.value : '';
+            console.log(`Using Residential company filter: ${company}`);
+        } else {
+            const topCompanyFilter = document.getElementById('top-company-filter');
+            company = topCompanyFilter ? topCompanyFilter.value : '';
+            console.log(`Using Top 20 company filter: ${company}`);
+        }
+
+        // Allow "All" technology when a company is selected
+        let technology = overrideTechnology !== null ? overrideTechnology : (techFilter ? techFilter.value : '');
+        
+        // If company is selected but no technology, use "All" as the technology
+        if (company && !technology) {
+            technology = "All";
+            console.log("Using 'All' technology since a company is selected");
+        } else if (!technology) {
+            console.warn("No technology selected and no company filter, cannot load markers.");
+            showStatus("Please select a technology or company to view components.", 5000);
+            if (loadingOverlay) loadingOverlay.style.display = 'none';
+            return;
+        }
+        
+        currentTech = technology;
+        
+        // Determine if this is a specific subtype or a main category
+        const isSubtype = currentSelectedSubtype !== null;
+
+        const year = yearSelectFilter ? yearSelectFilter.value : ''; // Use dropdown value
+        
+        // Get selected CM period from the switch
+        const cmPeriodSwitch = document.getElementById('cm-period-switch');
+        const isFuture = cmPeriodSwitch ? cmPeriodSwitch.checked : false;
+        const cmPeriod = isFuture ? 'future' : 'historical';
+        console.log(`CM Period determined from switch: ${cmPeriod} (isFuture: ${isFuture})`);
+
+        const bounds = map.getBounds();
+        const north = bounds ? bounds.getNorthEast().lat() : '';
+        const south = bounds ? bounds.getSouthWest().lat() : '';
+        const east = bounds ? bounds.getNorthEast().lng() : '';
+        const west = bounds ? bounds.getSouthWest().lng() : '';
+
+        // Build URL parameters
+        const params = new URLSearchParams();
+        params.append('technology', technology);
+        
+        // Add exact_technology parameter for subtype filtering
+        if (isSubtype && currentSelectedSubtype) {
+            params.append('exact_technology', currentSelectedSubtype);
+        }
+        
+        params.append('detail_level', 'minimal');
+        if (company) params.append('company', company);
+        if (year) params.append('year', year);
+        
+        // Add CM period parameter
+        params.append('cm_period', cmPeriod);
+        
+        if (north && south && east && west) {
+            params.append('north', north);
+            params.append('south', south);
+            params.append('east', east);
+            params.append('west', west);
+        }
+        
+        // --- START: Frontend Cache Check ---
+        const cacheKey = params.toString(); // Use URL params as key
+        console.log(`Checking cache for key: ${cacheKey}`);
+        
+        // Check if we have cached data
+        if (mapDataCache[cacheKey] && mapDataCache[cacheKey].data) {
+            const cachedItem = mapDataCache[cacheKey];
+            const now = Date.now();
+            
+            // Check if cache is still valid
+            if (now - cachedItem.timestamp < CACHE_DURATION_MS) {
+                console.log(`%cCache HIT: Using cached data for ${cacheKey}`, 'color: green; font-weight: bold');
+                window.sessionStats.cacheHits++;
+                
+                // Use the cached data
+                processMapData(cachedItem.data, 'cache');
+                
+                // Log rendering time for cached load
+                const endTime = performance.now();
+                console.log(`Map rendering from cache took ${(endTime - startTime).toFixed(2)}ms`);
+                if (loadingOverlay) loadingOverlay.style.display = 'none'; // Hide loading
+                showStatus("Using cached data", 1000);
+                updateDataUsageUI();
+                return;
+            } else {
+                console.log(`Cache expired for key ${cacheKey} (${Math.round((now - cachedItem.timestamp)/1000)}s old)`);
+                // Remove expired entry
+                delete mapDataCache[cacheKey];
+            }
+        }
+        
+        window.sessionStats.cacheMisses++;
+        console.log(`%cCache MISS: Fetching data for ${cacheKey}`, 'color: red');
+        // --- END: Frontend Cache Check ---
+
+        // --- Fetch logic for cache miss ---
+        const fetchUrl = `/api/map-data/?${params.toString()}`;
+        console.log(`Fetching from API: ${fetchUrl}`);
+
+        fetch(fetchUrl)
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+                const sizeHeader = response.headers.get('Content-Length');
+                window.sessionStats.totalDataSize += sizeHeader ? parseInt(sizeHeader, 10) : 0;
+                updateDataUsageUI();
+                return response.json(); 
+            })
+            .then(data => {
+                console.log(`Received data: ${data.features.length} features, total: ${data.metadata.total}`);
+                
+                // Store in frontend cache
+                const dataSize = JSON.stringify(data).length;
+                mapDataCache[cacheKey] = {
+                    data: data,
+                    timestamp: Date.now(),
+                    size: dataSize
+                };
+                console.log(`%cStored in cache: ${cacheKey} (${Math.round(dataSize/1024)}KB)`, 'color: blue');
+                
+                // Limit cache size
+                limitCacheSize(20);
+                
+                // Process the data
+                processMapData(data, 'fetch');
+                
+                const endTime = performance.now();
+                console.log(`Map rendering from fetch took ${(endTime - startTime).toFixed(2)}ms`);
+            })
+            .catch(error => {
+                console.error('Error loading map data:', error);
+                showStatus(`Error loading data: ${error.message}`, 5000);
+            })
+            .finally(() => {
+                if (loadingOverlay) loadingOverlay.style.display = 'none';
+                updateDataUsageUI();
+            });
+    }
+    
+    // Function to track data usage
+    function trackRequest(sizeBytes, isCached) {
+        window.sessionStats.requestCount++;
+        if (isCached) {
+             window.sessionStats.cachedRequestsCount++;
+        }
+        // Size tracking is now done in the fetch response handler
+        // window.sessionStats.totalDataSize += sizeBytes;
+        updateDataUsageUI();
+    }
+
+    // Function to update data usage UI
+    function updateDataUsageUI() {
+        let usageElement = document.getElementById('data-usage-stats');
+        if (!usageElement) {
+            // Create the element if it doesn't exist (e.g., add it below the map controls)
+            const mapControls = document.querySelector('.mt-3 > .d-flex'); // Find the container below the map
+            if (mapControls) {
+                const div = document.createElement('div');
+                div.id = 'data-usage-stats';
+                div.className = 'text-muted small mt-2'; // Add some basic styling
+                mapControls.parentNode.insertBefore(div, mapControls.nextSibling);
+            } else {
+                console.warn("Could not find a place to add data-usage-stats element.");
+                return; // Exit if we can't find or create the element
+            }
+            // Re-select the element after creating it
+            usageElement = document.getElementById('data-usage-stats');
+        }
+
+        const stats = window.sessionStats;
+        const totalKB = (stats.totalDataSize / 1024).toFixed(1);
+        
+        // Get cache statistics
+        const cacheStats = MapCache.stats();
+        const cacheSizeKB = (cacheStats.totalSize / 1024).toFixed(1);
+
+        // Update the inner HTML with the stats
+        usageElement.innerHTML = `
+            <div class="small">
+                <strong>Session Stats:</strong> Data: ${totalKB} KB
+                <span class="ms-2 text-muted">|</span>
+                Requests: ${stats.requestCount}
+                <span class="ms-2 text-muted">|</span>
+                <span class="ms-2" title="Higher is better - percentage of requests served from client cache">
+                    <i class="bi bi-lightning-charge"></i> ${cacheStats.hitRate}% cache hit rate
+                </span>
+                <span class="ms-2 text-muted">|</span>
+                Cache: ${cacheSizeKB} KB (${cacheStats.entryCount} entries)
+            </div>
+         `; 
+
+        // Optional: Fade in/out effect for visibility
+        usageElement.style.transition = 'opacity 0.3s';
+        usageElement.style.opacity = '1';
+        setTimeout(() => {
+            usageElement.style.opacity = '0.8';
+        }, 1200);
+    }
+
+    // Function to limit cache size
+    function limitCacheSize(maxEntries = 20) {
+        const cacheKeys = Object.keys(mapDataCache);
+        if (cacheKeys.length > maxEntries) {
+            // Sort keys by timestamp to find oldest entries
+            const sortedKeys = cacheKeys.sort((a, b) => 
+                (mapDataCache[a].timestamp || 0) - (mapDataCache[b].timestamp || 0)
+            );
+            
+            // Remove oldest entries (first 20% of entries)
+            const keysToRemove = sortedKeys.slice(0, Math.ceil(sortedKeys.length * 0.2));
+            
+            keysToRemove.forEach(key => {
+                console.log(`Removing old cache entry for key: ${key}`);
+                delete mapDataCache[key];
+            });
+            
+            console.log(`Cache cleanup: removed ${keysToRemove.length} entries, current size: ${Object.keys(mapDataCache).length}`);
+        }
+    }
+
+    // Initialize the map - make it explicitly global for the callback
+    window.initMap = async function() {
+        console.log("Global window.initMap called");
+
+        // Import necessary libraries - Restore marker library
+        const { Map } = await google.maps.importLibrary("maps");
+        const { AdvancedMarkerElement } = await google.maps.importLibrary("marker"); 
+        
+        try {
+            // Create the map
+            const mapElement = document.getElementById('map');
+            if (!mapElement) {
+                console.error("Map element not found");
+                return;
+            }
+
+            // Create the map
+            map = new google.maps.Map(mapElement, {
+                center: UK_CENTER,
+                zoom: 7,
+                mapId: 'b922aa76eabe8b6c', // Keep Map ID
+                mapTypeControl: true,
+                streetViewControl: false
+            });
+            
+            // Initialize info window
+            infoWindow = new google.maps.InfoWindow();
+
+            // --- Re-enable Clusterer Initialization ---
+            if (typeof markerClusterer !== 'undefined') {
+                    console.log("markerClusterer global object FOUND. Proceeding with initialization.");
+
+                // --- START: clusterRenderer function definition ---
+                const clusterRenderer = {
+                    render: ({ count, position, markers: clusterMarkers }, stats) => { // Renamed markers to clusterMarkers to avoid conflict
+                        // Determine cluster color based on the first marker OR currentTech
+                        let clusterColor = techColors['default']; // Default color
+
+                        if (currentTech && currentTech !== 'All' && techColors[currentTech]) {
+                            clusterColor = techColors[currentTech]; // Use selected tech color
+                        } else if (currentTech === 'All') {
+                            clusterColor = '#007bff'; // Specific blue for "All" if you want it different from default
+                        } else if (clusterMarkers && clusterMarkers.length > 0 && clusterMarkers[0].componentData) {
+                            // Fallback to first marker's tech if currentTech is not informative for some reason
+                            const firstMarkerTech = clusterMarkers[0].componentData.display_technology || 'default';
+                            clusterColor = techColors[firstMarkerTech] || techColors['default'];
+                        }
+
+                        // Create custom HTML element for the cluster icon
+                        const clusterElement = document.createElement('div');
+                        clusterElement.style.width = '30px'; // Example size
+                        clusterElement.style.height = '30px';
+                        clusterElement.style.borderRadius = '50%';
+                        clusterElement.style.backgroundColor = clusterColor;
+                        clusterElement.style.border = '3px solid white';
+                        clusterElement.style.boxShadow = '0 2px 4px rgba(0,0,0,0.4)';
+                        clusterElement.style.display = 'flex';
+                        clusterElement.style.justifyContent = 'center';
+                        clusterElement.style.alignItems = 'center';
+                        clusterElement.style.color = 'white';
+                        clusterElement.style.fontWeight = 'bold';
+                        clusterElement.style.fontSize = '12px';
+                        clusterElement.textContent = count;
+                        clusterElement.style.cursor = 'pointer'; // Add cursor pointer
+
+                        // Create an AdvancedMarkerElement for the cluster
+                        const clusterMarker = new google.maps.marker.AdvancedMarkerElement({
+                            position,
+                            content: clusterElement,
+                            // Set zIndex higher than individual markers if needed
+                            zIndex: 1000 + count, 
+                        });
+
+                        return clusterMarker;
+                    },
+                };
+                // --- END: clusterRenderer function definition ---
+                
+                // Initialize the clusterer with custom renderer
+                mapClusterManager = new markerClusterer.MarkerClusterer({
+                    map: map, 
+                    maxZoom: 13,
+                    gridSize: 40, 
+                    zoomOnClick: true,
+                    averageCenter: true,
+                    minimumClusterSize: 2,
+                    renderer: clusterRenderer // Pass the renderer here
+                });
+
+                    if (mapClusterManager) {
+                    mapClusterManager.addListener('clusterclick', (event) => { 
+                       const cluster = event.cluster; 
+                       if (cluster) {
+                           handleClusterClick(event, cluster, map);
+                    } else {
+                           console.warn('Could not get cluster from clusterclick event', event);
+                       }
+                    });
+                }
+                console.log("MarkerClusterer initialization successful."); 
+            } else {
+                console.error("markerClusterer global object is UNDEFINED");
+            }
+            
+            // Initialize legend
+            initLegend();
+            
+            // Wait for map to be fully loaded before initial load / adding listeners
+            google.maps.event.addListenerOnce(map, 'idle', function() {
+                console.log("Map idle event fired, proceeding with initial load/listeners");
+                
+                // Add event listener for map bounds change
+                map.addListener('idle', function() {
+                    // Log debugging info
+                    console.log("Map idle event fired");
+                    
+                    // Get current technology
+                    const techFilter = document.getElementById('technology-filter');
+                    const currentTech = techFilter ? techFilter.value : '';
+                    
+                    // Only load new markers if we have a technology selected and markers already exist
+                    if (currentTech && currentTech !== '' && markers.length > 0) {
+                        console.log("Debouncing loadMarkers on idle");
+                        
+                        // Use a debounced version of loadMarkers to avoid too many calls
+                        if (typeof debouncedLoadMarkers === 'function') {
+                            debouncedLoadMarkers(currentTech);
+                        }
+                    }
+                });
+                
+                // Add zoom changed listener to handle high zoom levels specially
+                map.addListener('zoom_changed', function() {
+                    const zoom = map.getZoom();
+                    console.log(`Zoom changed to: ${zoom}`);
+                    
+                    // At very high zoom levels, we want to force a reload to show unclustered markers
+                    if (zoom >= 14 && markers.length > 0) {
+                        console.log("High zoom level detected, reloading markers");
+                        showStatus("Loading detailed view...");
+                        
+                        // Pass the currently active technology explicitly
+                        if (typeof debouncedLoadMarkers === 'function' && currentTech) {
+                            debouncedLoadMarkers(currentTech);
+                        } else {
+                            console.error("debouncedLoadMarkers is not defined OR currentTech is not set");
+                        }
+                    } else if (zoom === 13 && markers.length > 0) {
+                        // Transitioning to cluster view
+                        showStatus("Showing clustered view");
+                    }
+                });
+                
+                // Check for initial company filters
+                const techFilter = document.getElementById('technology-filter');
+                const companyTypeSwitch = document.getElementById('company-type-switch');
+                const useResidentialFilter = companyTypeSwitch ? companyTypeSwitch.checked : false;
+                
+                let companySelected = false;
+                let companyValue = '';
+                
+                if (useResidentialFilter) {
+                    const residentialCompanyFilter = document.getElementById('residential-company-filter');
+                    companySelected = residentialCompanyFilter && residentialCompanyFilter.value;
+                    companyValue = residentialCompanyFilter ? residentialCompanyFilter.value : '';
+                } else {
+                    const topCompanyFilter = document.getElementById('top-company-filter');
+                    companySelected = topCompanyFilter && topCompanyFilter.value;
+                    companyValue = topCompanyFilter ? topCompanyFilter.value : '';
+                }
+                
+                // If a company is selected but no technology, automatically load "All Technologies" view
+                if (companySelected && (!techFilter || !techFilter.value)) {
+                    console.log(`Company selected (${companyValue}) but no technology - loading All Technologies view`);
+                    // Add small delay to ensure all UI is ready
+                    setTimeout(() => {
+                        loadMarkers('All');
+                    }, 100);
+                }
+            });
+            } catch (error) {
+            console.error("Error in map initialization:", error);
+        }
+    };
+
+    // --- Attach Event Listeners --- (Assuming this is done in DOMContentLoaded)
+    document.addEventListener('DOMContentLoaded', function() {
+        // ... (other listeners like legend toggle) ...
+
+        const cmPeriodYearsData = JSON.parse(document.getElementById('cm-period-years-data').textContent);
+
+    function filterYearsByPeriod(period) {
+            const yearSelectElem = document.getElementById('year-select-filter');
+            if (!yearSelectElem) return;
+
+            const yearsToShow = cmPeriodYearsData[period] || [];
+            
+            const placeholderText = period === 'future' ? '(2024-2028)' : '(2016-2023)';
+            
+            while (yearSelectElem.options.length > 1) {
+                yearSelectElem.remove(1);
+        }
+        
+            if (yearSelectElem.options.length > 0) {
+                yearSelectElem.options[0].textContent = placeholderText;
+                yearSelectElem.options[0].value = "";
+        } else {
+                const placeholderOption = new Option(placeholderText, "");
+                yearSelectElem.add(placeholderOption);
+            }
+
+            yearsToShow.forEach(year => {
+                const option = new Option(year, year);
+                yearSelectElem.add(option);
+            });
+            
+            yearSelectElem.value = "";
+    }
+
+        // These declarations should only happen once
+        const applyBtn = document.getElementById('apply-filters');
+        const resetBtn = document.getElementById('reset-filters');
+        const techSelect = document.getElementById('technology-filter');
+        const topCompanySelect = document.getElementById('top-company-filter');
+        const yearSelect = document.getElementById('year-select-filter');
+        const residentialCompanySelect = document.getElementById('residential-company-filter');
+        const topCompanyContainer = document.getElementById('top-company-filter-container');
+        const residentialContainer = document.getElementById('residential-company-filter-container');
+        const companyTypeSwitch = document.getElementById('company-type-switch');
+        const companyTypeSwitchLabel = document.getElementById('company-type-switch-label');
+        const cmPeriodSwitch = document.getElementById('cm-period-switch');
+        const cmPeriodSwitchLabel = document.getElementById('cm-period-switch-label');
+
+        // --- Company Type Switch Logic ---
+        if (companyTypeSwitch && topCompanyContainer && residentialContainer && companyTypeSwitchLabel) {
+            companyTypeSwitch.addEventListener('change', () => {
+                const showResidential = companyTypeSwitch.checked;
+                if (showResidential) {
+                    topCompanyContainer.style.display = 'none';
+                    residentialContainer.style.display = 'block';
+                    companyTypeSwitchLabel.textContent = 'Residential/Other';
+                    if (topCompanySelect) topCompanySelect.value = ''; // Reset hidden dropdown
+                } else {
+                    topCompanyContainer.style.display = 'block';
+                    residentialContainer.style.display = 'none';
+                    companyTypeSwitchLabel.textContent = 'Top 20';
+                    if (residentialCompanySelect) residentialCompanySelect.value = ''; // Reset hidden dropdown
+                }
+                validateFilters(); // Re-validate after switching
+            });
+        }
+        // --- End Company Type Switch Logic ---
+
+        // --- START: Filter Validation Logic --- REMOVE APPLY/RESET REFERENCES ---
+        // const filterWarningEl = document.createElement('div');
+        // filterWarningEl.id = 'filter-warning';
+        // filterWarningEl.className = 'text-danger small mt-2';
+        // filterWarningEl.style.display = 'none'; // Initially hidden
+        // Find a different place to insert the warning, e.g., after the filter row
+        // const filterRow = document.querySelector('.map-controls .row.g-3.mb-3');
+        // if (filterRow) {
+        //     filterRow.parentNode.insertBefore(filterWarningEl, filterRow.nextSibling);
+        // } else {
+        //     // Fallback if the specific row isn't found
+        //     document.getElementById('filter-panel')?.appendChild(filterWarningEl);
+        // }
+        
+        // Initial validation check on page load - ensure this is called AFTER DOM is ready and elements exist.
+        validateFilters();
+        // --- END: Filter Validation Logic (Initialization part) ---
+
+        // --- START: Restore CM Period Toggle Events ---
+        // const cmPeriodSwitch = document.getElementById('cm-period-switch'); // Already declared
+        // const cmPeriodSwitchLabel = document.getElementById('cm-period-switch-label'); // Already declared
+
+        if (cmPeriodSwitch && cmPeriodSwitchLabel) {
+            // Set initial state based on default (Future/Active)
+            filterYearsByPeriod('future');
+            cmPeriodSwitchLabel.textContent = 'Active';
+
+            cmPeriodSwitch.addEventListener('change', () => {
+                const isFuture = cmPeriodSwitch.checked;
+                const currentPeriod = isFuture ? 'future' : 'historical';
+
+                filterYearsByPeriod(currentPeriod);
+
+                cmPeriodSwitchLabel.textContent = isFuture ? 'Active' : 'In-Active';
+                
+                const yearSelectElem = document.getElementById('year-select-filter');
+                 if (yearSelectElem && yearSelectElem.options.length > 0) {
+                    yearSelectElem.options[0].textContent = isFuture ? '(2024-2028)' : '(2016-2023)';
+                }
+
+                MapCache.clear();
+                console.log("Frontend cache cleared due to CM Period change.");
+                if (currentTech) {
+                    loadMarkers(currentTech);
+                }
+            });
+        }
+        // --- END: Restore CM Period Toggle Events ---
+
+        // --- REMOVE Apply/Reset Button Listeners ---
+        /*
+        if (applyBtn) {
+            applyBtn.addEventListener('click', () => {
+                // Re-validate before applying
+                if (!validateFilters()) {
+                    console.warn("Filter validation failed. Not applying filters.");
+                    return; // Stop processing
+                }
+                
+                const selectedTech = techSelect ? techSelect.value : null;
+                if (!selectedTech) {
+                    showStatus("Please select a technology first.", 3000);
+                    return;
+                }
+
+                MapCache.clear();
+                console.log("Frontend cache cleared due to Apply button.");
+
+                // Trigger map update 
+                currentTech = selectedTech; 
+                if (map) {
+                    google.maps.event.trigger(map, 'idle'); 
+                    showStatus("Applying filters...", 1000); 
+                } else {
+                    console.error("Map object not available to trigger idle event.");
+                }
+            });
+        }
+
+        if (resetBtn) {
+            resetBtn.addEventListener('click', () => {
+                 // ... (Reset logic remains, but listener is removed)
+            });
+        }
+        */
+        // --- End REMOVE Apply/Reset Button Listeners ---
+
+        // Set up close button for subtypes filter
+        const closeSubtypesBtn = document.getElementById('close-subtypes');
+        const subtypesLegend = document.getElementById('subtypes-legend');
+        if (closeSubtypesBtn && subtypesLegend) {
+            closeSubtypesBtn.addEventListener('click', () => {
+                subtypesLegend.style.display = 'none'; // Hide completely (don't just collapse)
+                currentSelectedSubtype = null; // Reset subtype selection
+            });
+        }
+        
+        // Cache debug panel functionality
+        if (DEBUG_CACHE) {
+            const showDebugBtn = document.getElementById('show-cache-debug');
+            const debugPanel = document.getElementById('cache-debug-panel');
+            const closeDebugBtn = document.getElementById('close-debug-panel');
+            const clearCacheBtn = document.getElementById('debug-clear-cache');
+            const simulateBtn = document.getElementById('debug-simulate-request');
+            
+            // Show the debug button for developers
+            if (showDebugBtn) showDebugBtn.style.display = 'inline-block';
+            
+            // Update debug panel stats
+            function updateDebugPanel() {
+                const stats = MapCache.stats();
+                document.getElementById('debug-cache-entries').textContent = stats.entryCount;
+                document.getElementById('debug-cache-size').textContent = (stats.totalSize / 1024).toFixed(1) + ' KB';
+                document.getElementById('debug-cache-hit-rate').textContent = stats.hitRate + '%';
+                document.getElementById('debug-cache-hits').textContent = window.sessionStats.cacheHits;
+                document.getElementById('debug-cache-misses').textContent = window.sessionStats.cacheMisses;
+                
+                // Update cache contents
+                const contentsEl = document.getElementById('debug-cache-contents');
+                if (contentsEl) {
+                    const keys = Object.keys(mapDataCache);
+                    if (keys.length === 0) {
+                        contentsEl.innerHTML = 'No cached entries.';
+                    } else {
+                        let html = '<ul class="list-unstyled">';
+                        keys.forEach(key => {
+                            const item = mapDataCache[key];
+                            const age = Math.round((Date.now() - item.timestamp) / 1000);
+                            const expiresIn = Math.round((CACHE_DURATION_MS - (Date.now() - item.timestamp)) / 1000);
+                            const sizeKB = Math.round(item.size / 1024);
+                            
+                            html += `<li class="mb-2">
+                                <div><strong>${key.substr(0, 20)}${key.length > 20 ? '...' : ''}</strong></div>
+                                <div>Size: ${sizeKB} KB | Age: ${age}s | Expires in: ${expiresIn}s</div>
+                            </li>`;
+                        });
+                        html += '</ul>';
+                        contentsEl.innerHTML = html;
+                    }
+                }
+            }
+            
+            // Toggle debug panel
+            if (showDebugBtn) {
+                showDebugBtn.addEventListener('click', () => {
+                    debugPanel.style.display = 'block';
+                    updateDebugPanel();
+                });
+            }
+            
+            // Close debug panel
+            if (closeDebugBtn) {
+                closeDebugBtn.addEventListener('click', () => {
+                    debugPanel.style.display = 'none';
+                });
+            }
+            
+            // Clear cache button
+            if (clearCacheBtn) {
+                clearCacheBtn.addEventListener('click', () => {
+                    MapCache.clear();
+                    updateDebugPanel();
+                    showStatus('Cache cleared', 1500);
+                });
+            }
+            
+            // Simulate request button
+            if (simulateBtn) {
+                simulateBtn.addEventListener('click', () => {
+                    // Get current technology filter
+                    const techFilter = document.getElementById('technology-filter');
+                    const tech = techFilter ? techFilter.value : '';
+                    
+                    if (tech) {
+                        showStatus('Simulating request...', 1500);
+                        loadMarkers(tech);
+                        setTimeout(updateDebugPanel, 1000); // Update panel after request
+                    } else {
+                        showStatus('Please select a technology first', 2000);
+                    }
+                });
+            }
+            
+            // Update debug panel every 10 seconds when visible
+            setInterval(() => {
+                if (debugPanel.style.display !== 'none') {
+                    updateDebugPanel();
+                }
+            }, 10000);
+        }
+
+        // --- Interaction between Company Filters ---
+        if (topCompanySelect && residentialCompanySelect) {
+            topCompanySelect.addEventListener('change', () => {
+                if (topCompanySelect.value !== '') {
+                    residentialCompanySelect.value = ''; // Reset residential if top is selected
+                }
+                
+                initLegend(); // Reinitialize legend
+                
+                // If a company is selected, default to "All" tech if no tech is active
+                // or if the active tech is not already "All"
+                if (topCompanySelect.value) {
+                    if (!currentTech || currentTech !== 'All') {
+                        currentTech = 'All'; // Set currentTech before loading
+                        // Highlight "All Technologies" in legend
+                        document.querySelectorAll('.legend-item.active').forEach(active => active.classList.remove('active'));
+                        const allTechLegendItem = document.querySelector('.legend-item[data-technology="All"]');
+                        if (allTechLegendItem) allTechLegendItem.classList.add('active');
+                        loadMarkers('All');
+                    } else {
+                        loadMarkers(currentTech); // Company changed, reload with existing tech (which is 'All')
+                    }
+                } else {
+                    // No company selected, clear currentTech and potentially clear map or load default
+                    currentTech = null;
+                    clearMarkers(); // Or load a default view if desired
+                    // Potentially hide subtypes legend if it was visible
+                    const subtypesLegend = document.getElementById('subtypes-legend');
+                    if (subtypesLegend) subtypesLegend.style.display = 'none';
+                }
+                
+                validateFilters(); // Re-validate after change
+            });
+            
+            residentialCompanySelect.addEventListener('change', () => {
+                if (residentialCompanySelect.value !== '') {
+                    topCompanySelect.value = ''; // Reset top if residential is selected
+                }
+                
+                initLegend(); // Reinitialize legend
+
+                // If a company is selected, default to "All" tech if no tech is active
+                // or if the active tech is not already "All"
+                if (residentialCompanySelect.value) {
+                    if (!currentTech || currentTech !== 'All') {
+                        currentTech = 'All'; // Set currentTech before loading
+                         // Highlight "All Technologies" in legend
+                        document.querySelectorAll('.legend-item.active').forEach(active => active.classList.remove('active'));
+                        const allTechLegendItem = document.querySelector('.legend-item[data-technology="All"]');
+                        if (allTechLegendItem) allTechLegendItem.classList.add('active');
+                        loadMarkers('All');
+                    } else {
+                        loadMarkers(currentTech); // Company changed, reload with existing tech (which is 'All')
+                    }
+                } else {
+                    // No company selected, clear currentTech and potentially clear map or load default
+                    currentTech = null;
+                    clearMarkers(); // Or load a default view if desired
+                    // Potentially hide subtypes legend if it was visible
+                    const subtypesLegend = document.getElementById('subtypes-legend');
+                    if (subtypesLegend) subtypesLegend.style.display = 'none';
+                }
+                
+                validateFilters(); // Re-validate after change
+            });
+        }
+        // --- End Interaction ---
+
+        // --- Reset Map View Button --- START ---
+        const resetMapViewBtn = document.getElementById('reset-map-view');
+        if (resetMapViewBtn) {
+            resetMapViewBtn.addEventListener('click', () => {
+                if (map) {
+                    map.setCenter(UK_CENTER);
+                    map.setZoom(7);
+                    // Optionally, reload markers if needed after reset, though usually not required for just a view reset.
+                    // if (currentTech) {
+                    //     loadMarkers(currentTech);
+                    // }
+                    showStatus("Map view reset", 1500);
+                }
+            });
+        }
+        // --- Reset Map View Button --- END ---
+
+        // --- Filter Panel Toggle (Collapsible) --- START ---
+        const filterPanel = document.getElementById('filter-panel');
+        const filterPanelToggle = document.getElementById('filter-panel-toggle');
+        // const filterPanelBody = filterPanel.querySelector('.filter-panel-body'); // Already wrapped
+
+        if (filterPanel && filterPanelToggle) {
+            filterPanelToggle.addEventListener('click', () => {
+                filterPanel.classList.toggle('collapsed');
+                // Icon change is handled by CSS based on .collapsed class on .map-controls
+            });
+            // Optionally, start collapsed:
+            // filterPanel.classList.add('collapsed'); 
+        }
+        // --- Filter Panel Toggle (Collapsible) --- END ---
+
+        // --- Filter Panel Toggle --- START --- // This section seems to be a duplicate from a previous step, let's remove it or ensure it's the correct one.
+        // const filterPanel = document.getElementById('filter-panel'); // Already declared
+        // const filterToggle = document.getElementById('filter-toggle'); // This ID was for a different toggle approach
+        
+        // if (filterPanel && filterToggle) { // This if block refers to a different toggle with id filter-toggle
+        //     filterToggle.addEventListener('click', () => {
+        //         filterPanel.classList.toggle('collapsed');
+        //     });
+        // }
+        // --- Filter Panel Toggle --- END ---
+    });
+    // --- End Attach Event Listeners ---
+</script>
+
+<!-- Load Google Maps API *after* defining initMap -->
+<!-- Added libraries=marker and map_ids -->
+<script src="https://maps.googleapis.com/maps/api/js?key={{ api_key }}&callback=initMap&v=beta&libraries=marker&map_ids=b922aa76eabe8b6c" defer></script>
+
+<!-- Standard Google Maps Dark Style -->
+<script>
+    // ... (rest of the script content remains unchanged) ...
+</script>
+{% endblock %} 

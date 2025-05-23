@@ -1,0 +1,761 @@
+{% extends "checker/base.html" %}
+{% load static %}
+{% load checker_tags %}
+{% load humanize %}
+
+{% block title %}Capacity Market Search{% endblock %}
+
+{% block extra_head %}
+    <!-- Favicon - Keep specific ones if needed, base.html has basic one -->
+    <link rel="icon" type="image/x-icon" href="{% static 'images/favicon.png' %}" sizes="32x32">
+    <link rel="icon" type="image/png" href="{% static 'images/favicon.png' %}" sizes="32x32">
+    <link rel="apple-touch-icon" href="{% static 'images/favicon.png' %}">
+    <!-- Stylesheets - Keep specific ones if needed, base.html has Bootstrap -->
+    {# <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"> #} {# Already in base #}
+    {# <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css"> #} {# Already in base, though version differs slightly - check if v1.11.3 from base is okay #}
+    {# <link rel="stylesheet" href="{% static 'checker/css/styles.css' %}"> #} {# REMOVE - File does not exist #}
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        /* Keep body/html styles specific to this page structure? 
+           Or rely on base.html and adjust container? 
+           For now, keep but remove background-image handled by base 
+        */
+        body, html {
+            /* height: 100%; */ /* Handled by base */
+            /* margin: 0; */ /* Handled by base */
+            /* background-image: url("{% static 'images/backgrounds/industrial_background.jpeg' %}"); */ /* Handled by base */
+            /* background-position: center; */ /* Handled by base */
+            /* background-repeat: no-repeat; */ /* Handled by base */
+            /* background-size: cover; */ /* Handled by base */
+            /* background-attachment: fixed; */ /* Handled by base */
+            /* display: flex; */ /* Handled by base */
+            /* flex-direction: column; */ /* Handled by base */
+            /* font-family: 'Roboto', sans-serif; */ /* Handled by base */
+        }
+        .google-like-header {
+            display: flex;
+            flex-direction: column;
+            align-items: center; /* Center items horizontally */
+            justify-content: center; /* Center items vertically */
+            text-align: center;
+            padding-top: 5vh; /* Reduced from 15vh to bring content higher */ /* Adjust padding to position vertically */
+            padding-bottom: 5vh;
+            flex-shrink: 0;
+            position: relative; /* Needed for absolute positioning of child */
+            /* Need to adjust title color for theme - now outside container */
+            /* color: var(--bs-body-color); */ /* REMOVE */
+            color: white; /* Keep header text white for visibility on image */
+        }
+        .google-like-header h1 {
+            /* color: white; */ /* REMOVE - handled by parent or use BS var? */
+            font-weight: bold;
+            font-size: 4.5rem; /* Larger font size */
+            margin-bottom: 2rem; /* Space below title */
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3); /* Slightly stronger shadow - may need theme adjustment */
+        }
+        .google-like-header .search-form {
+            max-width: 600px; /* Wider search bar */
+            width: 100%;
+            margin: 0 auto; /* Center the form */
+        }
+        .google-like-header .search-form .form-control {
+            height: 45px; /* Taller search input */
+            border-radius: 25px; /* Rounded corners */
+            padding-left: 20px;
+            padding-right: 20px;
+            /* Use BS vars for theme compatibility */
+            border: var(--bs-border-width) solid var(--bs-border-color);
+            background-color: var(--bs-body-bg);
+            color: var(--bs-body-color);
+            box-shadow: 0 1px 6px rgba(32,33,36,0.1);
+            font-size: 14px; /* Slightly smaller font size to fit longer placeholder */
+        }
+        .google-like-header .search-form .btn {
+            border-radius: 25px; /* Match input rounding */
+            height: 45px;
+        }
+        .content-below-header {
+            /* Use BS vars, base container handles most */
+            /* background-color: rgba(255, 255, 255, 0.95); */ /* REMOVE */
+            /* padding: 30px; */ /* From base */
+            /* border-radius: 8px; */ /* From base */
+            /* margin: 20px auto; */ /* From base */
+            /* max-width: 1100px; */ /* From base */
+            /* width: 95%; */ /* From base */
+            /* flex-grow: 1; */ /* From base */
+            min-height: auto; /* Let content determine minimum height */
+            display: flex; /* Use flexbox internally too */
+            flex-direction: column; /* Stack children vertically */
+        }
+
+        /* Keep existing styles for results, etc. */
+        .results-list .result-item {
+             /* Use BS vars */
+            border-bottom: var(--bs-border-width) solid var(--bs-border-color-translucent);
+            padding: 15px 0;
+        }
+        .results-list .result-item:last-child {
+            border-bottom: none;
+        }
+        .company-links-section h3,
+        .component-results-section h3 {
+             margin-bottom: 15px;
+             /* Use BS theme colors */
+             border-bottom: 2px solid var(--bs-primary);
+             padding-bottom: 5px;
+             display: inline-block;
+        }
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .section-header h3 {
+            margin-bottom: 0;
+             /* Use BS theme colors */
+            border-bottom: 2px solid var(--bs-primary);
+            padding-bottom: 5px;
+        }
+        .sort-toggle {
+            text-decoration: none;
+            /* Use BS var */
+            color: var(--bs-secondary-color);
+        }
+        .sort-toggle span {
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+        .pagination-nav {
+            margin-top: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        /* Enhanced pagination styling */
+        .pagination-lg .page-link {
+            padding: 0.75rem 1.5rem;
+            font-size: 1.1rem;
+        }
+        
+        .pagination .page-item.active .page-link {
+            background-color: var(--bs-primary);
+            border-color: var(--bs-primary);
+            font-weight: bold;
+        }
+        .component-record {
+            margin-bottom: 1.5rem;
+        }
+        .component-record strong a {
+            font-size: 1.1em;
+            /* Link color handled by Bootstrap */
+        }
+        .cmu-badge {
+             font-size: 0.9em;
+             /* Badge styling handled by Bootstrap */
+        }
+        /* Sort controls styling */
+        .sort-controls {
+            margin-bottom: 15px;
+            padding: 10px;
+             /* Use BS vars */
+            background-color: var(--bs-tertiary-bg);
+            border-radius: var(--bs-border-radius);
+            font-size: 0.9rem;
+        }
+        .sort-controls a {
+            margin-right: 10px;
+            text-decoration: none;
+             /* Use BS vars */
+            color: var(--bs-link-color);
+        }
+        .sort-controls .active-sort {
+            font-weight: bold;
+             /* Use BS vars */
+            color: var(--bs-body-color);
+        }
+        .sort-controls .sort-icon {
+             margin-left: 3px;
+        }
+        /* Adjust link colors in header for visibility on dark background */
+        .google-like-header .stats-link-container a.btn-light {
+            color: var(--bs-dark); /* Dark text on light button */
+            border-color: var(--bs-dark);
+        }
+         .google-like-header .stats-link-container a.btn-light:hover {
+             background-color: var(--bs-gray-200);
+         }
+        .google-like-header .stats-link-container a.btn-info {
+            /* Info buttons usually okay on dark/light */
+        }
+         .google-like-header .stats-link-container a.btn-warning {
+             color: var(--bs-dark); /* Dark text on warning button */
+         }
+
+        /* Style for the container on initial load to hide its appearance */
+        .container-initial-search {
+            padding: 0 !important; 
+            margin: 0 !important;
+            background-color: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            /* flex-grow: 0 !important; */ /* Let base handle flex */
+        }
+
+        /* Style for the container when there are no results */
+        .container-no-results {
+            background-color: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
+
+        /* Custom style for the no-results alert to make it narrower */
+        .alert-no-results {
+            display: inline-block !important;
+            margin: 0 auto !important;
+            max-width: fit-content !important;
+            padding-left: 2rem !important;
+            padding-right: 2rem !important;
+        }
+
+        /* Make company links lighter in dark mode */
+        html[data-bs-theme="dark"] .company-link-item a {
+            color: var(--bs-link-color); /* Use standard BS link color for dark mode */
+        }
+        html[data-bs-theme="dark"] .company-link-item a:hover {
+            color: var(--bs-link-hover-color); /* Use standard BS link hover color */
+        }
+
+        /* Styles for Popover Info Links in Header */
+        .google-like-header .popover-info-link {
+            color: white;
+            font-weight: 600; /* Bolder text */
+            text-decoration: none;
+            padding: 0.3rem 0.6rem;
+            border-radius: 0.25rem; /* Retain for potential subtle hover background if desired later */
+            transition: color 0.15s ease-in-out, text-decoration 0.15s ease-in-out;
+            display: inline-block; 
+            /* Removed border and background-color from default state */
+        }
+
+        .google-like-header .popover-info-link:hover,
+        .google-like-header .popover-info-link:focus {
+            color: white; /* Keep text white */
+            text-decoration: underline; /* Add underline on hover/focus for interactivity */
+            background-color: transparent; /* Ensure no background on hover/focus */
+            outline: none;
+            box-shadow: none;
+        }
+
+    </style>
+    <!-- Matomo already in base -->
+{% endblock %}
+
+{# Override the container class - Apply styling based on state #}
+{% block container_class %}
+container{% if not query %} container-initial-search{% elif query and not company_links and component_count == 0 and not error %} container-no-results{% endif %}
+{% endblock %}
+
+{% block page_header %}
+<!-- Google-like Header -->
+<div class="google-like-header">
+    <img src="{% static 'images/favicon.png' %}" alt="Capacity Market Logo" style="width: 100px; height: auto; margin-bottom: 1rem; filter: drop-shadow(0 0 3px white) drop-shadow(0 0 5px white) drop-shadow(0 0 7px white) drop-shadow(0 0 9px white);">
+    <h1>Capacity Market Search</h1>
+    <form method="get" action="{% url 'search_companies' %}" class="search-form"> {# Action points to root/search_companies #}
+        <div class="input-group">
+            <input type="text" name="q" class="form-control" placeholder="Search company name, component, post code or CMU ID" value="{{ query }}">
+            {# Preserve per_page and sort order on new search #}
+            <input type="hidden" name="per_page" value="{{ per_page|default:'10' }}">
+            {% if sort_by %}<input type="hidden" name="sort_by" value="{{ sort_by }}">{% endif %}
+            {% if sort_order %}<input type="hidden" name="sort_order" value="{{ sort_order }}">{% endif %}
+            <button type="submit" class="btn btn-primary">Search</button>
+        </div>
+    </form>
+    <!-- Rearrange links below search bar -->
+    <div class="stats-link-container mt-3 text-center"> 
+            <!-- Row 1: Stats and Map -->
+        <div class="mb-2 d-flex justify-content-center gap-2"> 
+            <a href="{% url 'statistics' %}" class="btn btn-light"> 
+                <i class="bi bi-bar-chart-line-fill"></i> Statistics
+            </a>
+            <a href="{% url 'map_view' %}" class="btn btn-info"> 
+                <i class="bi bi-map-fill"></i> Map View
+            </a>
+        </div>
+        <!-- Row 2: Buy Me a Coffee -->
+        <div> 
+            <a href="{% url 'donation_page' %}" class="btn btn-warning"> 
+                <i class="bi bi-cup-hot-fill"></i> Buy Me a Coffee
+            </a>
+        </div>
+    </div>
+
+    <!-- Explanatory Bubbles -->
+    <div class="explanatory-bubbles-container mt-4 d-flex justify-content-center gap-3">
+        <a tabindex="0" class="popover-info-link" role="button" data-bs-toggle="popover" data-bs-trigger="focus" 
+           data-bs-placement="bottom" data-bs-html="true" title="⚡ What Is the Capacity Market?"
+           data-bs-content="<p class='mb-2'>The UK's Capacity Market is a government-backed scheme that ensures the stability of electricity supply. It does this by paying energy providers—like power stations, battery storage sites, and demand-side response operators—to guarantee their availability during times of peak demand. Think of it as an insurance policy to prevent blackouts and support grid reliability, especially during extreme weather or when renewables underperform.</p><p>The Capacity Market plays a crucial role in encouraging investment in flexible and reliable energy assets, helping the UK transition to a low-carbon and resilient power system.</p>">
+            ⚡ What Is the Capacity Market?
+        </a>
+        <a tabindex="0" class="popover-info-link" role="button" data-bs-toggle="popover" data-bs-trigger="focus" 
+           data-bs-placement="bottom" data-bs-html="true" title="🔍 How to Use This Site"
+           data-bs-content="<p class='mb-2'>CapacityMarket.co.uk helps you explore and understand the assets that participate in the Capacity Market. You can:</p><ul class='list-unstyled ps-3 mb-0'><li><i class='bi bi-search me-2'></i><strong>Search</strong> for specific components (like generators, batteries, or DSR units) by name, location, or CMU ID.</li><li><i class='bi bi-diagram-3 me-2'></i><strong>Group &amp; compare</strong> assets by location or delivery year.</li><li><i class='bi bi-map-fill me-2'></i><strong>View components</strong> on an interactive map to understand regional distribution and scale.</li><li><i class='bi bi-bar-chart-line-fill me-2'></i><strong>Stay informed</strong> with clean, accessible visuals of how the Capacity Market is shaping the energy landscape.</li></ul><p class='mt-2'>It's an open-access tool designed to bring transparency to one of the UK's most important energy mechanisms. We charge a small fee to cover running costs.</p>">
+            🔍 How to Use This Site
+        </a>
+    </div>
+</div>
+{% endblock page_header %}
+
+{% block content %}
+    {# Add the conditional wrapper #}
+    {% if query %}
+        {% if company_links or component_count > 0 or error %}
+            <!-- Content Area Below Header - Only show if there are results or errors -->
+            {# Remove the extra container div - content goes directly into base.html's container #}
+            {# <div class="container content-below-header"> #}
+                
+                {% if note %}
+                    <div class="alert alert-secondary small">{{ note }}</div>
+                {% endif %}
+
+                {% if from_cache %}
+                    <div class="alert alert-info small">Results from cache.</div>
+                {% endif %}
+
+                {% if error %}
+                    <div class="alert alert-danger">{{ error }}</div>
+                {% endif %}
+                
+                {# Display Django messages #}
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="alert alert-{{ message.tags }}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+
+                <!-- Display Counts -->
+                <div class="mt-3 mb-3">
+                    <p class="text-muted">
+                        {% if component_count and page_obj %}
+                            {% if is_technology_search %}
+                                Displaying <strong>{{ page_obj.start_index }} - {{ page_obj.end_index }}</strong> of <strong>{{ page_obj.paginator.count }}</strong> location groups 
+                                {% if page_obj.paginator.num_pages > 1 %}(Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}){% endif %}
+                                from <strong>{{ component_count }}</strong> total components with technology "{{ query }}"
+                                {% if total_raw_pages > 1 %}(which would be {{ total_raw_pages }} pages if ungrouped){% endif %}
+                                {% if original_requested_page %}
+                                    <br><span class="badge bg-warning text-dark">Requested page {{ original_requested_page }} does not exist. Showing last page instead.</span>
+                                {% elif debug_info.original_requested_page %}
+                                    <br><span class="badge bg-warning text-dark">Requested page {{ debug_info.original_requested_page }} does not exist. Showing last page instead.</span>
+                                {% endif %}
+                            {% else %}
+                                Displaying <strong>{{ page_obj.start_index }} - {{ page_obj.end_index }}</strong> of <strong>{{ page_obj.paginator.count }}</strong> location groups 
+                            {% if page_obj.paginator.num_pages > 1 %}(Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}){% endif %}
+                                from <strong>{{ component_count }}</strong> total matching components
+                                {% if total_raw_pages > 1 %}(which would be {{ total_raw_pages }} pages if ungrouped){% endif %}
+                                {% if original_requested_page %}
+                                    <br><span class="badge bg-warning text-dark">Requested page {{ original_requested_page }} does not exist. Showing last page instead.</span>
+                                {% elif debug_info.original_requested_page %}
+                                    <br><span class="badge bg-warning text-dark">Requested page {{ debug_info.original_requested_page }} does not exist. Showing last page instead.</span>
+                                {% endif %}
+                            {% endif %}
+                         {% elif component_count == 0 %}
+                             Found 0 matching components.
+                         {% else %}
+                             Loading component counts...
+                        {% endif %}
+                    </p>
+                </div>
+
+                <!-- Company Links Section -->
+                {% if company_links %}
+                    <div class="company-links-section mb-4">
+                        <div class="section-header">
+                             <h3>Matching Companies ({{ company_links|length }})</h3>
+                        </div>
+                         
+                        <div class="list-group" id="company-links-list">
+                            {# --- Restore original rendering with Show More --- #}
+                            {% for link_html in company_links %}
+                                {% if forloop.counter0 < 3 %}
+                                    {# Display first 3 items directly #}
+                                    <div class="list-group-item company-link-item">{{ link_html|safe }}</div> 
+                                {% else %}
+                                    {# Hide items after the 3rd initially #}
+                                    <div class="list-group-item company-link-item" style="display: none;">{{ link_html|safe }}</div>
+                                {% endif %}
+                            {% endfor %}
+                            {# --- End restore --- #}
+                        </div>
+                        
+                        {# --- Add Show More Button if needed --- #}
+                        {% if company_links|length > 3 %}
+                            <button id="show-more-companies-btn" class="btn btn-outline-secondary btn-sm mt-2">Show More Companies ({{ company_links|length|add:"-3" }} more)</button>
+                        {% endif %}
+                        {# --- End Show More Button --- #}
+                    </div>
+                {% endif %}
+
+                <!-- Component Results Section -->
+                {% if page_obj %} {# Check if page_obj exists (meaning component search was attempted/successful) #}
+                    <div class="component-results-section">
+                        <div class="section-header mt-4">
+                            {% if is_technology_search %}
+                            <h3>Components with "{{ query }}" Technology ({{ component_count }} total, {{ page_obj.paginator.count }} location groups)</h3>
+                            {% if total_raw_pages and total_raw_pages > 1 %}
+                            <p class="text-muted">All {{ component_count }} components would span {{ total_raw_pages }} pages if not grouped by location</p>
+                            {% endif %}
+                            {% else %}
+                            <h3>Component Results ({{ component_count }} total, {{ page_obj.paginator.count }} location groups)</h3>
+                            {% endif %}
+                        </div>
+
+                        {# --- Corrected Sort Controls --- START --- #}
+                        <!-- Template refresh comment -->
+                        {% if component_count > 0 %}
+                        <div class="sort-controls d-flex justify-content-between align-items-center">
+                            <div>
+                                Sort by:
+                                {# Determine base URL for sort links based on search type #}
+                                {% if is_technology_search %}
+                                    {% url 'technology_search_results' technology_name_encoded=query|urlencode as sort_base_url %}
+                                {% else %}
+                                    {% url 'search_companies' as sort_base_url %}
+                                {% endif %}
+                                
+                                {# Relevance Sort Link (Only for non-technology search) #}
+                                {% if not is_technology_search %}
+                                {% with current_sort_field='relevance' %}
+                                        <a href="{{ sort_base_url }}?q={{ query|urlencode }}&per_page={{ per_page }}&sort_by={{ current_sort_field }}&sort_order={% if current_sort_field == sort_by and sort_order == 'desc' %}asc{% else %}desc{% endif %}"
+                                               class="{% if current_sort_field == sort_by %}active-sort{% endif %}">
+                                               Relevance
+                                                {% if current_sort_field == sort_by %}<span class="sort-icon"><i class="fas fa-sort-{% if sort_order == 'asc' %}up{% else %}down{% endif %}"></i></span>{% endif %}
+                                            </a>
+                                        {% endwith %}
+                                    {% endif %}
+
+                                {# Location Sort Link #}
+                                {% with current_sort_field='location' %}
+                                    <a href="{{ sort_base_url }}?{% if not is_technology_search %}q={{ query|urlencode }}&{% endif %}per_page={{ per_page }}&sort_by={{ current_sort_field }}&sort_order={% if current_sort_field == sort_by and sort_order == 'asc' %}desc{% else %}asc{% endif %}"
+                                               class="{% if current_sort_field == sort_by %}active-sort{% endif %}">
+                                               Location
+                                                {% if current_sort_field == sort_by %}<span class="sort-icon"><i class="fas fa-sort-{% if sort_order == 'asc' %}up{% else %}down{% endif %}"></i></span>{% endif %}
+                                            </a>
+                                {% endwith %}
+
+                                {# Date Sort Link #}
+                                {% with current_sort_field='date' %}
+                                    <a href="{{ sort_base_url }}?{% if not is_technology_search %}q={{ query|urlencode }}&{% endif %}per_page={{ per_page }}&sort_by={{ current_sort_field }}&sort_order={% if current_sort_field == sort_by and sort_order == 'desc' %}asc{% else %}desc{% endif %}"
+                                               class="{% if current_sort_field == sort_by %}active-sort{% endif %}">
+                                       Date (Delivery Year)
+                                                {% if current_sort_field == sort_by %}<span class="sort-icon"><i class="fas fa-sort-{% if sort_order == 'asc' %}up{% else %}down{% endif %}"></i></span>{% endif %}
+                                            </a>
+                                        {% endwith %}
+
+                                {# De-rated Capacity Sort Link #}
+                                {% with current_sort_field='derated_capacity' %}
+                                    <a href="{{ sort_base_url }}?{% if not is_technology_search %}q={{ query|urlencode }}&{% endif %}per_page={{ per_page }}&sort_by={{ current_sort_field }}&sort_order={% if current_sort_field == sort_by and sort_order == 'desc' %}asc{% else %}desc{% endif %}"
+                                               class="{% if current_sort_field == sort_by %}active-sort{% endif %}">
+                                       De-rated Capacity
+                                                {% if current_sort_field == sort_by %}<span class="sort-icon"><i class="fas fa-sort-{% if sort_order == 'asc' %}up{% else %}down{% endif %}"></i></span>{% endif %}
+                                            </a>
+                                        {% endwith %}
+
+                                {# Connection Capacity (MW) Sort Link #}
+                                {% with current_sort_field='mw' %}
+                                    <a href="{{ sort_base_url }}?{% if not is_technology_search %}q={{ query|urlencode }}&{% endif %}per_page={{ per_page }}&sort_by={{ current_sort_field }}&sort_order={% if current_sort_field == sort_by and sort_order == 'desc' %}asc{% else %}desc{% endif %}"
+                                       class="{% if current_sort_field == sort_by %}active-sort{% endif %}">
+                                       Connection Capacity (MW)
+                                        {% if current_sort_field == sort_by %}<span class="sort-icon"><i class="fas fa-sort-{% if sort_order == 'asc' %}up{% else %}down{% endif %}"></i></span>{% endif %}
+                                    </a>
+                                {% endwith %}
+                            </div>
+                            <div class="text-muted small">
+                                 {# Display current sort status #}
+                                 Sorted by {{ sort_description|default:'Default' }}{% if sort_order == 'asc' and sort_by != 'location' %} (Oldest/Lowest First){% elif sort_order == 'desc' and sort_by != 'location' %} (Newest/Highest First){% elif sort_by == 'location' and sort_order == 'asc' %} (A-Z){% elif sort_by == 'location' and sort_order == 'desc' %} (Z-A){% endif %}
+                            </div>
+                         </div>
+                        {% endif %}
+                        {# --- Corrected Sort Controls --- END --- #}
+                        
+                        <div class="results-list">
+                            {% for group in page_obj %}
+                                <div class="result-item mb-3 border-bottom pb-3">
+                                    <h5>
+                                        {% if group.first_component.id %}
+                                            <a href="{% url 'component_detail' pk=group.first_component.id %}" class="text-decoration-none">
+                                                <i class="bi bi-geo-alt-fill me-1"></i>
+                                                <span title="Click to view details for this component">{{ group.location|default:"Location N/A" }}</span>
+                                            </a>
+                                        {% else %}
+                                            <i class="bi bi-geo-alt-fill me-1"></i>
+                                            {{ group.location|default:"Location N/A" }}
+                                        {% endif %}
+                                        
+                                        {% if group.active_status %}
+                                            <span class="badge bg-success ms-2" title="This component has auction years in 2024-25 or later">Active</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary ms-2" title="This component only has auction years before 2024-25">In-Active</span>
+                                        {% endif %}
+                                    </h5>
+                                    <p class="mb-1">
+                                        {{ group.description|default:"No description available."|truncatewords:30 }}
+                                    </p>
+                                    <div>
+                                        {% if group.first_component.company_name %}
+                                            <a href="{% url 'company_detail' company_id=group.first_component.company_name|normalize %}" class="text-decoration-none">
+                                                <span class="badge bg-success me-1" title="Click to view all components for {{ group.first_component.company_name }}">{{ group.first_component.company_name }}</span>
+                                            </a>
+                                        {% endif %}
+
+                                        {# Use first_component.technology for check and display #}
+                                        {% if group.first_component.technology %}
+                                            <a href="{% url 'search_companies' %}?q={{ group.first_component.technology|urlencode }}" class="text-decoration-none">
+                                                <span class="badge bg-primary me-1" title="Click to search for all {{ group.first_component.technology }} components">{{ group.first_component.technology }}</span>
+                                            </a>
+                                        {% endif %}
+                                        
+                                        {# Use first_component.derated_capacity_mw for check and display #}
+                                        {% if group.first_component.derated_capacity_mw is not None %}
+                                            {# Check specifically for 'N/A' string if that's possible in the source data before conversion #}
+                                            {% if group.first_component.derated_capacity_mw == 'N/A' %}
+                                                <span class="badge bg-light text-dark me-1" title="De-Rated Capacity">Capacity N/A</span>
+                                            {% else %}
+                                                <span class="badge bg-info me-1" title="De-Rated Capacity">{{ group.first_component.derated_capacity_mw|floatformat:2 }} MW</span>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="badge bg-light text-dark me-1" title="De-Rated Capacity">Capacity N/A</span>
+                                        {% endif %}
+                                    </div>
+
+                                    {% if group.cmu_ids %}
+                                        <div class="cmu-badges-container d-flex flex-row flex-wrap gap-1 mt-2">
+                                            {% for cmu_id in group.cmu_ids %}
+                                                <a href="{% url 'search_companies' %}?q={{ cmu_id }}&search_type=cmu" class="text-decoration-none">
+                                                    <span class="badge bg-secondary me-1" title="Click to search for all components with CMU ID: {{ cmu_id }}">CMU: {{ cmu_id }}</span>
+                                                </a>
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
+
+                                    {% if group.auction_names %}
+                                        <div class="auction-badges-container d-flex flex-column gap-2 mt-2">
+                                            {% for auction_name in group.auction_names %}
+                                                {% if group.auction_to_components and auction_name in group.auction_to_components and group.auction_to_components|get_item:auction_name %}
+                                                    {% with component_id=group.auction_to_components|get_item:auction_name|first %}
+                                                        <a href="{% url 'component_detail' pk=component_id %}" class="text-decoration-none" style="width: fit-content;">
+                                                            <span class="badge bg-warning text-dark" title="Click to view details for this component in the {{ auction_name }}">{{ auction_name }}</span>
+                                                        </a>
+                                                    {% endwith %}
+                                                {% else %}
+                                                    <span class="badge bg-warning text-dark" style="width: fit-content;">{{ auction_name }}</span>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            {% empty %}
+                                <div class="alert alert-warning">No components found matching your criteria for this page.</div>
+                            {% endfor %}
+                        </div>
+
+                        <!-- Status Summary -->
+                        <div class="mt-4 d-flex flex-column align-items-center">
+                            <!-- Displaying Current Status -->
+                            <div class="alert alert-info py-2 px-4 mb-2 text-center">
+                                <strong>Showing {{ page_obj.start_index }} - {{ page_obj.end_index }}</strong> of {{ page_obj.paginator.count }} location groups
+                                {% if component_count > 0 %}
+                                    ({{ component_count }} total components)
+                                {% endif %}
+                                <br>
+                                <span class="badge bg-primary mt-1">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Pagination Controls -->
+                        {% if page_obj.paginator.num_pages > 1 %}
+                            <nav aria-label="Component navigation" class="pagination-nav">
+                                <ul class="pagination pagination-lg justify-content-center">
+                                    {% if is_technology_search %}
+                                    {% if page_obj.has_previous %}
+                                            <li class="page-item"><a class="page-link" href="/technology/{{ query|urlencode }}/?page=1&per_page={{ per_page }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}&view=paginated">First</a></li>
+                                            <li class="page-item"><a class="page-link" href="/technology/{{ query|urlencode }}/?page={{ page_obj.previous_page_number }}&per_page={{ per_page }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}&view=paginated">Previous</a></li>
+                                    {% else %}
+                                        <li class="page-item disabled"><span class="page-link">First</span></li>
+                                        <li class="page-item disabled"><span class="page-link">Previous</span></li>
+                                    {% endif %}
+
+                                    {% for i in page_range %}
+                                        {% if i == page_obj.number %}
+                                            <li class="page-item active" aria-current="page"><span class="page-link">{{ i }}</span></li>
+                                            {% elif i == 0 %} {# 0 is the ELLIPSIS value #}
+                                            <li class="page-item disabled"><span class="page-link">...</span></li>
+                                            {% else %}
+                                                <li class="page-item"><a class="page-link" href="/technology/{{ query|urlencode }}/?page={{ i }}&per_page={{ per_page }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}&view=paginated">{{ i }}</a></li>
+                                            {% endif %}
+                                        {% endfor %}
+
+                                        {% if page_obj.has_next %}
+                                            <li class="page-item"><a class="page-link" href="/technology/{{ query|urlencode }}/?page={{ page_obj.next_page_number }}&per_page={{ per_page }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}&view=paginated">Next</a></li>
+                                            <li class="page-item"><a class="page-link" href="/technology/{{ query|urlencode }}/?page={{ page_obj.paginator.num_pages }}&per_page={{ per_page }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}&view=paginated">Last</a></li>
+                                        {% else %}
+                                            <li class="page-item disabled"><span class="page-link">Next</span></li>
+                                            <li class="page-item disabled"><span class="page-link">Last</span></li>
+                                        {% endif %}
+                                    {% else %}
+                                        {% url 'search_components' as base_search_url %}
+                                        {% if page_obj.has_previous %}
+                                            <li class="page-item"><a class="page-link" href="{{ base_search_url }}?q={{ query|urlencode }}&page=1&per_page={{ per_page }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}&view=paginated">First</a></li>
+                                            <li class="page-item"><a class="page-link" href="{{ base_search_url }}?q={{ query|urlencode }}&page={{ page_obj.previous_page_number }}&per_page={{ per_page }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}&view=paginated">Previous</a></li>
+                                        {% else %}
+                                            <li class="page-item disabled"><span class="page-link">First</span></li>
+                                            <li class="page-item disabled"><span class="page-link">Previous</span></li>
+                                        {% endif %}
+
+                                        {% for i in page_range %}
+                                            {% if i == page_obj.number %}
+                                                <li class="page-item active" aria-current="page"><span class="page-link">{{ i }}</span></li>
+                                            {% elif i == 0 %} {# 0 is the ELLIPSIS value #}
+                                                <li class="page-item disabled"><span class="page-link">...</span></li>
+                                            {% else %}
+                                                <li class="page-item"><a class="page-link" href="{{ base_search_url }}?q={{ query|urlencode }}&page={{ i }}&per_page={{ per_page }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}&view=paginated">{{ i }}</a></li>
+                                        {% endif %}
+                                    {% endfor %}
+
+                                    {% if page_obj.has_next %}
+                                            <li class="page-item"><a class="page-link" href="{{ base_search_url }}?q={{ query|urlencode }}&page={{ page_obj.next_page_number }}&per_page={{ per_page }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}&view=paginated">Next</a></li>
+                                            <li class="page-item"><a class="page-link" href="{{ base_search_url }}?q={{ query|urlencode }}&page={{ page_obj.paginator.num_pages }}&per_page={{ per_page }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}&view=paginated">Last</a></li>
+                                    {% else %}
+                                        <li class="page-item disabled"><span class="page-link">Next</span></li>
+                                        <li class="page-item disabled"><span class="page-link">Last</span></li>
+                                        {% endif %}
+                                    {% endif %}
+                                </ul>
+                            </nav>
+                        {% endif %}
+
+                    </div> <!-- end component-results-section -->
+                {% elif not company_links and query %}
+                    <div class="text-center w-100">
+                        <div class="alert alert-danger alert-no-results mt-4">No matching companies or components found for "{{ query }}".</div>
+                    </div>
+                {% endif %}
+        {% elif query %}
+            <!-- No Results Message -->
+            <div class="text-center w-100">
+                <div class="alert alert-danger alert-no-results mt-4">
+                    No matching companies or components found for "{{ query }}".
+                </div>
+            </div>
+        {% endif %}
+    {% endif %}
+
+    {% if api_time is not None %}
+    <div class="mt-2 mb-3">
+        <p class="text-center small text-muted">
+            {% if from_cache %}
+            Results from cache. <a href="?q={{ query }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}&refresh=1" class="text-info">Refresh</a>
+            {% else %}
+            <a data-bs-toggle="collapse" href="#perfMetrics" role="button" aria-expanded="false" aria-controls="perfMetrics" class="text-info">
+                Query time: {{ api_time|floatformat:2 }}s (click to see details)
+            </a>
+            {% endif %}
+            
+            {% if expanded_postcodes %}
+            <span class="ms-2 badge bg-secondary">
+                Expanded location search: {{ expanded_postcodes|join:", " }}
+            </span>
+            {% endif %}
+        </p>
+        
+        <!-- Performance Metrics Collapse Panel -->
+        {% if perf_timings %}
+        <div class="collapse mb-3" id="perfMetrics">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title text-center">Performance Timing Details</h5>
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Operation</th>
+                                <th>Time (s)</th>
+                                <th>% of Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for operation, duration in perf_timings.items %}
+                            <tr{% if operation == 'total_search_time' %} class="table-primary"{% endif %}>
+                                <td>{{ operation }}</td>
+                                <td>{{ duration|floatformat:4 }}</td>
+                                <td>{% if perf_timings.total_search_time %}{% widthratio duration perf_timings.total_search_time 100 %}{% else %}0{% endif %}%</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+{% endblock content %}
+
+{% block extra_scripts %}
+    {# Add any page-specific JS here #}
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Show more companies button behavior
+            const showMoreBtn = document.getElementById('show-more-companies-btn');
+            const companyList = document.getElementById('company-links-list');
+
+            if (showMoreBtn && companyList) {
+                showMoreBtn.addEventListener('click', function() {
+                    const hiddenItems = companyList.querySelectorAll('.company-link-item[style*="display: none"]');
+                    hiddenItems.forEach(item => { item.style.display = ''; });
+                    showMoreBtn.style.display = 'none';
+                });
+            }
+            
+            // Load More Results functionality has been removed in favor of pagination
+            // We're now using traditional pagination with page links instead
+            
+            // Add loading indicator for form search and links
+            const searchForm = document.querySelector('.search-form'); 
+            const resultsContainer = document.querySelector('.content-below-header');
+            const loadingOverlay = document.createElement('div');
+            loadingOverlay.className = 'loading-overlay position-fixed d-none';
+            loadingOverlay.style.cssText = 'top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000; display:flex; align-items:center; justify-content:center;';
+            loadingOverlay.innerHTML = `
+                <div class="card p-4">
+                    <div class="d-flex align-items-center">
+                        <div class="spinner-border text-primary me-3" role="status"></div>
+                        <div class="h5 mb-0">Loading results...</div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(loadingOverlay);
+            
+            // Show loading overlay for search form, sort, and pagination links
+             if (searchForm) {
+                 searchForm.addEventListener('submit', function() {
+                    loadingOverlay.classList.remove('d-none');
+                });
+            }
+            
+            // Handle clicks on sort controls and pagination links
+            const navigationLinks = document.querySelectorAll('.sort-controls a, .pagination a');
+            navigationLinks.forEach(link => {
+                 link.addEventListener('click', function() {
+                    loadingOverlay.classList.remove('d-none');
+                 });
+             });
+
+            // Initialize Bootstrap Popovers
+            const popoverTriggerList = document.querySelectorAll('[data-bs-toggle="popover"]');
+            const popoverList = [...popoverTriggerList].map(popoverTriggerEl => new bootstrap.Popover(popoverTriggerEl, {
+                sanitize: false // Allow HTML in content
+            }));
+
+        });
+    </script>
+{% endblock %}

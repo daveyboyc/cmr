@@ -1,0 +1,91 @@
+{% extends "checker/base.html" %}
+{% load static %}
+
+{% block title %}Donation Cancelled{% endblock %}
+
+{% block extra_head %}
+<style>
+    .cancel-container {
+        max-width: 600px;
+        margin: 0 auto;
+        text-align: center;
+    }
+    .cancel-icon {
+        font-size: 80px;
+        color: #6c757d;
+        margin-bottom: 20px;
+    }
+    .cancel-card {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 30px;
+        margin-bottom: 30px;
+        background-color: #f8f9fa;
+    }
+    .btn-group {
+        margin-top: 20px;
+    }
+    .btn-return {
+        background-color: #5469d4;
+        color: #ffffff;
+        font-weight: bold;
+        border: 0;
+        border-radius: 4px;
+        padding: 10px 20px;
+        margin: 0 5px;
+        transition: all 0.2s ease;
+        display: inline-block;
+        text-decoration: none;
+    }
+    .btn-return:hover {
+        background-color: #4a5fc1;
+        color: white;
+        transform: translateY(-1px);
+    }
+    .btn-try-again {
+        background-color: #28a745;
+        color: #ffffff;
+        font-weight: bold;
+        border: 0;
+        border-radius: 4px;
+        padding: 10px 20px;
+        margin: 0 5px;
+        transition: all 0.2s ease;
+        display: inline-block;
+        text-decoration: none;
+    }
+    .btn-try-again:hover {
+        background-color: #218838;
+        color: white;
+        transform: translateY(-1px);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="cancel-container">
+    <div class="cancel-icon">
+        <i class="bi bi-x-circle"></i>
+    </div>
+    
+    <div class="cancel-card">
+        <h1>Donation Cancelled</h1>
+        <p class="lead">Your donation process was cancelled.</p>
+        
+        <p>No worries! You can try again at any time or continue using the Capacity Market Search.</p>
+        
+        <div class="btn-group">
+            <a href="{% url 'donation_page' %}" class="btn-try-again">
+                Try Again
+            </a>
+            <a href="{% url 'search_companies' %}" class="btn-return">
+                Return to Search
+            </a>
+        </div>
+    </div>
+    
+    <div class="mt-4">
+        <p><small>If you experienced any issues with the donation process, please let us know.</small></p>
+    </div>
+</div>
+{% endblock %}

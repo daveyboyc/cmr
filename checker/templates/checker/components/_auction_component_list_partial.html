@@ -1,0 +1,62 @@
+{% load checker_tags %}
+{% load humanize %}
+
+{% if components_by_cmu %}
+  <ul class="list-group list-group-flush">
+    {% for cmu_id, component_list in components_by_cmu.items %}
+      {% with first_component=component_list.0 %}{# Get the first component to access shared CMU data #}
+      <li class="list-group-item">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          {# Display CMU ID (as link) - Removed capacity badge #}
+          <div>
+            <strong class="me-3">
+              <a href="/?q={{ cmu_id }}" title="Search for CMU ID {{ cmu_id }}">CMU ID: {{ cmu_id }}</a>
+            </strong>
+            {# --- Removed yellow MW badge block --- #}
+          </div>
+          {# Only show component count badge if more than 1 record #}
+          {% if component_list|length > 1 %}
+            <span class="badge bg-secondary rounded-pill">{{ component_list|length }} Component Record{{ component_list|length|pluralize }}</span>
+          {% endif %}
+        </div>
+        <ul class="list-unstyled ms-3">
+          {# Loop through components for this CMU #}
+          {% for component in component_list %}
+            <li class="mb-2"> {# Increased bottom margin slightly #}
+              {# Location link #}
+              <a href="{% url 'component_detail' pk=component.id %}" class="text-decoration-none">
+                <i class="fas fa-cube me-1 text-muted"></i> <!-- Optional: Icon -->
+                {{ component.location|default:"N/A" }}
+              </a>
+              {# Description on a new line #}
+              {% if component.description %}
+                <p class="mb-0 ms-3 text-muted small">{{ component.description }}</p>
+              {% endif %}
+               {# Technology badge and NEW capacity badges #}
+               <div class="ms-3 mt-1"> {# Wrapper div for alignment #}
+                   {% if component.technology %}
+                     <span class="badge bg-info me-2">{{ component.technology }}</span> {# Added margin-end #}
+                   {% endif %}
+
+                   {# NEW: Component Capacity Badge #}
+                   <span class="badge bg-light text-dark border me-1" title="De-Rated Capacity (Component DB Field)">
+                       Comp: {{ component.component_capacity|format_value|default:"N/A" }} MW
+                   </span>
+
+                   {# NEW: Registry Capacity Badge #}
+                   <span class="badge bg-light text-dark border" title="De-Rated Capacity (CMU Registry Raw Data)">
+                       Reg: {{ component.registry_capacity|format_value|default:"N/A" }} MW
+                   </span>
+               </div>
+            </li>
+          {% endfor %}
+        </ul>
+      </li>
+      {% endwith %}
+    {% endfor %}
+  </ul>
+{% else %}
+  <div class="p-3 text-muted">
+    No specific components found matching the criteria for this auction within this company/year.
+  </div>
+{% endif %} 

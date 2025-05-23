@@ -1,0 +1,309 @@
+{% extends "checker/base.html" %}
+{% load static %}
+{% load checker_tags %}
+{% load humanize %}
+
+{% block title %}Search Results (Test){% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+<style>
+    /* Basic table styling */
+    .search-results-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 15px;
+    }
+    .search-results-table th, .search-results-table td {
+        border: 1px solid #dee2e6;
+        padding: 0.75rem;
+        vertical-align: top;
+    }
+    .search-results-table th {
+        background-color: #f8f9fa;
+        white-space: nowrap;
+    }
+    .search-results-table th a {
+        color: inherit;
+        text-decoration: none;
+    }
+    .search-results-table th .sort-icon {
+        margin-left: 5px;
+        color: #6c757d; /* Default icon color */
+    }
+    .search-results-table th.active .sort-icon {
+        color: #0d6efd; /* Active sort icon color */
+    }
+
+    /* Layout within cells */
+    .component-location a {
+        font-weight: bold;
+        color: #0d6efd;
+    }
+    .component-details {
+        font-size: 0.9em;
+        color: #495057;
+        margin-top: 5px;
+    }
+    .component-details strong {
+        display: inline-block;
+        min-width: 40px; /* Align labels */
+    }
+    .component-date {
+         white-space: nowrap;
+    }
+
+    /* Loading indicator styling */
+    #loading-spinner {
+        transition: all 0.3s ease;
+    }
+
+    /* Results count and Show All button */
+    .results-count-message {
+        font-size: 1.1rem;
+        padding: 10px;
+        background-color: #e9f5ff;
+        border-radius: 5px;
+        margin-bottom: 15px;
+    }
+    .btn-show-all {
+        background-color: #0d6efd;
+        color: white;
+        font-weight: bold;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <!-- Loading spinner -->
+    <div id="loading-spinner" class="text-center my-5" style="display: none;">
+        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-2">Loading results, please wait...</p>
+    </div>
+
+    <form method="get" action="{% url 'search_results_test' %}" class="mb-4">
+        <div class="input-group">
+            <input type="text" name="q" class="form-control" placeholder="Search by company name, location, CMU ID..." value="{{ query }}" required>
+            <input type="hidden" name="per_page" value="{{ per_page|default:'50' }}">
+            {# Preserve sort order on new search #}
+            {% if sort_by %}<input type="hidden" name="sort_by" value="{{ sort_by }}">{% endif %}
+            {% if sort_order %}<input type="hidden" name="sort_order" value="{{ sort_order }}">{% endif %}
+            <button class="btn btn-primary" type="submit" id="search-button">Search (Test)</button>
+        </div>
+    </form>
+
+    <div id="results-container" style="display: none;">
+        {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+        {% else %}
+            <div class="results-meta mb-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h3>Search Results for "{{ query }}" (Test Layout)</h3>
+                    {% if from_cache %}
+                        <span class="badge bg-info text-dark">Cached Results</span>
+                    {% endif %}
+                </div>
+                <div class="text-muted">
+                    Found in {{ api_time|default:0|floatformat:2 }} seconds
+                </div>
+            </div>
+
+            {# Display Company Matches (same as original) #}
+            {% if company_count > 0 %}
+                <div class="mb-4">
+                    <h4>Companies ({{ company_count }})</h4>
+                    <div class="list-group">
+                        {% for company in companies %}
+                            <div class="list-group-item">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-1">{{ company.name }}</h5>
+                                    <span class="badge bg-primary rounded-pill">{{ company.component_count }} components</span>
+                                </div>
+                                <p class="mb-1"><small>CMU IDs: {{ company.cmu_ids_display }}</small></p>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
+            {# Display Component Matches (New Table Layout) #}
+            {% if components %}
+                <h4>Components ({{ total_count }})</h4>
+
+                {# Results count message #}
+                {% if total_count > components|length %}
+                <div class="results-count-message">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>Showing {{ components|length }} of {{ total_count }} matching components</strong>
+                        </div>
+                        {# Construct Show All URL with all params #}
+                        {% url 'search_results_test' as base_url %}
+                        <a href="{{ base_url }}?q={{ query|urlencode }}&per_page={{ total_count }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}" class="btn btn-show-all">
+                            Show All {{ total_count }} Results
+                        </a>
+                    </div>
+                </div>
+                {% endif %}
+
+                <table class="search-results-table table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            {% comment %} --- Location Sort Header --- {% endcomment %}
+                            {% url 'search_results_test' as base_url %}
+                            {% with current_sort_field='location' %}
+                            {% with current_sort_dir=sort_order|default:'asc' %}
+                            {% with next_sort_dir='desc' if current_sort_field == sort_by and current_sort_dir == 'asc' else 'asc' %}
+                            <th scope="col" class="{% if current_sort_field == sort_by %}active{% endif %}">
+                                <a href="{{ base_url }}?q={{ query|urlencode }}&per_page={{ per_page }}&sort_by={{ current_sort_field }}&sort_order={{ next_sort_dir }}">
+                                    Location
+                                    <span class="sort-icon">
+                                        {% if current_sort_field == sort_by %}
+                                            <i class="fas fa-sort-{% if current_sort_dir == 'asc' %}up{% else %}down{% endif %}"></i>
+                                        {% else %}
+                                            <i class="fas fa-sort"></i> {# Default unsorted icon #}
+                                        {% endif %}
+                                    </span>
+                                </a>
+                            </th>
+                            {% endwith %}
+                            {% endwith %}
+                            {% endwith %}
+
+                            {% comment %} --- Date Sort Header --- {% endcomment %}
+                            {% url 'search_results_test' as base_url %}
+                            {% with current_sort_field='date' %}
+                            {% with current_sort_dir=sort_order|default:'desc' %}
+                            {% with next_sort_dir='desc' if current_sort_field == sort_by and current_sort_dir == 'asc' else 'asc' %}
+                            <th scope="col" class="{% if current_sort_field == sort_by %}active{% endif %} component-date">
+                                <a href="{{ base_url }}?q={{ query|urlencode }}&per_page={{ per_page }}&sort_by={{ current_sort_field }}&sort_order={{ next_sort_dir }}">
+                                    Date
+                                    <span class="sort-icon">
+                                        {% if current_sort_field == sort_by %}
+                                            <i class="fas fa-sort-{% if current_sort_dir == 'asc' %}up{% else %}down{% endif %}"></i>
+                                        {% else %}
+                                            <i class="fas fa-sort"></i>
+                                        {% endif %}
+                                    </span>
+                                </a>
+                            </th>
+                            {% endwith %}
+                            {% endwith %}
+                            {% endwith %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for component in components %}
+                        <tr>
+                            <td>
+                                {# Location Link #}
+                                <div class="component-location">
+                                     <a href="{% url 'component_detail' pk=component._id %}" title="View details for component {{ component.cmu_id|default:component._id }}">
+                                        {{ component.location|default:"Unknown Location" }}
+                                    </a>
+                                </div>
+                                {# Other Details Underneath #}
+                                <div class="component-details">
+                                    {% if component.cmu_id %}<div><strong>CMU:</strong> {{ component.cmu_id }}</div>{% endif %}
+                                    <div><strong>Co:</strong> {% company_badge component.company_name %}</div>
+                                    {% if component.description %}<div><strong>Desc:</strong> {{ component.description|truncatechars:100 }}</div>{% endif %}
+                                    {% with capacity=component.derated_capacity_mw %}
+                                        {% if capacity is not None %}<div><strong>MW:</strong> {{ capacity|floatformat:2|default:"N/A" }}</div>{% endif %}
+                                    {% endwith %}
+                                    {# Debug info #}
+                                    {% if debug_mode and component.debug_matched_fields %}
+                                        <div class="mt-1"><small class="text-muted">Debug Match: {{ component.debug_matched_fields|join:", " }} (Score: {{ component.relevance_score|default:0 }})</small></div>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td class="component-date">
+                                <div>{{ component.delivery_year|default:"N/A" }}</div>
+                                <div class="text-muted small">{{ component.auction_name|default:"" }}</div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+
+                {# Pagination / Show More links - updated to include sort params #}
+                {% if total_count > components|length %}
+                    <div class="alert alert-warning mt-4">
+                        <p><strong>Want to see more?</strong> You're currently viewing {{ components|length }} of {{ total_count }} total matching components.</p>
+                        <div class="btn-group" role="group">
+                             {% url 'search_results_test' as base_url %}
+                            {% with base_params=request.GET.urlencode %}
+                            {# Construct base URL with all current params EXCEPT per_page #}
+                            {% captureas current_params %}{% for key, value in request.GET.items %}{% if key != 'per_page' %}&{{ key }}={{ value|urlencode }}{% endif %}{% endfor %}{% endcaptureas %}
+
+                            <a href="{{ base_url }}?q={{ query|urlencode }}&per_page=100&sort_by={{ sort_by }}&sort_order={{ sort_order }}" class="btn btn-outline-primary">Show 100</a>
+                            <a href="{{ base_url }}?q={{ query|urlencode }}&per_page=200&sort_by={{ sort_by }}&sort_order={{ sort_order }}" class="btn btn-outline-primary">Show 200</a>
+                            <a href="{{ base_url }}?q={{ query|urlencode }}&per_page=500&sort_by={{ sort_by }}&sort_order={{ sort_order }}" class="btn btn-outline-primary">Show 500</a>
+                            <a href="{{ base_url }}?q={{ query|urlencode }}&per_page={{ total_count }}&sort_by={{ sort_by }}&sort_order={{ sort_order }}" class="btn btn-primary">Show All {{ total_count }}</a>
+                             {% endwith %}
+                       </div>
+                        <p class="small text-muted mt-2">Note: Loading more results may take longer</p>
+                    </div>
+                {% endif %}
+
+            {% else %}
+                <div class="alert alert-warning">No components found matching your search query "{{ query }}".</div>
+            {% endif %}
+
+            {% if debug_mode and suspicious_components %}
+                 <div class="alert alert-danger mt-3">
+                      <strong>Debug Info:</strong> Found {{ suspicious_components|length }} components returned by DB that didn't strictly match '{{ query }}' in key fields. Examples:
+                      <ul>
+                      {% for comp in suspicious_components %}
+                           <li>ID: {{ comp.id }}, Co: {{ comp.company }}, Loc: {{ comp.location }}, Desc: {{ comp.description }}</li>
+                      {% endfor %}
+                      </ul>
+                 </div>
+            {% endif %}
+
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Show loading spinner when search form is submitted
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchForm = document.querySelector('form');
+        const resultsContainer = document.getElementById('results-container');
+        const loadingSpinner = document.getElementById('loading-spinner');
+
+        // Show results container immediately if we have results or an error
+        {% if components or error or company_count > 0 %}
+            resultsContainer.style.display = 'block';
+            loadingSpinner.style.display = 'none';
+        {% else %}
+             // If no results AND no error, still show container (to show 'No components found' message)
+             // but only if a query was actually made
+             {% if query %}
+                 resultsContainer.style.display = 'block';
+                 loadingSpinner.style.display = 'none';
+             {% endif %}
+        {% endif %}
+
+        if (searchForm) {
+             searchForm.addEventListener('submit', function() {
+                 if(loadingSpinner) loadingSpinner.style.display = 'block';
+                 if(resultsContainer) resultsContainer.style.display = 'none';
+             });
+        }
+
+        // Handle clicks on sort headers and pagination/show more links to show loading
+        const sortLinks = document.querySelectorAll('.search-results-table th a, .alert .btn-group a');
+        sortLinks.forEach(link => {
+            link.addEventListener('click', function() {
+                if(loadingSpinner) loadingSpinner.style.display = 'block';
+                if(resultsContainer) resultsContainer.style.display = 'none';
+            });
+        });
+    });
+</script>
+{% endblock %} 

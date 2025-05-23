@@ -1,0 +1,451 @@
+{
+  "mapping": {
+    "Asset is yet to be procured / allocated": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Component has yet to be procured/allocated": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Component has yet to be procured - Unproven DSR": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Land 300M NE Of Bridge Of Dun Substation Dun Montrose": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Land adjacent to Berryburn Substation Moray": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "N/A": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "NA": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Not applicable": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Not Applicable": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "not known": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Not Known": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Not year available": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "provided after auction": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "TBC": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "to be provided after auction": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "to be provided after the auction": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Component has yet to be procured": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Component has yet to be\u00a0procurred": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "To be provided": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "to be provided": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Westfield Energy Limited,\nLochgelly,\nFife.": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "n/a": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "N/A - will be provided post auction.": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Not Available ? components still to be determined": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Not yet known": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "the land to the south west of Middleton Road, Middleton, Morecambe extending to\napproximately 3 acres": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Threemiletown Solar Farm Trinlaymire Farm Linlithgow West Lothian": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Westfield Energy Recovery Limited,\nLochgelly,\nFife.": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Component has yet to be procured.": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Kennoxhead WF 132kV Substation, \nSouth Lanarkshire, \nScotland": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Land Adjacent To Electricity Sub-Station, Agecroft Road, Pendlebury": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "This is across UK due to high volume of users": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "To be Determined": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Hilfield Lane, Bushey, Hertsmere, Hertforshire, East of England, England": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Ilya to confirm": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Nr Elvanfoot, South Lanarkshire": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "*Please see cover letter regarding postcode\nAberarder Wind Farm,\nAberarder Estate,\nStrathnairn,\nHighland\nScotland": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "tbc": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "TBD": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "TBA": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "To be confirmed": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "To be confirmed once CMU components are known": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "To be determined": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Units 1-11, 16 and 17 Sandhurst, Kings Road, Canvey Island": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Breck Road, Wallasey, Liverpool": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Connah's Quay 400 kV Substation": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Farr and Glenkyllachy Estate, Inverness-shire.": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Land West of Hopewell Street, Stairfoot, Barnsley": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Molesworth Street Citibank Data Centre South (85821)": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Multiple addresses": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "N/A as prequalification stage for an unproven DSR CMU the components are not finalised.": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Parc Adfer Energy Recovery Facility\nDeeside Industrial Park\n(Currently in the process of obtaining an official address Royal Mail address for the facility; please see cover letter).": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Site To South Of, Burnbank Street, Greenhill, Coatbridge, North Lanarkshire": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "The Yard, Holme Road, Stoney Holme, Burnley": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "To be confirmed once components are known": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "to be confirmed once the CMU components are known": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Unproven DSR yet to be procured": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "DSR components to be notified when reconfigured": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "to be provided once CMU Components are known": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Gowanbank TWP \nGowanbank \nArmadale \nBathgate": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Land to the rear of Hawley House, Outgang, Lane Dinnington, Rotherham.": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Muiresk RWP\nMuiresk \nTurriff \nAberdeenshire": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "To be confirmed - the components of the unproven DSR are to be determined": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "TBC - as this is an unproven DSR CMU we will determine the components from the Tata Steel UK estate.": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "to be confirmed once CMU components are known": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "To be confirmed - the components of the Unproven DSR CMU are to be determined.": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Components will be derived from multiple manufacturing locations & assets within TSUK.  To be confirmed after initial prequalification.": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Multiple addressses": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Sites across Great Britain. See business plan.": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Component yet to be procured": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "Grundon - Thorney Park\nGrundon - Starwork\nGrundon - Wingmoor\nLongma\nCory - Highfield\nCory - Shortwood\nLangage Farm\nCory - Greatness\nCory - Lyme&Wood\nCory - Hafod\nSovereign DC \nNEC": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "These sites are already generating and exporting to the distribution grid. We are aggregating their output in the context of and FFR Growth programme.": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    "To be confirmed.": {
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    }
+  },
+  "metadata": {
+    "processed_at": "2025-05-06 11:12:09",
+    "total_locations": 0,
+    "locations_processed": 0,
+    "locations_mapped": 0,
+    "locations_with_county": 0,
+    "locations_skipped_no_postcode": 0,
+    "success_rate": "0.00%"
+  }
+}

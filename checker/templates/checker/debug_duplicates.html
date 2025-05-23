@@ -1,0 +1,186 @@
+{% extends "checker/base.html" %}
+{% load checker_tags %}
+
+{% block title %}Debug Duplicates{% endblock %}
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Component Duplicates Analysis</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    {% load static %}
+    <link rel="icon" type="image/png" href="{% static 'images/favicon.png' %}">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+        }
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .summary-card {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+        .duplicate-card {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+        pre {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="page-header">
+            <h1>Component Duplicates Analysis</h1>
+            <div>
+                <a href="{% url 'search_companies' %}" class="btn btn-outline-primary">
+                    <span class="bi bi-arrow-left"></span> Back to Search
+                </a>
+            </div>
+        </div>
+
+        <!-- Summary Info -->
+        <div class="summary-card">
+            <h2>Summary for CMU ID: {{ cmu_id }}</h2>
+            <p class="lead">Analysis of duplicate components by location</p>
+            
+            <dl class="row">
+                <dt class="col-sm-3">Total Components</dt>
+                <dd class="col-sm-9">{{ analysis.total_components }}</dd>
+                
+                <dt class="col-sm-3">Unique Locations</dt>
+                <dd class="col-sm-9">{{ analysis.unique_locations }}</dd>
+                
+                <dt class="col-sm-3">Duplicate Locations</dt>
+                <dd class="col-sm-9">{{ analysis.duplicate_locations|length }}</dd>
+                
+                <dt class="col-sm-3">API Time</dt>
+                <dd class="col-sm-9">{{ api_time|floatformat:2 }} seconds</dd>
+            </dl>
+        </div>
+
+        <!-- Duplicates Section -->
+        {% if analysis.duplicate_locations %}
+        <div class="card mb-4">
+            <div class="card-header bg-warning text-dark">
+                <h3 class="m-0">Duplicate Locations Found</h3>
+            </div>
+            <div class="card-body">
+                {% for dup in analysis.duplicate_locations %}
+                <div class="duplicate-card">
+                    <h4>{{ dup.location }}</h4>
+                    <p>Found {{ dup.count }} times</p>
+                    
+                    <!-- List of duplicates -->
+                    <div class="accordion" id="duplicateAccordion{{ forloop.counter }}">
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" 
+                                        data-bs-toggle="collapse" 
+                                        data-bs-target="#duplicateItems{{ forloop.counter }}">
+                                    View Components
+                                </button>
+                            </h2>
+                            <div id="duplicateItems{{ forloop.counter }}" class="accordion-collapse collapse" 
+                                 data-bs-parent="#duplicateAccordion{{ forloop.counter }}">
+                                <div class="accordion-body">
+                                    <div class="list-group">
+                                        {% for component in components %}
+                                            {% if component|get_item:'Location and Post Code' == dup.location %}
+                                            <div class="list-group-item">
+                                                <h5>Component #{{ forloop.counter }}</h5>
+                                                <dl class="row">
+                                                    <dt class="col-sm-3">Location</dt>
+                                                    <dd class="col-sm-9">{{ component|get_item:'Location and Post Code' }}</dd>
+                                                    
+                                                    <dt class="col-sm-3">Description</dt>
+                                                    <dd class="col-sm-9">{{ component|get_item:'Description of CMU Components' }}</dd>
+                                                    
+                                                    <dt class="col-sm-3">Technology</dt>
+                                                    <dd class="col-sm-9">{{ component|get_item:'Generating Technology Class' }}</dd>
+                                                </dl>
+                                                
+                                                <button class="btn btn-sm btn-outline-secondary" type="button" 
+                                                        data-bs-toggle="collapse" 
+                                                        data-bs-target="#rawComponent{{ forloop.parentloop.counter }}_{{ forloop.counter }}">
+                                                    View Raw Data
+                                                </button>
+                                                <div class="collapse mt-2" id="rawComponent{{ forloop.parentloop.counter }}_{{ forloop.counter }}">
+                                                    <pre>{{ component|pprint }}</pre>
+                                                </div>
+                                            </div>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% else %}
+        <div class="alert alert-success">
+            <h3>No Duplicates Found</h3>
+            <p>All {{ analysis.total_components }} components have unique locations.</p>
+        </div>
+        {% endif %}
+        
+        <!-- Location Counts -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h3 class="m-0">All Locations</h3>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Location</th>
+                                <th>Count</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for location, count in analysis.location_counts.items %}
+                            <tr {% if count > 1 %}class="table-warning"{% endif %}>
+                                <td>{{ location }}</td>
+                                <td>{{ count }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html> 

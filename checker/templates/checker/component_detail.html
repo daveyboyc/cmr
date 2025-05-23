@@ -1,0 +1,480 @@
+{% extends "checker/base.html" %}
+{% load humanize %}
+{% load checker_tags %}
+{% load static %}
+
+{% block title %}Component Detail - {{ component.CMU_ID|default:"Unknown CMU" }}{% endblock %}
+
+{% block extra_head %}
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        /* REMOVE CONFLICTING BODY RULE */
+        /* body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+            background-image: url('/static/images/backgrounds/industrial_background.jpeg');
+            background-size: cover;
+            background-position: center center;
+            background-attachment: fixed;
+            background-repeat: no-repeat;
+            color: #333;
+        } */
+        
+        /* REMOVE CONFLICTING CONTAINER RULE - Use base.html style */
+        /* .container {
+            max-width: 960px;
+            margin: 0 auto;
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+        } */
+        
+        /* Keep styles specific to this page's elements */
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .back-link {
+            text-decoration: none;
+            color: var(--bs-secondary-color);
+        }
+        .back-link:hover {
+            text-decoration: underline;
+            color: var(--bs-emphasis-color);
+        }
+        .component-card {
+            background-color: var(--bs-card-bg);
+            border-radius: var(--bs-card-border-radius);
+            border: var(--bs-card-border-width) solid var(--bs-card-border-color);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+            padding: 16px;
+        }
+        .detail-section {
+            margin-bottom: 24px;
+        }
+        .detail-title {
+            color: var(--bs-primary);
+            border-bottom: 1px solid var(--bs-border-color-translucent);
+            padding-bottom: 8px;
+            margin-bottom: 16px;
+        }
+        .detail-item {
+            margin-bottom: 12px;
+        }
+        .detail-label {
+            font-weight: bold;
+            color: var(--bs-secondary-color);
+        }
+        .detail-value {
+            margin-left: 8px;
+            color: var(--bs-body-color);
+        }
+        .nav-links {
+            margin-bottom: 20px;
+        }
+        .nav-links a {
+            color: var(--bs-link-color);
+            text-decoration: none;
+            margin-right: 15px;
+        }
+        .nav-links a:hover {
+            text-decoration: underline;
+        }
+        .location-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .location-header .location-text {
+            font-size: 1.4rem;
+            font-weight: bold;
+            margin-right: 15px;
+            color: var(--bs-body-color);
+        }
+        .badges-row {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .cmu-badge {
+            margin-left: 0;
+            padding: 6px 15px;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+            text-align: center;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            vertical-align: middle;
+            min-height: 38px;
+        }
+        .cmu-badge .cmu-label {
+            font-size: 0.8rem;
+            line-height: 1;
+            margin-right: 0.3em;
+        }
+        .cmu-badge .cmu-value {
+            font-size: 1rem;
+            display: inline;
+            margin-top: 0;
+            line-height: 1.1;
+        }
+        .cmu-badge:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .company-badge {
+            font-size: 1rem;
+            padding: 6px 12px;
+            font-weight: bold;
+            margin-left: 0;
+            text-decoration: none;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            vertical-align: middle;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1.1;
+            min-height: 38px;
+        }
+        .company-badge:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            text-decoration: none;
+        }
+        .map-button {
+            background-color: #34a853;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 12px;
+            margin-left: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+            transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .map-button:hover {
+            background-color: #288941;
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .map-button i {
+            font-size: 16px;
+        }
+        .list-group-item {
+            background-color: var(--bs-list-group-bg);
+            color: var(--bs-list-group-color);
+            border-color: var(--bs-list-group-border-color);
+        }
+        .card-header {
+             background-color: var(--bs-card-cap-bg);
+             color: var(--bs-card-cap-color);
+             border-bottom: var(--bs-card-border-width) solid var(--bs-card-border-color);
+        }
+
+        /* Override card/list backgrounds in dark mode for transparency */
+        html[data-bs-theme="dark"] .component-card,
+        html[data-bs-theme="dark"] .card,
+        html[data-bs-theme="dark"] .card-header,
+        html[data-bs-theme="dark"] .list-group-item {
+            background-color: transparent !important;
+        }
+
+        /* Force text color for common elements within cards/lists in dark mode */
+        html[data-bs-theme="dark"] .component-card *,
+        html[data-bs-theme="dark"] .card-body *,
+        html[data-bs-theme="dark"] .list-group-item *,
+        html[data-bs-theme="dark"] .card-header {
+             color: var(--bs-body-color) !important; 
+        }
+
+        /* Ensure card headers also get correct color (Redundant but safe) */
+         html[data-bs-theme="dark"] .card-header {
+              color: var(--bs-body-color) !important;
+         }
+
+        /* Remove the previous block */
+        /* html[data-bs-theme="dark"] .component-card, ... { color: var(--bs-body-color) !important; } */
+
+        /* Keep link overrides - ensure high specificity */
+         html[data-bs-theme="dark"] .list-group-item a {
+              color: var(--bs-link-color) !important;
+         }
+         html[data-bs-theme="dark"] .list-group-item a:hover {
+              color: var(--bs-link-hover-color) !important;
+         }
+
+    </style>
+{% endblock %}
+
+{% block content %}
+    <!-- Header - Buttons Swapped -->
+    <div class="page-header">
+        <a href="javascript:history.back()" class="back-link">
+             <i class="bi bi-arrow-return-left"></i> Back to Results
+        </a>
+        <a href="{% url 'search_companies' %}" class="btn btn-outline-primary">
+            <i class="bi bi-arrow-left"></i> Back to Search
+        </a>
+    </div>
+
+    {% if error %}
+        <div class="alert alert-danger" role="alert">
+            {{ error }}
+            {% if suggestion %}<br>{{ suggestion }}{% endif %}
+        </div>
+    {% elif component %}
+        <div class="component-card">
+            <div class="location-header">
+                <span class="location-text">{{ component_detail.Location|default:"N/A" }}</span>
+                
+                {% if component_detail.Location != "N/A" %}
+                    <a href="https://www.google.com/maps/search/?api=1&query={{ component_detail.Location|urlencode }}" target="_blank" class="map-button">
+                        <i class="bi bi-geo-alt-fill"></i> Map
+                    </a>
+                {% endif %}
+            </div>
+            
+            <div class="badges-row mb-3">
+                {% with company_name=component_detail.Company|default:"Unknown" %}
+                    {% if company_name != "Unknown" %}
+                        <a href="{% url 'company_detail' company_id=company_name|normalize %}"
+                           class="badge bg-success company-badge">
+                            <i class="bi bi-building"></i> {{ company_name }}
+                        </a>
+                    {% endif %}
+                {% endwith %}
+                
+                <a href="{% url 'search_companies' %}?q={{ cmu_id }}" class="badge bg-primary cmu-badge text-decoration-none">
+                    <span class="cmu-label"><i class="bi bi-tag-fill me-1"></i> CMU ID:</span><span class="cmu-value">{{ cmu_id }}</span>
+                </a>
+            </div>
+
+            {# --- Start General Information Card --- #}
+            <div class="detail-section">
+                <h3 class="detail-title">General Information</h3>
+                <div class="card mb-3">
+                    <div class="card-header">Key Details</div>
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>Description</span>
+                            <span class="text-end">{{ component_detail.Description|default:"N/A" }}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>Auction</span>
+                            <span class="text-end">{{ component_detail.Auction|default:"N/A" }}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>Delivery Year</span>
+                            <span class="text-end">{{ delivery_year|default:"N/A" }}</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            {# --- End General Information Card --- #}
+
+            {# --- Add Geocoded Status Here --- #}
+            <div class="detail-item mb-3">
+                <span class="detail-label">Geocoding Status:</span>
+                {% if is_geocoded %}
+                    <span class="badge bg-success ms-2">Yes</span>
+                {% else %}
+                    <span class="badge bg-warning text-dark ms-2">No</span>
+                {% endif %}
+            </div>
+
+            {# --- START Technical Capacity Information --- #}
+            <div class="detail-section">
+                <h3 class="detail-title">Technical Capacity Information</h3>
+                <div class="card mb-3">
+                    <div class="card-header">Capacity Metrics</div>
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>De-Rated Capacity (Component DB)</span>
+                            <span class="text-end">
+                                {% if component_derated_capacity is not None %}
+                                    {{ component_derated_capacity|format_value }} MW
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>De-Rated Capacity (CMU Registry)</span>
+                            <span class="text-end">
+                                 {% if registry_derated_capacity is not None and registry_derated_capacity != 'N/A' %}
+                                    {{ registry_derated_capacity|format_value }}
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>Connection Capacity (CMU Registry)</span>
+                            <span class="text-end">
+                                 {% if connection_capacity is not None %}
+                                    {{ connection_capacity|format_value }} MW
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>Anticipated Capacity (CMU Registry)</span>
+                            <span class="text-end">
+                                 {% if anticipated_capacity is not None %}
+                                    {{ anticipated_capacity|format_value }} MW
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </span>
+                        </li>
+                    </ul>
+                </div>
+                <p class="small text-muted">
+                    Note: De-rated capacity typically accounts for availability factors. Connection capacity represents the maximum grid connection size. Values sourced from Component database or CMU Registry as indicated.
+                </p>
+            </div>
+            {# --- END Technical Capacity Information --- #}
+            
+            {# --- START Contact & Ownership Information --- #}
+            <div class="detail-section">
+                <h3 class="detail-title">Contact & Ownership</h3>
+                <div class="card mb-3">
+                    <div class="card-header">Company Information</div>
+                    <ul class="list-group list-group-flush">
+                         <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>Applicant / Company Name</span>
+                            <span class="text-end">{{ component_detail.Company|default:"N/A" }}</span>
+                        </li>
+                         <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>Parent Company (CMU Registry)</span>
+                            <span class="text-end">{{ parent_company|default:"N/A" }}</span>
+                        </li>
+                         <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>Secondary Trading Email (CMU Registry)</span>
+                            <span class="text-end">
+                                {% if trading_email %}
+                                    <a href="mailto:{{ trading_email }}">{{ trading_email }}</a>
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </span>
+                        </li>
+                         <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>Secondary Trading Phone (CMU Registry)</span>
+                            <span class="text-end">
+                                {% if trading_phone %}
+                                    {% with cleaned_phone=trading_phone|strip_prefix:"'" %}
+                                        <a href="tel:{{ cleaned_phone }}">{{ cleaned_phone }}</a>
+                                    {% endwith %}
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            {# --- END Contact & Ownership Information --- #}
+
+            <!-- Raw Component Data Section -->
+            <div class="detail-section">
+                <h3 class="detail-title">
+                    <a class="text-decoration-none" data-bs-toggle="collapse" href="#rawComponentDataSection" role="button" aria-expanded="false">
+                        <span class="bi bi-code-square"></span> Raw Component Data
+                    </a>
+                </h3>
+                <div class="collapse" id="rawComponentDataSection">
+                    <div class="card card-body">
+                        <table class="table table-sm table-bordered table-striped small">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Field</th>
+                                    <th>Value</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for key, value in raw_component_data.items %}
+                                    <tr>
+                                        <td style="word-break: break-all;">{{ key }}</td>
+                                        <td style="word-break: break-all;">
+                                            {% if value|is_dict or value|is_list %}
+                                                <pre>{{ value|jsonify }}</pre>
+                                            {% else %}
+                                                {{ value|default:"(empty)" }}
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Raw CMU Data Section -->
+            <div class="detail-section">
+                <h3 class="detail-title">
+                    <a class="text-decoration-none" data-bs-toggle="collapse" href="#rawCmuDataSection" role="button" aria-expanded="false">
+                        <span class="bi bi-code-square"></span> Raw CMU Data
+                    </a>
+                </h3>
+                <div class="collapse" id="rawCmuDataSection">
+                    <div class="card card-body">
+                        <table class="table table-sm table-bordered table-striped small">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Field</th>
+                                    <th>Value</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for key, value in raw_cmu_data.items %}
+                                    <tr>
+                                        <td style="word-break: break-all;">{{ key }}</td>
+                                        <td style="word-break: break-all;">
+                                            {% if value|is_dict or value|is_list %}
+                                                <pre>{{ value|jsonify }}</pre>
+                                            {% else %}
+                                                {{ value|default:"(empty)" }}
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% else %}
+        <div class="alert alert-warning" role="alert">
+            Component not found or error loading details.
+        </div>
+    {% endif %}
+
+    <!-- Debug Output -->
+    {% if 'debug' in request.GET %}
+    <div class="alert alert-secondary">
+        <h4>Debug Info</h4>
+        <p>company_name: {{ company_name }}</p>
+        <p>company_id: {{ company_id }}</p>
+        <p>year_auction_data exists: {% if year_auction_data %}Yes{% else %}No{% endif %}</p>
+        <p>year_auction_data length: {{ year_auction_data|length }}</p>
+        <p>sort_order: {{ sort_order }}</p>
+    </div>
+    {% endif %}
+
+{% endblock %}

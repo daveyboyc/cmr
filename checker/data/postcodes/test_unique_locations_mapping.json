@@ -1,0 +1,1109 @@
+{
+  "locations_mapped": 96,
+  "locations_with_county": 96,
+  "location_mappings": [
+    {
+      "location": "Ovangle Road , Lancaster, LA1 5JR",
+      "full_postcodes": [
+        "LA1 5JR"
+      ],
+      "outward_codes": [],
+      "county": "Lancashire",
+      "outcode": "LA1",
+      "region": "North West",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "St. Aidans Avenue, Durham, DH1",
+      "full_postcodes": [],
+      "outward_codes": [
+        "DH1"
+      ],
+      "county": "County Durham",
+      "outcode": "DH1",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Eurac - Dorset, 16 Mannings Heath Road Poole Dorset BH12 4NJ",
+      "full_postcodes": [
+        "BH12 4NJ"
+      ],
+      "outward_codes": [],
+      "county": "Bournemouth, Christchurch and Poole",
+      "outcode": "BH12",
+      "region": "South West",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "BONDGATE CASTLE DONINGTON DERBY DE74",
+      "full_postcodes": [],
+      "outward_codes": [
+        "DE74"
+      ],
+      "county": "Rushcliffe",
+      "outcode": "DE74",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "WOODSIDE AVENUE CORBRIDGE NE45",
+      "full_postcodes": [],
+      "outward_codes": [
+        "NE45"
+      ],
+      "county": "Northumberland",
+      "outcode": "NE45",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Joslin Avenue, Barnet, London, NW9 5HB",
+      "full_postcodes": [
+        "NW9 5HB"
+      ],
+      "outward_codes": [],
+      "county": "Barnet",
+      "outcode": "NW9",
+      "region": "London",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "MOUSEHOLD NITRATE REMOVAL WW, Telegraph Road East, Norwich, Norfolk. NR1 4HX",
+      "full_postcodes": [
+        "NR1 4HX"
+      ],
+      "outward_codes": [],
+      "county": "Norfolk",
+      "outcode": "NR1",
+      "region": "East of England",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Burnham Drive Leicester Leicestershire LE8",
+      "full_postcodes": [],
+      "outward_codes": [
+        "LE8"
+      ],
+      "county": "Blaby",
+      "outcode": "LE8",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "SO45 1TX",
+      "full_postcodes": [
+        "SO45 1TX"
+      ],
+      "outward_codes": [],
+      "county": "Hampshire",
+      "outcode": "SO45",
+      "region": "South East",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "1345 Govan Rd, Glasgow Metropolitan Area G51 4TF",
+      "full_postcodes": [
+        "G51 4TF"
+      ],
+      "outward_codes": [],
+      "county": "Glasgow City",
+      "outcode": "G51",
+      "region": null,
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "SP7",
+      "full_postcodes": [],
+      "outward_codes": [
+        "SP7"
+      ],
+      "county": "Wiltshire",
+      "outcode": "SP7",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "CR2",
+      "full_postcodes": [],
+      "outward_codes": [
+        "CR2"
+      ],
+      "county": "Croydon",
+      "outcode": "CR2",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "William Lee - Site 5, Callywhite Lane, Dronfield, S182XU",
+      "full_postcodes": [],
+      "outward_codes": [
+        "S18"
+      ],
+      "county": "North East Derbyshire",
+      "outcode": "S18",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "LIME TREE GROVE ROSSENDALE LANCASHIRE BB4",
+      "full_postcodes": [],
+      "outward_codes": [
+        "BB4"
+      ],
+      "county": "Rossendale",
+      "outcode": "BB4",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Mount Pleasant The Mount Retail Park, Hull, HU9 2BN",
+      "full_postcodes": [
+        "HU9 2BN"
+      ],
+      "outward_codes": [],
+      "county": "Kingston upon Hull, City of",
+      "outcode": "HU9",
+      "region": "Yorkshire and The Humber",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Holmers Farm Way  HP12 4NU",
+      "full_postcodes": [
+        "HP12 4NU"
+      ],
+      "outward_codes": [],
+      "county": "Buckinghamshire",
+      "outcode": "HP12",
+      "region": "South East",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "West Thorpe, Willoughby on the Wolds, LE12 6TD",
+      "full_postcodes": [
+        "LE12 6TD"
+      ],
+      "outward_codes": [],
+      "county": "Nottinghamshire",
+      "outcode": "LE12",
+      "region": "East Midlands",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Crown Works, Rotherham Road, Beighton, Sheffield, S20 1AH",
+      "full_postcodes": [
+        "S20 1AH"
+      ],
+      "outward_codes": [],
+      "county": "Rotherham",
+      "outcode": "S20",
+      "region": "Yorkshire and The Humber",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Land On The North Side Of Queensway Telford (UPS) TF1 6QX",
+      "full_postcodes": [
+        "TF1 6QX"
+      ],
+      "outward_codes": [],
+      "county": "Telford and Wrekin",
+      "outcode": "TF1",
+      "region": "West Midlands",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "RAWDEN PLACE CANTON CARDIFF SOUTH GLAMORGAN CF11",
+      "full_postcodes": [],
+      "outward_codes": [
+        "CF11"
+      ],
+      "county": "Cardiff",
+      "outcode": "CF11",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Johnson Street, Leigh, M46 0RB",
+      "full_postcodes": [
+        "M46 0RB"
+      ],
+      "outward_codes": [],
+      "county": "Wigan",
+      "outcode": "M46",
+      "region": "North West",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "WN8",
+      "full_postcodes": [],
+      "outward_codes": [
+        "WN8"
+      ],
+      "county": "West Lancashire",
+      "outcode": "WN8",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Chichester Food Park, Bognor Rd, Chichester PO20 1NW, United Kingdom",
+      "full_postcodes": [
+        "PO20 1NW"
+      ],
+      "outward_codes": [],
+      "county": "West Sussex",
+      "outcode": "PO20",
+      "region": "South East",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "B13",
+      "full_postcodes": [],
+      "outward_codes": [
+        "B13"
+      ],
+      "county": "Birmingham",
+      "outcode": "B13",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Dewsbury Road , Wakefield, WF2 9BL",
+      "full_postcodes": [
+        "WF2 9BL"
+      ],
+      "outward_codes": [],
+      "county": "Wakefield",
+      "outcode": "WF2",
+      "region": "Yorkshire and The Humber",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Land at Model Farm, Frenchs Road, Walpole St. Andrew, Norfolk, PE14  7JE.",
+      "full_postcodes": [],
+      "outward_codes": [
+        "PE14"
+      ],
+      "county": "Fenland",
+      "outcode": "PE14",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "COTTAGE BEARLEY ROAD STRATFORD-UPON-AVON WARWICKSHIRE CV37",
+      "full_postcodes": [],
+      "outward_codes": [
+        "CV37"
+      ],
+      "county": "Wychavon",
+      "outcode": "CV37",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Land at Sterte Avenue West, Poole, BH15 2AL",
+      "full_postcodes": [
+        "BH15 2AL"
+      ],
+      "outward_codes": [],
+      "county": "Bournemouth, Christchurch and Poole",
+      "outcode": "BH15",
+      "region": "South West",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "L12",
+      "full_postcodes": [],
+      "outward_codes": [
+        "L12"
+      ],
+      "county": "Liverpool",
+      "outcode": "L12",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Huyton Lane, Huyton, L36 7TX",
+      "full_postcodes": [
+        "L36 7TX"
+      ],
+      "outward_codes": [],
+      "county": "Knowsley",
+      "outcode": "L36",
+      "region": "North West",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "William Lee - Site 3, Callywhite Lane, Dronfield, S182XU",
+      "full_postcodes": [],
+      "outward_codes": [
+        "S18"
+      ],
+      "county": "North East Derbyshire",
+      "outcode": "S18",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "TAMARISK WAY WESTON TURVILLE AYLESBURY BUCKINGHAMSHIRE HP22",
+      "full_postcodes": [],
+      "outward_codes": [
+        "HP22"
+      ],
+      "county": "Buckinghamshire",
+      "outcode": "HP22",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Owlcoates Shopping Centre Stanningley Bypass, Leeds, LS28 6AN",
+      "full_postcodes": [
+        "LS28 6AN"
+      ],
+      "outward_codes": [],
+      "county": "Leeds",
+      "outcode": "LS28",
+      "region": "Yorkshire and The Humber",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "HEADLEY CHASE WARLEY BRENTWOOD ESSEX CM14",
+      "full_postcodes": [],
+      "outward_codes": [
+        "CM14"
+      ],
+      "county": "Havering",
+      "outcode": "CM14",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Wats Dyke Way Wrexham LL11",
+      "full_postcodes": [],
+      "outward_codes": [
+        "LL11"
+      ],
+      "county": "Denbighshire",
+      "outcode": "LL11",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Redhouse Interchange, Adwick-Le-Street, DN6 7FB",
+      "full_postcodes": [
+        "DN6 7FB"
+      ],
+      "outward_codes": [],
+      "county": "Doncaster",
+      "outcode": "DN6",
+      "region": "Yorkshire and The Humber",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "AB15",
+      "full_postcodes": [],
+      "outward_codes": [
+        "AB15"
+      ],
+      "county": "Aberdeenshire",
+      "outcode": "AB15",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "ME16",
+      "full_postcodes": [],
+      "outward_codes": [
+        "ME16"
+      ],
+      "county": "Maidstone",
+      "outcode": "ME16",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Land South of National Grid Electricity Substation, Capenhurst Lane, Capenhurst, Chester, CH66 2HD",
+      "full_postcodes": [
+        "CH66 2HD"
+      ],
+      "outward_codes": [],
+      "county": "Cheshire West and Chester",
+      "outcode": "CH66",
+      "region": "North West",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Land north of the railway Line, Bellamour Lane, Wolsey Bridge \u00a0WS15 3JS",
+      "full_postcodes": [
+        "WS15 3JS"
+      ],
+      "outward_codes": [],
+      "county": "Staffordshire",
+      "outcode": "WS15",
+      "region": "West Midlands",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Dunstable STW, DUNSTABLE STW - S1,  Puddle Hill,  Houghton Regis,  DUNSTABLE Bedfordshire,  LU6 1RT",
+      "full_postcodes": [
+        "LU6 1RT"
+      ],
+      "outward_codes": [
+        "S1"
+      ],
+      "county": "Central Bedfordshire",
+      "outcode": "LU6",
+      "region": "East of England",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "BWW033, Forum Pumping Station, Back Lane, Downside, Shepton Mallet, BA4 4JR",
+      "full_postcodes": [
+        "BA4 4JR"
+      ],
+      "outward_codes": [
+        "WW03"
+      ],
+      "county": "Somerset",
+      "outcode": "BA4",
+      "region": "South West",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "High Street, Dudley, DY1 1QS",
+      "full_postcodes": [
+        "DY1 1QS"
+      ],
+      "outward_codes": [],
+      "county": "Dudley",
+      "outcode": "DY1",
+      "region": "West Midlands",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "BRADWELL DBS PUMPING STATION, STRETFIELD, BRADWELL, HOPE VALLEY, DERBYSHIRE, S33 9JT",
+      "full_postcodes": [
+        "S33 9JT"
+      ],
+      "outward_codes": [],
+      "county": "Derbyshire",
+      "outcode": "S33",
+      "region": "East Midlands",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "St Johns Town of Dalry, Castle Douglas Kirkcudbright, DG7 3ST",
+      "full_postcodes": [
+        "DG7 3ST"
+      ],
+      "outward_codes": [],
+      "county": "Dumfries and Galloway",
+      "outcode": "DG7",
+      "region": null,
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Oaks Business Park, Oaks Lane, Barnsley, S71 1HT",
+      "full_postcodes": [
+        "S71 1HT"
+      ],
+      "outward_codes": [],
+      "county": "Barnsley",
+      "outcode": "S71",
+      "region": "Yorkshire and The Humber",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Speedfields Park Newgate Lane PO14 1TT",
+      "full_postcodes": [
+        "PO14 1TT"
+      ],
+      "outward_codes": [],
+      "county": "Hampshire",
+      "outcode": "PO14",
+      "region": "South East",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "BA11",
+      "full_postcodes": [],
+      "outward_codes": [
+        "BA11"
+      ],
+      "county": "Wiltshire",
+      "outcode": "BA11",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Land adjacent to Nursling Substation\nStation Road\nNursling\nSouthampton\nSO16 0AH",
+      "full_postcodes": [
+        "SO16 0AH"
+      ],
+      "outward_codes": [],
+      "county": "Hampshire",
+      "outcode": "SO16",
+      "region": "South East",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Land at Woolaston Road, Park Farm Industrial Estate, Redditch, B987SG",
+      "full_postcodes": [],
+      "outward_codes": [
+        "B98"
+      ],
+      "county": "Redditch",
+      "outcode": "B98",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "South Kyle Wind Farm, New Cumnock (off B741), Dalmellington, Ayr, KA6 7FP",
+      "full_postcodes": [
+        "KA6 7FP"
+      ],
+      "outward_codes": [
+        "B74"
+      ],
+      "county": "East Ayrshire",
+      "outcode": "KA6",
+      "region": null,
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "LE11",
+      "full_postcodes": [],
+      "outward_codes": [
+        "LE11"
+      ],
+      "county": "Charnwood",
+      "outcode": "LE11",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Cleckheaton Road, Low Moor Bradford BD12 0JZ",
+      "full_postcodes": [
+        "BD12 0JZ"
+      ],
+      "outward_codes": [],
+      "county": "Bradford",
+      "outcode": "BD12",
+      "region": "Yorkshire and The Humber",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Earnshaws Fencing Centre, Off Stocksmoor Road, Midgley, WF4 4JF",
+      "full_postcodes": [
+        "WF4 4JF"
+      ],
+      "outward_codes": [],
+      "county": "Wakefield",
+      "outcode": "WF4",
+      "region": "Yorkshire and The Humber",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "GRAYS CRESCENT WOODLEY READING RG5",
+      "full_postcodes": [],
+      "outward_codes": [
+        "RG5"
+      ],
+      "county": "Wokingham",
+      "outcode": "RG5",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Crowhurst Bridge, 62 Shrub Lane, Etchingham, TN19 7EB",
+      "full_postcodes": [
+        "TN19 7EB"
+      ],
+      "outward_codes": [],
+      "county": "East Sussex",
+      "outcode": "TN19",
+      "region": "South East",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Land On The North Side Of Kerfoot Street Warrington, WA2 8NT",
+      "full_postcodes": [
+        "WA2 8NT"
+      ],
+      "outward_codes": [],
+      "county": "Warrington",
+      "outcode": "WA2",
+      "region": "North West",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "ABP Wessex, Wessex House, Plews Way, Leeming Bar, Northallerton DL7 9UL",
+      "full_postcodes": [
+        "DL7 9UL"
+      ],
+      "outward_codes": [],
+      "county": "North Yorkshire",
+      "outcode": "DL7",
+      "region": "Yorkshire and The Humber",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Land At Mitchells Ind Park, Barnsley, S73 8HR",
+      "full_postcodes": [
+        "S73 8HR"
+      ],
+      "outward_codes": [],
+      "county": "Barnsley",
+      "outcode": "S73",
+      "region": "Yorkshire and The Humber",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "TAVERNER CLOSE OLD FARM PARK MILTON KEYNES MK7",
+      "full_postcodes": [],
+      "outward_codes": [
+        "MK7"
+      ],
+      "county": "Milton Keynes",
+      "outcode": "MK7",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "LONG MEADOW ECCLESTON ST. HELENS MERSEYSIDE WA10",
+      "full_postcodes": [],
+      "outward_codes": [
+        "WA10"
+      ],
+      "county": "St. Helens",
+      "outcode": "WA10",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "AL4",
+      "full_postcodes": [],
+      "outward_codes": [
+        "AL4"
+      ],
+      "county": "Hertsmere",
+      "outcode": "AL4",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "S11",
+      "full_postcodes": [],
+      "outward_codes": [
+        "S11"
+      ],
+      "county": "Sheffield",
+      "outcode": "S11",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Whitehouse Farm, Rhydd Road, Guarlford, WR13 6NZ",
+      "full_postcodes": [
+        "WR13 6NZ"
+      ],
+      "outward_codes": [],
+      "county": "Worcestershire",
+      "outcode": "WR13",
+      "region": "West Midlands",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Lindum Mill, Ashby Road, Shepshed, Leicestershire, LE12 9BS",
+      "full_postcodes": [
+        "LE12 9BS"
+      ],
+      "outward_codes": [],
+      "county": "Leicestershire",
+      "outcode": "LE12",
+      "region": "East Midlands",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "University of Warwick, Coventry, CV4 7AL",
+      "full_postcodes": [
+        "CV4 7AL"
+      ],
+      "outward_codes": [],
+      "county": "Coventry",
+      "outcode": "CV4",
+      "region": "West Midlands",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Land at Fulwood Rd North, Sutton-in-Ashfield, NG17 2NB",
+      "full_postcodes": [
+        "NG17 2NB"
+      ],
+      "outward_codes": [],
+      "county": "Nottinghamshire",
+      "outcode": "NG17",
+      "region": "East Midlands",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "to be provided once CMU Components are known",
+      "full_postcodes": [],
+      "outward_codes": [],
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    {
+      "location": "Trossachs Road Coventry West Midlands CV5",
+      "full_postcodes": [],
+      "outward_codes": [
+        "CV5"
+      ],
+      "county": "Coventry",
+      "outcode": "CV5",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Iceland Foods\n5 Solar Way\nInnova Park\nBrimsdown\nEnfield\nEN3 7XY",
+      "full_postcodes": [
+        "EN3 7XY"
+      ],
+      "outward_codes": [],
+      "county": "Enfield",
+      "outcode": "EN3",
+      "region": "London",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Holditch Road \nNewcastle under Lyme\nStaffordshire\nST5 9JG",
+      "full_postcodes": [
+        "ST5 9JG"
+      ],
+      "outward_codes": [],
+      "county": "Staffordshire",
+      "outcode": "ST5",
+      "region": "West Midlands",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "TN22",
+      "full_postcodes": [],
+      "outward_codes": [
+        "TN22"
+      ],
+      "county": "Wealden",
+      "outcode": "TN22",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "MK10",
+      "full_postcodes": [],
+      "outward_codes": [
+        "MK10"
+      ],
+      "county": "Milton Keynes",
+      "outcode": "MK10",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Carr Beck Drive Castleford West Yorkshire WF10",
+      "full_postcodes": [],
+      "outward_codes": [
+        "WF10"
+      ],
+      "county": "Leeds",
+      "outcode": "WF10",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "N/A",
+      "full_postcodes": [],
+      "outward_codes": [],
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    {
+      "location": "AB12",
+      "full_postcodes": [],
+      "outward_codes": [
+        "AB12"
+      ],
+      "county": "Aberdeenshire",
+      "outcode": "AB12",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "BA1",
+      "full_postcodes": [],
+      "outward_codes": [
+        "BA1"
+      ],
+      "county": "Bath and North East Somerset",
+      "outcode": "BA1",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Lochay Power Station, Killin, Stirling, FK21 8UA",
+      "full_postcodes": [
+        "FK21 8UA"
+      ],
+      "outward_codes": [],
+      "county": "Stirling",
+      "outcode": "FK21",
+      "region": null,
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "CB8",
+      "full_postcodes": [],
+      "outward_codes": [
+        "CB8"
+      ],
+      "county": "East Cambridgeshire",
+      "outcode": "CB8",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "WA1",
+      "full_postcodes": [],
+      "outward_codes": [
+        "WA1"
+      ],
+      "county": "Warrington",
+      "outcode": "WA1",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "PE21",
+      "full_postcodes": [],
+      "outward_codes": [
+        "PE21"
+      ],
+      "county": "Boston",
+      "outcode": "PE21",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "N/A",
+      "full_postcodes": [],
+      "outward_codes": [],
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    {
+      "location": "Building 2 Aldon Road Business Park,\nPoulton Le Fylde\nFY6 8JL",
+      "full_postcodes": [
+        "FY6 8JL"
+      ],
+      "outward_codes": [],
+      "county": "Lancashire",
+      "outcode": "FY6",
+      "region": "North West",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "To be confirmed once CMU components are known",
+      "full_postcodes": [],
+      "outward_codes": [],
+      "county": null,
+      "outcode": null,
+      "region": null,
+      "status": "no_postcode_found"
+    },
+    {
+      "location": "Princess Way, Burnley, BB12 0EQ",
+      "full_postcodes": [
+        "BB12 0EQ"
+      ],
+      "outward_codes": [],
+      "county": "Lancashire",
+      "outcode": "BB12",
+      "region": "North West",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "SANDYCLIFFE CLOSE FOREST TOWN MANSFIELD NOTTINGHAMSHIRE NG19",
+      "full_postcodes": [],
+      "outward_codes": [
+        "NG19"
+      ],
+      "county": "Newark and Sherwood",
+      "outcode": "NG19",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "\u00a0Luton Road, Fancott, Toddington LU5 6HT",
+      "full_postcodes": [
+        "LU5 6HT"
+      ],
+      "outward_codes": [],
+      "county": "Central Bedfordshire",
+      "outcode": "LU5",
+      "region": "East of England",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "ASDA Brynmawr, Lakeside Retail Park Nantyglow, Ebbw Vale, NP23 4SL",
+      "full_postcodes": [
+        "NP23 4SL"
+      ],
+      "outward_codes": [],
+      "county": "Blaenau Gwent",
+      "outcode": "NP23",
+      "region": null,
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Land On The North Side Of Kerfoot Street Warrington, WA2 8NT",
+      "full_postcodes": [
+        "WA2 8NT"
+      ],
+      "outward_codes": [],
+      "county": "Warrington",
+      "outcode": "WA2",
+      "region": "North West",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Turner Rise  CO4 5TU",
+      "full_postcodes": [
+        "CO4 5TU"
+      ],
+      "outward_codes": [],
+      "county": "Essex",
+      "outcode": "CO4",
+      "region": "East of England",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "EMR Southampton, Princes Street, Southampton, SO14 5AP",
+      "full_postcodes": [
+        "SO14 5AP"
+      ],
+      "outward_codes": [],
+      "county": "Southampton",
+      "outcode": "SO14",
+      "region": "South East",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Lineage Gillingham, Valentine Cl, Gillingham ME8 0QR, United Kingdom",
+      "full_postcodes": [
+        "ME8 0QR"
+      ],
+      "outward_codes": [],
+      "county": "Medway",
+      "outcode": "ME8",
+      "region": "South East",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Didcot B Power Station\nMilton Road\nDidcot\nOxfordshire\nOX11 7YU",
+      "full_postcodes": [
+        "OX11 7YU"
+      ],
+      "outward_codes": [],
+      "county": "Oxfordshire",
+      "outcode": "OX11",
+      "region": "South East",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Letchworth Commerce Way - Cambridgeshire SG6 3EJ",
+      "full_postcodes": [
+        "SG6 3EJ"
+      ],
+      "outward_codes": [],
+      "county": "Hertfordshire",
+      "outcode": "SG6",
+      "region": "East of England",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "DE55",
+      "full_postcodes": [],
+      "outward_codes": [
+        "DE55"
+      ],
+      "county": "Amber Valley",
+      "outcode": "DE55",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Laverock Lane Brig HD6",
+      "full_postcodes": [],
+      "outward_codes": [
+        "HD6"
+      ],
+      "county": "Kirklees",
+      "outcode": "HD6",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "ALMS  HARLESTONE ROAD CHURCH BRAMPTON NORTHAMPTON NORTHAMPTONSHIRE NN6",
+      "full_postcodes": [],
+      "outward_codes": [
+        "NN6"
+      ],
+      "county": "North Northamptonshire",
+      "outcode": "NN6",
+      "region": null,
+      "status": "county_from_outcode"
+    },
+    {
+      "location": "Highwood Lane , Bristol, BS34 5TL",
+      "full_postcodes": [
+        "BS34 5TL"
+      ],
+      "outward_codes": [],
+      "county": "South Gloucestershire",
+      "outcode": "BS34",
+      "region": "South West",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "Wood End, Stocks Lane, Over Peover, Knutsford WA16 9EZ",
+      "full_postcodes": [
+        "WA16 9EZ"
+      ],
+      "outward_codes": [],
+      "county": "Cheshire East",
+      "outcode": "WA16",
+      "region": "North West",
+      "status": "county_from_full_postcode"
+    },
+    {
+      "location": "POWDER MILL LANE TWICKENHAM MIDDLESEX TW2",
+      "full_postcodes": [],
+      "outward_codes": [
+        "TW2"
+      ],
+      "county": "Hounslow",
+      "outcode": "TW2",
+      "region": null,
+      "status": "county_from_outcode"
+    }
+  ],
+  "metadata": {
+    "processed_at": "2025-05-06 10:46:24",
+    "locations_processed": 100,
+    "success_rate": "96.00%"
+  }
+}

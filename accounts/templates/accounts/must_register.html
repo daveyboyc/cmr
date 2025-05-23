@@ -1,0 +1,67 @@
+{% extends "checker/base.html" %}
+{% load static %}
+
+{% block title %}Please Login or Register{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Style to make the container transparent on this page */
+    .container-must-register {
+        padding: 0 !important; 
+        margin: 20px auto !important; /* Keep vertical margin */
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+    /* Ensure the card inside takes theme styles */
+    .container-must-register .card {
+        background-color: var(--bs-card-bg);
+        border: var(--bs-border-width) solid var(--bs-border-color);
+        box-shadow: var(--bs-box-shadow-sm);
+        color: var(--bs-body-color);
+    }
+    html[data-bs-theme="dark"] .container-must-register .card {
+        background-color: rgba(var(--bs-body-bg-rgb), 0.92) !important; /* Match original container */
+    }
+</style>
+{% endblock %}
+
+{# Override the container class to add our custom class #}
+{% block container_class %}container container-must-register{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 text-center">
+        {# The card provides the visible background now #}
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h2 class="card-title mb-4">Access Required</h2>
+                <p class="lead">
+                    Thank you for visiting Capacity Market Search!
+                </p>
+                <p>
+                    To continue exploring detailed component data and other features beyond the initial free access period, please log in or create a free account.
+                </p>
+                <p>
+                    Registration is quick and helps us maintain the service.
+                </p>
+                <hr class="my-4">
+                <div class="d-grid gap-2 d-md-flex justify-content-md-center">
+                    <a href="{% url 'login' %}" class="btn btn-primary btn-lg me-md-2">Login</a>
+                    <a href="{% url 'accounts:register' %}" class="btn btn-success btn-lg">Register</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Optional: Clear the redirect timer flag if the user lands here,
+// so they don't get redirected again immediately if they navigate away
+// without logging in/registering.
+sessionStorage.removeItem('redirectTimerStage'); // Changed from localStorage
+console.log('Cleared redirect timer stage on must-register page.');
+</script>
+{% endblock %} 
